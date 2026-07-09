@@ -20460,6 +20460,51 @@ async function requireTenantAdmin(request) {
     sendJson(response, 200, { rows, unread }); return;
   }
 
+  // GET|POST /api/rakip/alarm/flush-email?key=SECRET  (internal, cron-triggered) — ALARM_EMAIL_V1
+  if (url.pathname === '/api/rakip/alarm/flush-email') {
+    try {
+      const _secRow = await pool.query("SELECT value FROM bi_rakip_izle_ayar WHERE key='alarm_flush_secret'");
+      const _secret = _secRow.rows[0]?.value || '';
+      if (!_secret || url.searchParams.get('key') !== _secret) { sendJson(response, 403, { error: 'forbidden' }); return; }
+      const _emRow = await pool.query("SELECT value FROM bi_rakip_izle_ayar WHERE key='alarm_email'");
+      const _to = (_emRow.rows[0]?.value || '').trim();
+      const _pend = await pool.query(
+        "SELECT a.id,a.marka,a.ebat,a.kaynak,a.yon,a.tetik,a.eski_fiyat,a.yeni_fiyat,a.alarm_at," +
+        " i.hedef_dusuk,i.hedef_yuksek" +
+        " FROM bi_rakip_fiyat_alarm a LEFT JOIN bi_rakip_izle i ON i.id=a.izle_id" +
+        " WHERE NOT a.email_gonderildi AND a.tetik IN ('HEDEF_ALT','HEDEF_UST')" +
+        " ORDER BY a.alarm_at ASC LIMIT 200"
+      );
+      if (!_pend.rows.length) { sendJson(response, 200, { sent: 0, note: 'no pending' }); return; }
+      if (!_to) { sendJson(response, 200, { sent: 0, note: 'no recipient configured', pending: _pend.rows.length }); return; }
+      const _fmt = n => (n == null ? '—' : Number(n).toLocaleString('tr-TR', { maximumFractionDigits: 0 }) + ' ₺');
+      const _rowsHtml = _pend.rows.map(r => {
+        const dir = r.tetik === 'HEDEF_ALT' ? '🟢 Düştü (hedef ↓)' : '🔴 Yükseldi (hedef ↑)';
+        const hedef = r.tetik === 'HEDEF_ALT' ? r.hedef_dusuk : r.hedef_yuksek;
+        return '<tr><td style="padding:6px 10px;border-bottom:1px solid #eee">' + r.marka + ' ' + r.ebat + '</td>' +
+               '<td style="padding:6px 10px;border-bottom:1px solid #eee">' + dir + '</td>' +
+               '<td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">' + _fmt(hedef) + '</td>' +
+               '<td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right;font-weight:700">' + _fmt(r.yeni_fiyat) + '</td>' +
+               '<td style="padding:6px 10px;border-bottom:1px solid #eee">' + (r.kaynak || '') + '</td></tr>';
+      }).join('');
+      const _body = '<div style="font-family:Arial,sans-serif;color:#111">' +
+        '<h2 style="margin:0 0 12px">🔔 Fiyat Alarmı — ' + _pend.rows.length + ' ürün hedefe ulaştı</h2>' +
+        '<table style="border-collapse:collapse;font-size:14px;width:100%">' +
+        '<thead><tr style="background:#f4f4f4;text-align:left">' +
+        '<th style="padding:6px 10px">Ürün</th><th style="padding:6px 10px">Yön</th>' +
+        '<th style="padding:6px 10px;text-align:right">Hedef</th>' +
+        '<th style="padding:6px 10px;text-align:right">Güncel (piyasa en düşük)</th>' +
+        '<th style="padding:6px 10px">Kaynak</th></tr></thead><tbody>' + _rowsHtml + '</tbody></table>' +
+        '<p style="color:#666;font-size:12px;margin-top:16px">Derive Intelligence · Rakip Fiyat İzleme</p></div>';
+      try {
+        await sendGraphMail({ to: _to, subject: '🔔 Fiyat Alarmı: ' + _pend.rows.length + ' ürün hedefe ulaştı', body: _body });
+      } catch (e) { sendJson(response, 500, { error: 'mail failed: ' + e.message, pending: _pend.rows.length }); return; }
+      const _ids = _pend.rows.map(r => r.id);
+      await pool.query('UPDATE bi_rakip_fiyat_alarm SET email_gonderildi=true WHERE id = ANY($1)', [_ids]);
+      sendJson(response, 200, { sent: _pend.rows.length, to: _to }); return;
+    } catch (e) { sendJson(response, 500, { error: e.message }); return; }
+  }
+
   // POST /api/rakip/alarm/goruldu-hepsi
   if (request.method === 'POST' && url.pathname === '/api/rakip/alarm/goruldu-hepsi') {
     await pool.query(
