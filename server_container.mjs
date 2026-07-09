@@ -24855,9 +24855,29 @@ async function serveStatic(request, response) {
 
 // ═══════════ INTENT ENGINE (INTENT_V1) ═══════════
 // Reads a rep's free text, extracts structured intent, feeds saha_sinyal + acts.
+function _intentPrefilter(text) {
+  let t = " " + String(text).toLowerCase()
+    .replace(/i̇/g, "i").replace(/ı/g, "i").replace(/ş/g, "s").replace(/ğ/g, "g")
+    .replace(/ü/g, "u").replace(/ö/g, "o").replace(/ç/g, "c") + " ";
+  // numbers (price / quantity / size)
+  if (/\d{2,}/.test(t)) return true;
+  // price / commercial words
+  if (/(\btl\b|lira|₺|fiyat|iskonto|indirim|ucuz|pahal|\bzam\b|kampanya|teklif|butce|maliyet|kdv)/.test(t)) return true;
+  // date / follow-up cues
+  if (/(yarin|bugun|\bdun\b|hafta|\bay\b|\bgun|pazartesi|\bsali\b|carsamba|persembe|\bcuma|cumartesi|pazar|sonra|onumuzdeki|gelecek|aksam|sabah|ogle|tarih|ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik|donec|donus|arayac|gorusec|bekliyor|randevu|hatirlat|takip)/.test(t)) return true;
+  // competitor brands / rivalry
+  if (/(pirelli|michelin|bridgestone|goodyear|continental|lassa|petlas|starmaxx|hankook|kumho|nokian|nexen|falken|yokohama|dunlop|goodride|sailun|triangle|windforce|kormoran|debica|\bbarum|hifly|aeolus|linglong|maxxis|\btoyo|vredestein|marshal|rakip|\bmarka)/.test(t)) return true;
+  // risk cues (churn / payment / complaint)
+  if (/(baska|terk|memnun deg|sikayet|kizgin|birak|kesme|kesecek|\bborc|odeme|gecik|iptal|sorun|problem|kacir|kaybet|rakibe|vazgec|\bkus|sikinti|guven|gidiy|gitti)/.test(t)) return true;
+  // opportunity / demand cues
+  if (/(filo|\bsube|buyu|artir|yeni magaza|anlasma|potansiyel|genisle|ihtiyac|alacak|istiyor|talep|siparis|\badet|lazim|palet|stok)/.test(t)) return true;
+  return false;
+}
+
 async function _extractIntent(text) {
   try {
     if (!text || String(text).trim().length < 4) return [];
+    if (!_intentPrefilter(text)) return [];
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Istanbul" });
     const sys = "Sen bir saha satis CRM'inde niyet-cozumleyicisin. Turk lastik saha temsilcisinin serbest metnini oku, GERCEK NIYETI cikar. SADECE JSON dondur.\n" +
       "Bugun: " + today + " (Europe/Istanbul).\n" +
