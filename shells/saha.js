@@ -1850,6 +1850,16 @@ async function teklifFormModal(mus, ziyaretId) {
     <div style="margin:14px 0 6px;font-weight:600;font-size:13px;color:#475569;border-top:1px solid #e2e8f0;padding-top:12px">Fiyat & Teşvik</div>
 
     <div class="yanyana">
+      <label style="flex:1">Talep Edilen Fiyat (₺/adet) *
+        <input type="number" class="giris" id="tf-talep-fiyat" min="0" step="0.01" placeholder="Satmak istediğiniz birim fiyat" style="font-weight:600;border-color:#3182ce">
+      </label>
+      <label style="flex:1">Mevcut Stok
+        <div id="tf-stok-goster" style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;color:#475569;min-height:38px;display:flex;align-items:center">—</div>
+        <input type="hidden" id="tf-mevcut-stok">
+      </label>
+    </div>
+
+    <div class="yanyana">
       <label>Liste Fiyatı
         <div id="tf-liste-fiyat-goster" style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:14px;color:#475569;min-height:38px;display:flex;align-items:center">—</div>
         <input type="hidden" id="tf-liste-fiyati">
@@ -1938,10 +1948,11 @@ async function teklifFormModal(mus, ziyaretId) {
     const gNum = id => { const v = g(id); return v ? Number(v) : null; };
     const marka = g("tf-marka");
     if (!marka) return null;
+    const talepFiyat  = gNum("tf-talep-fiyat");
     const listeFiyati = gNum("tf-liste-fiyati");
     const ekIsk       = gNum("tf-ek-iskonto") || 0;
     const adet        = Number(g("tf-adet")) || 1;
-    const birim       = listeFiyati != null ? Math.round(listeFiyati * (1 - ekIsk / 100) * 100) / 100 : null;
+    const birim       = talepFiyat != null ? talepFiyat : (listeFiyati != null ? Math.round(listeFiyati * (1 - ekIsk / 100) * 100) / 100 : null);
     return {
       kalem_kodu            : g("tf-kalem-kodu")   || null,
       marka, model          : g("tf-model")         || null,
@@ -1950,6 +1961,8 @@ async function teklifFormModal(mus, ziyaretId) {
       sezon                 : g("tf-sezon")          || null,
       alt_grup              : g("tf-kategori") === "TICARI" ? (g("tf-altgrup") || null) : null,
       adet, liste_fiyati    : listeFiyati,
+      talep_fiyat           : talepFiyat,
+      mevcut_stok           : gNum("tf-mevcut-stok"),
       birim_fiyat           : birim,
       toplam_tutar          : birim != null ? Math.round(birim * adet * 100) / 100 : null,
       musteri_ek_iskonto_pct: ekIsk > 0 ? ekIsk : null,
@@ -1966,13 +1979,14 @@ async function teklifFormModal(mus, ziyaretId) {
   // ── Form temizle (satır ekledikten sonra) ──
   function clearProductForm() {
     _secilenUrun = null;
-    ["tf-kalem-kodu","tf-marka","tf-model","tf-ebat","tf-liste-fiyati",
+    ["tf-kalem-kodu","tf-marka","tf-model","tf-ebat","tf-liste-fiyati","tf-talep-fiyat","tf-mevcut-stok",
      "tf-ek-iskonto","tf-tesvik-garantili","tf-tesvik-maksimum",
      "tf-destek-pct","tf-kampanya-id","tf-kampanya-turu","tf-kampanya-deger","tf-not"]
       .forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
     document.getElementById("tf-adet").value = "4";
     document.getElementById("tf-liste-fiyat-goster").textContent = "—";
     document.getElementById("tf-liste-fiyat-goster").style.color = "#94a3b8";
+    (function(){ var sg=document.getElementById("tf-stok-goster"); if(sg){sg.textContent="—";sg.style.color="#94a3b8";} })();
     document.getElementById("tf-tesvik-kutu").style.display = "none";
     document.getElementById("tf-kampanya-kutu").style.display = "none";
     document.getElementById("tf-hesap-goster").style.display = "none";
@@ -2107,6 +2121,21 @@ async function teklifFormModal(mus, ziyaretId) {
     // Fetch teşvik + destek + kampanya
     const jantCapi = u.jant_capi || (u.ebat_norm ? (u.ebat_norm.match(/R(\d{2})/i) || [])[1] : null);
     fetchPricingInfo(u.marka, u.kategori, u.kalem_kodu, jantCapi).catch(() => {});
+
+    // Mevcut stok — bi_stok_durumu, kalem_kodu ile (TEKLIF_TALEP_STOK_V1)
+    (function(){
+      var sg = document.getElementById("tf-stok-goster"), sh = document.getElementById("tf-mevcut-stok");
+      if (sh) sh.value = "";
+      if (!u.kalem_kodu) { if (sg) { sg.textContent = "—"; sg.style.color = "#94a3b8"; } return; }
+      if (sg) { sg.textContent = "…"; sg.style.color = "#94a3b8"; }
+      api("/api/saha/stok-durumu?kalem_kodu=" + encodeURIComponent(u.kalem_kodu)).then(function(r){
+        var adet = r && r.eldeki_miktar != null ? Number(r.eldeki_miktar) : null;
+        if (adet != null) {
+          if (sg) { sg.textContent = adet.toLocaleString("tr-TR") + " adet"; sg.style.color = adet > 0 ? "#166534" : "#dc2626"; }
+          if (sh) sh.value = adet;
+        } else if (sg) { sg.textContent = "Stok bilgisi yok"; sg.style.color = "#94a3b8"; }
+      }).catch(function(){ if (sg) { sg.textContent = "—"; sg.style.color = "#94a3b8"; } });
+    })();
   }
 
   // ── Typeahead ──
@@ -2174,6 +2203,7 @@ async function teklifFormModal(mus, ziyaretId) {
     document.getElementById("tf-liste-fiyati").value = "";
     document.getElementById("tf-liste-fiyat-goster").textContent = "—";
     document.getElementById("tf-liste-fiyat-goster").style.color = "#94a3b8";
+    (function(){ var sg=document.getElementById("tf-stok-goster"); if(sg){sg.textContent="—";sg.style.color="#94a3b8";} })();
     document.getElementById("tf-tesvik-kutu").style.display = "none";
     document.getElementById("tf-kampanya-kutu").style.display = "none";
     document.getElementById("tf-destek-bilgi").textContent = "";
