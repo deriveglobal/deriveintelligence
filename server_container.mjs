@@ -28494,6 +28494,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     }
     if (method === "POST" && path === "/api/saha/notlar") {
       const session = await requireSahaAccess(request);
+      const body = await readJson(request);
       const { icerik, hatirlatma_tarihi } = body;
       if (!icerik) { sendJson(response, 400, { error: 'icerik zorunlu' }); return; }
       const r = await pool.query(
@@ -28509,6 +28510,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     // PUT /api/saha/notlar/:id
     if (method === "PUT" && (m = path.match(/^\/api\/saha\/notlar\/([0-9a-f-]{36})$/))) {
       const session = await requireSahaAccess(request);
+      const body = await readJson(request);
       const { icerik, hatirlatma_tarihi, tamamlandi } = body;
       await pool.query(
         `UPDATE saha_rep_not SET icerik=COALESCE($3,icerik),
@@ -28545,6 +28547,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     }
     if (method === "PUT" && path === "/api/saha/rep-profil") {
       const session = await requireSahaAccess(request);
+      const body = await readJson(request);
       const { base_adres, base_lat, base_lng } = body;
       await pool.query(
         `INSERT INTO saha_rep_profil (tenant_id, rep_id, base_adres, base_lat, base_lng, updated_at)
@@ -28560,6 +28563,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     // ══ REP BRAIN AI ═════════════════════════════════════════════════════════
     if (method === "POST" && path === "/api/saha/rep-brain") {
       const session = await requireSahaAccess(request);
+      const body = await readJson(request);
       const { mesaj } = body;
       if (!mesaj) { sendJson(response, 400, { error: 'mesaj zorunlu' }); return; }
       // Sohbet geçmişini kaydet
@@ -28682,6 +28686,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     }
     if (method === "POST" && path === "/api/saha/duyurular") {
       const session = await requireSahaAccess(request, ['manager','admin']);
+      const body = await readJson(request);
       const { baslik, icerik, onem='NORMAL' } = body;
       if (!baslik || !icerik) { sendJson(response, 400, { error: 'baslik ve icerik zorunlu' }); return; }
       const r = await pool.query(
@@ -28709,6 +28714,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     // POST coklu/yayim önce — statik path'ler dinamikten önce gelmeli
     if (method === "POST" && path === "/api/saha/konusmalar/coklu") {
       const session = await requireSahaAccess(request, ["manager","admin"]);
+      const body = await readJson(request);
       const { rep_ids, icerik } = body;
       if (!Array.isArray(rep_ids) || !icerik) { sendJson(response, 400, { error: "rep_ids ve icerik zorunlu" }); return; }
       for (const rid of rep_ids) {
@@ -28737,6 +28743,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
 
     if (method === "POST" && path === "/api/saha/konusmalar/yayim") {
       const session = await requireSahaAccess(request, ["manager","admin"]);
+      const body = await readJson(request);
       const { icerik } = body;
       if (!icerik) { sendJson(response, 400, { error: "icerik zorunlu" }); return; }
       // Yayım için ayrı konuşma kaydı (tip='yayim') her temsilci için
@@ -28877,6 +28884,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     if (method === "POST" && (m = path.match(/^\/api\/saha\/konusmalar\/([^/]+)$/))) {
       const session = await requireSahaAccess(request);
       const konusmaId = m[1];
+      const body = await readJson(request);
       const { icerik } = body;
       if (!icerik) { sendJson(response, 400, { error: "icerik zorunlu" }); return; }
       await pool.query(
@@ -28902,6 +28910,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     }
     if (method === "POST" && path === "/api/saha/oneri") {
       const session = await requireSahaAccess(request);
+      const body = await readJson(request);
       const { kategori='GENEL', baslik, mesaj } = body;
       if (!baslik || !mesaj) { sendJson(response, 400, { error: 'baslik ve mesaj zorunlu' }); return; }
       await pool.query(
@@ -28914,6 +28923,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     }
     if (method === "PUT" && (m = path.match(/^\/api\/saha\/oneriler\/([0-9a-f-]{36})$/))) {
       const session = await requireSahaAccess(request, ['manager','admin']);
+      const body = await readJson(request);
       const { durum, yonetici_notu } = body;
       await pool.query(
         `UPDATE saha_oneri SET durum=COALESCE($2,durum), yonetici_notu=COALESCE($3,yonetici_notu), guncellendi_at=now() WHERE id=$1`,
@@ -28927,6 +28937,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     if (method === "POST" && path === "/api/saha/log-hata") {
       // Sessiz hata logu — auth gerekmez
       try {
+        const body = await readJson(request);
         const { tip, view_adi, endpoint, http_status, hata_mesaji, duration_ms, extra } = body;
         await pool.query(
           `INSERT INTO saha_hata_log (id,tenant_id,user_id,tip,view_adi,endpoint,http_status,hata_mesaji,duration_ms,extra)
@@ -28941,6 +28952,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     }
     if (method === "POST" && path === "/api/saha/hata-raporu") {
       const session = await requireSahaAccess(request);
+      const body = await readJson(request);
       const { tip='manual', view_adi, endpoint, hata_mesaji, extra } = body;
       await pool.query(
         `INSERT INTO saha_hata_log (id,tenant_id,user_id,tip,view_adi,endpoint,hata_mesaji,extra)
