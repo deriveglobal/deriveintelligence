@@ -20205,6 +20205,23 @@ async function requireTenantAdmin(request) {
     sendJson(response, 200, { rows }); return;
   }
 
+  // GET /api/rakip/gecmis?marka=&ebat= — price history change-points (RAKIP_HISTORY_V1)
+  if (request.method === 'GET' && url.pathname === '/api/rakip/gecmis') {
+    const marka = (url.searchParams.get('marka') || '').trim();
+    const ebat  = (url.searchParams.get('ebat')  || '').trim();
+    const where = []; const vals = [];
+    if (marka) { vals.push('%' + marka + '%'); where.push('marka ILIKE $' + vals.length); }
+    if (ebat)  { vals.push('%' + ebat + '%'); where.push("(CONCAT(genislik,'/',profil,'R',cap) ILIKE $" + vals.length + ")"); }
+    const clause = where.length ? 'WHERE ' + where.join(' AND ') : '';
+    const { rows } = await pool.query(
+      'SELECT kaynak, marka, model, genislik, profil, cap, url, fiyat, gecerli_tarih' +
+      ' FROM bi_rakip_fiyat_gecmis ' + clause +
+      ' ORDER BY url, gecerli_tarih LIMIT 5000',
+      vals
+    );
+    sendJson(response, 200, { rows }); return;
+  }
+
   // GET /api/rakip/ozet
   if (request.method === 'GET' && url.pathname === '/api/rakip/ozet') {
     const _rSess = await requireModuleAccess(request, 'intelligence').catch(()=>null) || await requireModuleAccess(request, 'saha').catch(()=>null); const tid = _rSess?.tenantId || null; if (!tid) { sendJson(response, 401, { error: 'Unauthorized' }); return; }
