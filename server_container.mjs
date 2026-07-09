@@ -24903,7 +24903,7 @@ async function _pushSevereSignals(tenantId) {
 }
 
 async function _applyIntents(sinyaller, ctx) {
-  let severe = false;
+  let severe = false; const acks = [];
   for (const s of (sinyaller || [])) {
     try {
       const tip = String(s.tip || "").toLowerCase();
@@ -24921,16 +24921,27 @@ async function _applyIntents(sinyaller, ctx) {
         } else {
           await pool.query("INSERT INTO saha_rep_not (id,tenant_id,rep_id,icerik,hatirlatma_tarihi) VALUES (gen_random_uuid(),$1,$2,$3,$4)", [ctx.tenantId, ctx.repId || null, "[oto] " + ozet, s.hatirlatma_tarihi]);
         }
+        let _ds = s.hatirlatma_tarihi;
+        try { _ds = new Date(s.hatirlatma_tarihi + "T00:00:00").toLocaleDateString("tr-TR", { weekday: "long", day: "numeric", month: "long" }); } catch (e) {}
+        acks.push("📅 " + _ds + " için hatırlatma kurdum");
       } else if (tip === "rakip" && (s.marka || s.fiyat)) {
         const kaynak = ctx.kaynakTip === "ziyaret" ? "ZIYARET" : "MANUEL";
         await pool.query(
           "INSERT INTO saha_rakip_teklif (tenant_id,kaynak,rakip_marka,rakip_model,ebat,rakip_fiyat,musteri_id,rep_id,notlar,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$8)",
           [ctx.tenantId, kaynak, s.marka || "Bilinmiyor", s.model || null, s.ebat || null, s.fiyat != null ? Number(s.fiyat) : null, ctx.musteriId || null, ctx.repId || null, (s.supheli ? "[supheli/blof olabilir] " : "") + ozet]
         );
+        acks.push("🏁 Rakip fiyat kaydettim: " + (s.marka || "") + (s.ebat ? (" " + s.ebat) : "") + (s.fiyat != null ? (" " + s.fiyat + "TL") : "") + (s.supheli ? " (şüpheli olabilir)" : ""));
+      } else if (tip === "risk") {
+        acks.push((onem >= 3 ? "⚠ " : "") + "Risk sinyali kaydettim" + (onem >= 3 ? " ve patrona ilettim" : "") + ": " + ozet);
+      } else if (tip === "teklif_talep") {
+        acks.push("📝 Teklif talebini not ettim: " + ozet);
+      } else if (tip === "firsat") {
+        acks.push("🌱 Fırsatı kaydettim: " + ozet);
       }
     } catch (e) { console.error("applyIntent:", e && e.message); }
   }
   if (severe) { await _pushSevereSignals(ctx.tenantId); }
+  return { mesaj: acks.length ? ("Anladım. " + acks.join(" · ") + ".") : null, severe };
 }
 
 async function _sahaGunlukOzet(tenantId) {
@@ -26301,8 +26312,9 @@ async function handleSahaApi(request, response, url, deps) {
           tamamla ? (p.ziyaret_tarihi || new Date().toISOString().slice(0, 10)) : null,
           p.katilimci || null, p.notlar || null,
           p.detay ? JSON.stringify(p.detay) : null, p.lokasyon_id || null]);
-      if (p.notlar) { const _zr = result.rows[0]; _extractIntent(p.notlar).then(function(sg){ return _applyIntents(sg, { tenantId: session.tenantId, repId: session.userId, musteriId: _zr.musteri_id, kaynakTip: "ziyaret", kaynakId: _zr.id, hamMetin: p.notlar }); }).catch(function(){}); }
-      sendJson(response, 200, { ziyaret: result.rows[0] });
+      let _asistan = null;
+      if (p.notlar) { try { const _zr = result.rows[0]; const _sg = await _extractIntent(p.notlar); const _ack = await _applyIntents(_sg, { tenantId: session.tenantId, repId: session.userId, musteriId: _zr.musteri_id, kaynakTip: "ziyaret", kaynakId: _zr.id, hamMetin: p.notlar }); _asistan = _ack && _ack.mesaj; } catch (e) {} }
+      sendJson(response, 200, { ziyaret: result.rows[0], asistan: _asistan });
       return;
     }
 
@@ -26364,8 +26376,9 @@ async function handleSahaApi(request, response, url, deps) {
         `, [session.tenantId, m[1], p.planlanan_tarih || null, p.katilimci || null,
             p.notlar || null, p.detay ? JSON.stringify(p.detay) : null]);
       }
-      if (p.notlar) { const _zr = result.rows[0]; _extractIntent(p.notlar).then(function(sg){ return _applyIntents(sg, { tenantId: session.tenantId, repId: session.userId, musteriId: _zr.musteri_id, kaynakTip: "ziyaret", kaynakId: _zr.id, hamMetin: p.notlar }); }).catch(function(){}); }
-      sendJson(response, 200, { ziyaret: result.rows[0] });
+      let _asistan = null;
+      if (p.notlar) { try { const _zr = result.rows[0]; const _sg = await _extractIntent(p.notlar); const _ack = await _applyIntents(_sg, { tenantId: session.tenantId, repId: session.userId, musteriId: _zr.musteri_id, kaynakTip: "ziyaret", kaynakId: _zr.id, hamMetin: p.notlar }); _asistan = _ack && _ack.mesaj; } catch (e) {} }
+      sendJson(response, 200, { ziyaret: result.rows[0], asistan: _asistan });
       return;
     }
 
@@ -26782,8 +26795,9 @@ async function handleSahaApi(request, response, url, deps) {
             l.kampanya_indirim_deger != null ? Number(l.kampanya_indirim_deger) : null,
             l.notlar || null]);
       }
-      if (p.notlar) { _extractIntent(p.notlar).then(function(sg){ return _applyIntents(sg, { tenantId: session.tenantId, repId: session.userId, musteriId: p.musteri_id, kaynakTip: "teklif", kaynakId: teklifId, hamMetin: p.notlar }); }).catch(function(){}); }
-      sendJson(response, 200, { teklif: { ...hdr.rows[0], kalem_sayisi: lines.length } });
+      let _asistan = null;
+      if (p.notlar) { try { const _sg = await _extractIntent(p.notlar); const _ack = await _applyIntents(_sg, { tenantId: session.tenantId, repId: session.userId, musteriId: p.musteri_id, kaynakTip: "teklif", kaynakId: teklifId, hamMetin: p.notlar }); _asistan = _ack && _ack.mesaj; } catch (e) {} }
+      sendJson(response, 200, { teklif: { ...hdr.rows[0], kalem_sayisi: lines.length }, asistan: _asistan });
       return;
     }
 
@@ -28502,8 +28516,10 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
          VALUES (gen_random_uuid(), $1, $2, $3, $4) RETURNING *`,
         [session.tenantId, session.userId, icerik, hatirlatma_tarihi || null]
       );
-      _extractIntent(icerik).then(function(sg){ return _applyIntents(sg, { tenantId: session.tenantId, repId: session.userId, musteriId: null, kaynakTip: "not", kaynakId: r.rows[0].id, hamMetin: icerik }); }).catch(function(){});
-      sendJson(response, 201, { not: r.rows[0] });
+      let _asistan = null;
+      try { const _sg = await _extractIntent(icerik); const _ack = await _applyIntents(_sg, { tenantId: session.tenantId, repId: session.userId, musteriId: null, kaynakTip: "not", kaynakId: r.rows[0].id, hamMetin: icerik }); _asistan = _ack && _ack.mesaj; } catch (e) {}
+      const _n2 = await pool.query("SELECT * FROM saha_rep_not WHERE id=$1", [r.rows[0].id]);
+      sendJson(response, 201, { not: (_n2.rows[0] || r.rows[0]), asistan: _asistan });
       return;
     }
 
