@@ -1,0 +1,140 @@
+--- a/shells/bi.js
++++ b/shells/bi.js
+@@ -4740,60 +4740,78 @@
+-    window.rfAkilliAra = async function(){
+-      var marka=(document.getElementById('rf-ak-marka')?.value||'').trim();
+-      var ebat=(document.getElementById('rf-ak-ebat')?.value||'').trim();
+-      if(!marka && !ebat){ alert('Lütfen marka veya ebat girin.'); return; }
+-      var res=document.getElementById('rf-akilli-result');
+-      res.innerHTML='<div style="color:#778;padding:20px">Eşleştiriliyor...</div>';
+-      var qs=new URLSearchParams(); if(marka)qs.set('marka',marka); if(ebat)qs.set('ebat',ebat); qs.set('limit','500');
+-      try{
+-        var data=await rfApi('/api/rakip/piyasa?'+qs.toString());
+-        if(!data.rows||!data.rows.length){ res.innerHTML='<div style="color:#778;padding:20px">Sonuç bulunamadı.</div>'; return; }
+-        var esc=function(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');};
+-        var money=function(n){return (n==null||isNaN(n))?'—':Number(n).toLocaleString('tr-TR',{maximumFractionDigits:0})+' ₺';};
+-        var groups={}, ks=new Set();
+-        data.rows.forEach(function(r){
+-          var g=r.genislik,p=r.profil,c=r.cap; if(!g||!p||!c)return;
+-          var key=smKey(r.marka,r.model||r.ebat||'',g,p,c);
+-          if(!groups[key])groups[key]={marka:r.marka,g:g,p:p,c:c,key:key,fiyat:{},models:[]};
+-          var grp=groups[key], pf=parseFloat(r.fiyat);
+-          if(pf && (!grp.fiyat[r.kaynak]||pf<grp.fiyat[r.kaynak].fy)) grp.fiyat[r.kaynak]={fy:pf,url:r.url,model:r.model};
+-          grp.models.push(r.model); ks.add(r.kaynak);
+-        });
+-        var kaynaklar=Array.from(ks).sort();
+-        var list=Object.keys(groups).map(function(k){var grp=groups[k];
+-          var pr=Object.keys(grp.fiyat).map(function(kk){return grp.fiyat[kk].fy;});
+-          grp.n=pr.length; grp.min=pr.length?Math.min.apply(null,pr):null; grp.max=pr.length?Math.max.apply(null,pr):null;
+-          grp.spread=grp.min?((grp.max-grp.min)/grp.min*100):0; grp.name=smDisplayName(grp);
+-          return grp;
+-        }).filter(function(grp){return grp.n>=2;}).sort(function(a,b){return b.spread-a.spread;});
+-        if(!list.length){ res.innerHTML='<div style="color:#778;padding:20px">Birden fazla pazaryerinde eşleşen ürün bulunamadı. (Tek kaynakta olan ürünler için Ham Veri sekmesine bakın.)</div>'; return; }
+-        var seaLbl={yaz:'Yaz',kis:'Kış','4mevsim':'4 Mevsim'};
+-        var th=function(t,ex){return '<th style="padding:8px 9px;border-bottom:2px solid rgba(255,255,255,0.15);'+(ex||'')+'">'+t+'</th>';};
+-        var html='<div style="margin-bottom:10px;font-size:12px;color:#8899aa">'+list.length+' birebir eşleşen ürün (≥2 pazaryeri) · yayılıma göre sıralı</div>';
+-        html+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">';
+-        html+='<thead><tr style="background:rgba(255,255,255,0.06);font-weight:600;text-align:left">'+th('Ürün')+th('Ebat')+th('Y/H')+th('Sezon')
+-          +kaynaklar.map(function(k){return th(k,'text-align:right');}).join('')+th('Min','text-align:right')+th('Yayılım','text-align:right')+'</tr></thead><tbody>';
+-        list.forEach(function(grp){
+-          var ls=grp.key.split('|')[3], sea=grp.key.split('|')[4], fl=grp.key.split('|')[5];
+-          var badge=(fl.indexOf('SET')>=0?' <span style="background:#7c3f00;color:#ffd9a0;font-size:9px;padding:1px 4px;border-radius:6px">SET</span>':'')
+-            +(fl.indexOf('RF')>=0?' <span style="background:#334155;color:#93c5fd;font-size:9px;padding:1px 4px;border-radius:6px">RFT</span>':'');
+-          html+='<tr style="border-bottom:1px solid rgba(255,255,255,0.06)">'
+-            +'<td style="padding:8px 9px;max-width:300px;color:#e2e8f0">'+esc(grp.name)+badge+'</td>'
+-            +'<td style="padding:8px 9px;color:#9ab;font-family:monospace;white-space:nowrap">'+grp.g+'/'+grp.p+'R'+grp.c+'</td>'
+-            +'<td style="padding:8px 9px;color:#9ab;white-space:nowrap">'+esc(ls.toUpperCase())+'</td>'
+-            +'<td style="padding:8px 9px;color:#9ab;white-space:nowrap">'+(seaLbl[sea]||sea)+'</td>'
+-            +kaynaklar.map(function(k){var cell=grp.fiyat[k];
+-              if(!cell)return '<td style="padding:8px 9px;text-align:right;color:#445">—</td>';
+-              var isMin=cell.fy===grp.min;
+-              var inner=money(cell.fy);
+-              if(cell.url) inner='<a href="'+esc(cell.url)+'" target="_blank" rel="noopener noreferrer" style="text-decoration:none;color:inherit">'+inner+' ↗</a>';
+-              return '<td style="padding:8px 9px;text-align:right;white-space:nowrap;'+(isMin?'color:#38a169;font-weight:700':'color:#94a3b8')+'">'+inner+'</td>';
+-            }).join('')
+-            +'<td style="padding:8px 9px;text-align:right;font-weight:700;white-space:nowrap">'+money(grp.min)+'</td>'
+-            +'<td style="padding:8px 9px;text-align:right;font-weight:700;color:'+(grp.spread>=20?'#f59e0b':grp.spread>=10?'#eab308':'#64748b')+'">+'+grp.spread.toFixed(0)+'%</td>'
+-            +'</tr>';
+-        });
+-        html+='</tbody></table></div>';
+-        res.innerHTML=html;
+-      }catch(e){ res.innerHTML='<div style="color:#e53e3e;padding:20px">Hata: '+(e&&e.message)+'</div>'; }
+-    };
++    function rfSpark(pts){
++      if(!pts||pts.length<2) return '<span style="color:#556;font-size:11px">—</span>';
++      var w=84,h=22,pad=3; var ts=pts.map(function(p){return p.t;}), fs=pts.map(function(p){return p.fy;});
++      var t0=Math.min.apply(null,ts),t1=Math.max.apply(null,ts),f0=Math.min.apply(null,fs),f1=Math.max.apply(null,fs);
++      var dx=(t1-t0)||1, dy=(f1-f0)||1;
++      var X=function(t){return pad+(t-t0)/dx*(w-2*pad);}, Y=function(f){return h-pad-(f-f0)/dy*(h-2*pad);};
++      var d=pts.map(function(p,i){return (i?'L':'M')+X(p.t).toFixed(1)+' '+Y(p.fy).toFixed(1);}).join(' ');
++      var up=fs[fs.length-1]>fs[0], flat=fs[fs.length-1]===fs[0]; var col=flat?'#64748b':(up?'#e5766e':'#38a169');
++      var lp=pts[pts.length-1];
++      return '<svg width="'+w+'" height="'+h+'" style="vertical-align:middle" title="'+pts.length+' nokta"><path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="1.5"/><circle cx="'+X(lp.t).toFixed(1)+'" cy="'+Y(lp.fy).toFixed(1)+'" r="2" fill="'+col+'"/></svg>';
++    }
++    function rfSeriesFor(urls,histByUrl){
++      var byDay={};
++      (urls||[]).forEach(function(u){ (histByUrl[u]||[]).forEach(function(pt){ if(isNaN(pt.fy))return; var day=Math.floor(pt.t/86400000); if(byDay[day]==null||pt.fy<byDay[day])byDay[day]=pt.fy; }); });
++      return Object.keys(byDay).map(Number).sort(function(a,b){return a-b;}).map(function(day){return {t:day*86400000,fy:byDay[day]};});
++    }
++    window.rfAkilliAra = async function(){
++      var marka=(document.getElementById('rf-ak-marka')?.value||'').trim();
++      var ebat=(document.getElementById('rf-ak-ebat')?.value||'').trim();
++      if(!marka && !ebat){ alert('Lütfen marka veya ebat girin.'); return; }
++      var res=document.getElementById('rf-akilli-result');
++      res.innerHTML='<div style="color:#778;padding:20px">Eşleştiriliyor...</div>';
++      var qs=new URLSearchParams(); if(marka)qs.set('marka',marka); if(ebat)qs.set('ebat',ebat); qs.set('limit','500');
++      try{
++        var data=await rfApi('/api/rakip/piyasa?'+qs.toString());
++        if(!data.rows||!data.rows.length){ res.innerHTML='<div style="color:#778;padding:20px">Sonuç bulunamadı.</div>'; return; }
++        var hist=await rfApi('/api/rakip/gecmis?'+qs.toString()).catch(function(){return{rows:[]};});
++        var histByUrl={}; (hist.rows||[]).forEach(function(h){ if(!h.url)return; (histByUrl[h.url]=histByUrl[h.url]||[]).push({t:+new Date(h.gecerli_tarih),fy:parseFloat(h.fiyat)}); });
++        var esc=function(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');};
++        var money=function(n){return (n==null||isNaN(n))?'—':Number(n).toLocaleString('tr-TR',{maximumFractionDigits:0})+' ₺';};
++        var groups={}, ks=new Set();
++        data.rows.forEach(function(r){
++          var g=r.genislik,p=r.profil,c=r.cap; if(!g||!p||!c)return;
++          var key=smKey(r.marka,r.model||r.ebat||'',g,p,c);
++          if(!groups[key])groups[key]={marka:r.marka,g:g,p:p,c:c,key:key,fiyat:{},models:[],urls:[]};
++          var grp=groups[key], pf=parseFloat(r.fiyat);
++          if(pf && (!grp.fiyat[r.kaynak]||pf<grp.fiyat[r.kaynak].fy)) grp.fiyat[r.kaynak]={fy:pf,url:r.url,model:r.model};
++          grp.models.push(r.model); if(r.url)grp.urls.push(r.url); ks.add(r.kaynak);
++        });
++        var kaynaklar=Array.from(ks).sort();
++        var list=Object.keys(groups).map(function(k){var grp=groups[k];
++          var pr=Object.keys(grp.fiyat).map(function(kk){return grp.fiyat[kk].fy;});
++          grp.n=pr.length; grp.min=pr.length?Math.min.apply(null,pr):null; grp.max=pr.length?Math.max.apply(null,pr):null;
++          grp.spread=grp.min?((grp.max-grp.min)/grp.min*100):0; grp.name=smDisplayName(grp); grp.spark=rfSeriesFor(grp.urls,histByUrl);
++          return grp;
++        }).filter(function(grp){return grp.n>=2;}).sort(function(a,b){return b.spread-a.spread;});
++        if(!list.length){ res.innerHTML='<div style="color:#778;padding:20px">Birden fazla pazaryerinde eşleşen ürün bulunamadı. (Tek kaynaktakiler için Ham Veri sekmesine bakın.)</div>'; return; }
++        var seaLbl={yaz:'Yaz',kis:'Kış','4mevsim':'4 Mevsim'};
++        var th=function(t,ex){return '<th style="padding:8px 9px;border-bottom:2px solid rgba(255,255,255,0.15);'+(ex||'')+'">'+t+'</th>';};
++        var html='<div style="margin-bottom:10px;font-size:12px;color:#8899aa">'+list.length+' birebir eşleşen ürün (≥2 pazaryeri) · yayılıma göre sıralı</div>';
++        html+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">';
++        html+='<thead><tr style="background:rgba(255,255,255,0.06);font-weight:600;text-align:left">'+th('Ürün')+th('Ebat')+th('Y/H')+th('Sezon')
++          +kaynaklar.map(function(k){return th(k,'text-align:right');}).join('')+th('Min','text-align:right')+th('Yayılım','text-align:right')+th('Trend')+'</tr></thead><tbody>';
++        list.forEach(function(grp){
++          var ls=grp.key.split('|')[3], sea=grp.key.split('|')[4], fl=grp.key.split('|')[5];
++          var badge=(fl.indexOf('SET')>=0?' <span style="background:#7c3f00;color:#ffd9a0;font-size:9px;padding:1px 4px;border-radius:6px">SET</span>':'')
++            +(fl.indexOf('RF')>=0?' <span style="background:#334155;color:#93c5fd;font-size:9px;padding:1px 4px;border-radius:6px">RFT</span>':'');
++          html+='<tr style="border-bottom:1px solid rgba(255,255,255,0.06)">'
++            +'<td style="padding:8px 9px;max-width:300px;color:#e2e8f0">'+esc(grp.name)+badge+'</td>'
++            +'<td style="padding:8px 9px;color:#9ab;font-family:monospace;white-space:nowrap">'+grp.g+'/'+grp.p+'R'+grp.c+'</td>'
++            +'<td style="padding:8px 9px;color:#9ab;white-space:nowrap">'+esc(ls.toUpperCase())+'</td>'
++            +'<td style="padding:8px 9px;color:#9ab;white-space:nowrap">'+(seaLbl[sea]||sea)+'</td>'
++            +kaynaklar.map(function(k){var cell=grp.fiyat[k];
++              if(!cell)return '<td style="padding:8px 9px;text-align:right;color:#445">—</td>';
++              var isMin=cell.fy===grp.min; var inner=money(cell.fy);
++              if(cell.url) inner='<a href="'+esc(cell.url)+'" target="_blank" rel="noopener noreferrer" style="text-decoration:none;color:inherit">'+inner+' ↗</a>';
++              return '<td style="padding:8px 9px;text-align:right;white-space:nowrap;'+(isMin?'color:#38a169;font-weight:700':'color:#94a3b8')+'">'+inner+'</td>';
++            }).join('')
++            +'<td style="padding:8px 9px;text-align:right;font-weight:700;white-space:nowrap">'+money(grp.min)+'</td>'
++            +'<td style="padding:8px 9px;text-align:right;font-weight:700;color:'+(grp.spread>=20?'#f59e0b':grp.spread>=10?'#eab308':'#64748b')+'">+'+grp.spread.toFixed(0)+'%</td>'
++            +'<td style="padding:8px 9px">'+rfSpark(grp.spark)+'</td>'
++            +'</tr>';
++        });
++        html+='</tbody></table></div>';
++        res.innerHTML=html;
++      }catch(e){ res.innerHTML='<div style="color:#e53e3e;padding:20px">Hata: '+(e&&e.message)+'</div>'; }
++    };
+     window.rfPiyasaIzleEkle = function() {
