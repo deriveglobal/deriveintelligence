@@ -1,0 +1,17 @@
+--- a/shells/bi.js
++++ b/shells/bi.js
+@@ -4493,7 +4493,9 @@
+         <div id="rf-pane-akilli" style="display:none">
+-          <div style="padding:48px 20px;text-align:center;color:#8899aa">
+-            <div style="font-size:40px;margin-bottom:12px">🎯</div>
+-            <div style="font-size:18px;font-weight:700;color:#cbd5e1;margin-bottom:8px">Smart Matched — Yakında</div>
+-            <div style="font-size:13px;max-width:540px;margin:0 auto;line-height:1.55">Farklı pazaryerlerindeki ilanlar %100 birebir ürün eşleşmesine göre normalize edilip karşılaştırılacak: desen adı, ebat, yük/hız endeksi, mevsim (yaz/kış/4 mevsim) ve tekli/set ayrımı. Şu anda geliştiriliyor.</div>
+-          </div>
++          <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
++            <input id="rf-ak-marka" placeholder="Marka (ör. Continental)" style="padding:8px 12px;border:1px solid rgba(255,255,255,0.18);border-radius:6px;font-size:14px;width:200px;color:#e2e8f0;background:transparent">
++            <input id="rf-ak-ebat" placeholder="Ebat (ör. 205/55R16)" style="padding:8px 12px;border:1px solid rgba(255,255,255,0.18);border-radius:6px;font-size:14px;width:200px;color:#e2e8f0;background:transparent">
++            <button onclick="rfAkilliAra()" style="padding:8px 20px;background:#6366f1;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-weight:600">🎯 Eşleştir</button>
++            <span style="font-size:12px;color:#8899aa">Aynı ürünü tüm pazaryerlerinde birebir eşleştirir</span>
++          </div>
++          <div id="rf-akilli-result"></div>
+         </div>

@@ -4491,11 +4491,13 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           <div id="rf-piyasa-result"></div>
         </div>
         <div id="rf-pane-akilli" style="display:none">
-          <div style="padding:48px 20px;text-align:center;color:#8899aa">
-            <div style="font-size:40px;margin-bottom:12px">🎯</div>
-            <div style="font-size:18px;font-weight:700;color:#cbd5e1;margin-bottom:8px">Smart Matched — Yakında</div>
-            <div style="font-size:13px;max-width:540px;margin:0 auto;line-height:1.55">Farklı pazaryerlerindeki ilanlar %100 birebir ürün eşleşmesine göre normalize edilip karşılaştırılacak: desen adı, ebat, yük/hız endeksi, mevsim (yaz/kış/4 mevsim) ve tekli/set ayrımı. Şu anda geliştiriliyor.</div>
+          <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+            <input id="rf-ak-marka" placeholder="Marka (ör. Continental)" style="padding:8px 12px;border:1px solid rgba(255,255,255,0.18);border-radius:6px;font-size:14px;width:200px;color:#e2e8f0;background:transparent">
+            <input id="rf-ak-ebat" placeholder="Ebat (ör. 205/55R16)" style="padding:8px 12px;border:1px solid rgba(255,255,255,0.18);border-radius:6px;font-size:14px;width:200px;color:#e2e8f0;background:transparent">
+            <button onclick="rfAkilliAra()" style="padding:8px 20px;background:#6366f1;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-weight:600">🎯 Eşleştir</button>
+            <span style="font-size:12px;color:#8899aa">Aynı ürünü tüm pazaryerlerinde birebir eşleştirir</span>
           </div>
+          <div id="rf-akilli-result"></div>
         </div>
         <div id="rf-pane-izleme" style="display:none">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -4697,6 +4699,103 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       } catch (e) { res.innerHTML = '<div style="color:#e53e3e;padding:20px">Hata: ' + (e && e.message) + '</div>'; }
     };
 
+    // ===== Smart Matched (RAKIP_SMARTMATCH_V1) =====
+    function smDeacc(s){var m={'İ':'i','I':'i','ı':'i','Ş':'s','ş':'s','Ğ':'g','ğ':'g','Ü':'u','ü':'u','Ö':'o','ö':'o','Ç':'c','ç':'c','Â':'a','â':'a'};return (s||'').split('').map(function(c){return m[c]||c;}).join('').toLowerCase();}
+    var SM_BRAND={continental:['continental','conti']};
+    var SM_WINTER=/(kis|kislik|winter|snow|ice|frost|blizzak|eskimo|nordicca|nordic|sottozero|snowproof|snowmaster|wintercontact|wintercommand|winguard|glacier|w462|lm00\d|ws\d|alpin|xice|icept|frigo|snoway|wintercraft|polarmax)/;
+    var SM_ALLSEASON=/(4\s*mevsim|dort\s*mevsim|all.?season|4\s*season|4season|crossclimate|vector.*4|quatrac|all.?weather|multiways|4seasons|as210|quartaris|fourtech|multimatch)/;
+    function smSeason(t){ if(SM_ALLSEASON.test(t))return '4mevsim'; if(SM_WINTER.test(t)||/\bkis\b|kislik/.test(t))return 'kis'; return 'yaz'; }
+    function smLoadSpeed(t){ var m=t.match(/\b(\d{2,3})\s*([hvwtyq])\b/); return m?[m[1],m[2]]:['','']; }
+    function smRunflat(t){ return /\b(rft|rof|run.?flat|ssr|zp|dsst)\b/.test(t); }
+    function smIsSet(t){ return /4.?l[uü]|4\s*adet|tak[iı]m|set olarak/.test(t); }
+    var SM_PHRASE=/(yaz\s*lasti\w*|k[i]s\s*lasti\w*|4\s*mevsim(\s*lasti\w*)?|dort\s*mevsim(\s*lasti\w*)?|4\s*season|set\s*olarak|4.?l[uü]\s*tak[iı]m|\(?\s*4\s*adet\s*\)?|yazl[i]k|kisl[i]k|m\+s|3pmsf)/g;
+    var SM_NOISE=/\b(yaz|kis|lastik|lastigi|lastigy|oto|otomobil|binek|mevsim|dort|uretim|yili|yil|hafta|tarihi|son|haftalar|aralik|adet|takim|set|olarak|tl|rft|rof|runflat|ssr|zp|xl|fr|fp|mo|moe|ao|ev|db|kanal|enliten|eld|ready|new|newgen|plus|op|ext|hrs|grubu|yeni|desen|sibop|reft)\b/g;
+    function smPattern(marka,title,g,p,c){
+      var t=smDeacc(title);
+      (SM_BRAND[smDeacc(marka)]||[smDeacc(marka)]).forEach(function(a){ t=t.split(a).join(' '); });
+      t=t.replace(/\d{3}\s*\/\s*\d{2,3}\s*r?\s*\d{2}/g,' ').replace(/\b\d{2,3}\s*[hvwtyq]\b/g,' ').replace(SM_PHRASE,' ').replace(/\b\d{4,}\b/g,' ');
+      var prev=null; while(prev!==t){ prev=t; t=t.replace(SM_NOISE,' '); }
+      return t.replace(/[^a-z0-9]+/g,' ').split(' ').filter(Boolean).join('');
+    }
+    function smKey(marka,title,g,p,c){
+      var t=smDeacc(title), ls=smLoadSpeed(t);
+      return smDeacc(marka)+'|'+smPattern(marka,title,g,p,c)+'|'+g+'/'+p+'R'+c+'|'+ls[0]+ls[1]+'|'+smSeason(t)+'|'+(smIsSet(t)?'SET':'')+(smRunflat(t)?'RF':'');
+    }
+    function smDisplayName(grp){
+      var best=null;
+      grp.models.forEach(function(m){ if(!m)return;
+        var hasBrand=smDeacc(m).indexOf(smDeacc(grp.marka))>=0, mixed=/[a-z]/.test(m)&&/[A-Z]/.test(m);
+        var score=(hasBrand?0:100)+(mixed?0:40)+m.length*0.1;
+        if(!best||score<best.s)best={m:m,s:score};
+      });
+      var name=best?best.m:(grp.marka||'');
+      name=name.replace(/\d{3}\s*\/\s*\d{2,3}\s*[rR]?\s*\d{2}/,' ').replace(/\b\d{2,3}\s*[hvwtyqHVWTYQ]\b/,' ')
+        .replace(/\b(19|20)\d{2}\b/g,' ').replace(/\b\d{5,}\b/g,' ')
+        .replace(/\b(yaz|k[ıi]ş|kis|4|d[öo]urt)\s*mevsim\s*lasti\w*/gi,' ').replace(/\b(yaz|k[ıi]ş|kis)\s*lasti\w*/gi,' ')
+        .replace(/\blasti\w*/gi,' ').replace(/\b(oto|otomobil|binek|[üu]retim|set olarak|takım|takim)\b/gi,' ')
+        .replace(/[\(\)\*]/g,' ').replace(/[-–]\s*$/,'').replace(/\s{2,}/g,' ').trim();
+      if(smDeacc(name).indexOf(smDeacc(grp.marka))<0) name=grp.marka+' '+name;
+      return name;
+    }
+    window.rfAkilliAra = async function(){
+      var marka=(document.getElementById('rf-ak-marka')?.value||'').trim();
+      var ebat=(document.getElementById('rf-ak-ebat')?.value||'').trim();
+      if(!marka && !ebat){ alert('Lütfen marka veya ebat girin.'); return; }
+      var res=document.getElementById('rf-akilli-result');
+      res.innerHTML='<div style="color:#778;padding:20px">Eşleştiriliyor...</div>';
+      var qs=new URLSearchParams(); if(marka)qs.set('marka',marka); if(ebat)qs.set('ebat',ebat); qs.set('limit','500');
+      try{
+        var data=await rfApi('/api/rakip/piyasa?'+qs.toString());
+        if(!data.rows||!data.rows.length){ res.innerHTML='<div style="color:#778;padding:20px">Sonuç bulunamadı.</div>'; return; }
+        var esc=function(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');};
+        var money=function(n){return (n==null||isNaN(n))?'—':Number(n).toLocaleString('tr-TR',{maximumFractionDigits:0})+' ₺';};
+        var groups={}, ks=new Set();
+        data.rows.forEach(function(r){
+          var g=r.genislik,p=r.profil,c=r.cap; if(!g||!p||!c)return;
+          var key=smKey(r.marka,r.model||r.ebat||'',g,p,c);
+          if(!groups[key])groups[key]={marka:r.marka,g:g,p:p,c:c,key:key,fiyat:{},models:[]};
+          var grp=groups[key], pf=parseFloat(r.fiyat);
+          if(pf && (!grp.fiyat[r.kaynak]||pf<grp.fiyat[r.kaynak].fy)) grp.fiyat[r.kaynak]={fy:pf,url:r.url,model:r.model};
+          grp.models.push(r.model); ks.add(r.kaynak);
+        });
+        var kaynaklar=Array.from(ks).sort();
+        var list=Object.keys(groups).map(function(k){var grp=groups[k];
+          var pr=Object.keys(grp.fiyat).map(function(kk){return grp.fiyat[kk].fy;});
+          grp.n=pr.length; grp.min=pr.length?Math.min.apply(null,pr):null; grp.max=pr.length?Math.max.apply(null,pr):null;
+          grp.spread=grp.min?((grp.max-grp.min)/grp.min*100):0; grp.name=smDisplayName(grp);
+          return grp;
+        }).filter(function(grp){return grp.n>=2;}).sort(function(a,b){return b.spread-a.spread;});
+        if(!list.length){ res.innerHTML='<div style="color:#778;padding:20px">Birden fazla pazaryerinde eşleşen ürün bulunamadı. (Tek kaynakta olan ürünler için Ham Veri sekmesine bakın.)</div>'; return; }
+        var seaLbl={yaz:'Yaz',kis:'Kış','4mevsim':'4 Mevsim'};
+        var th=function(t,ex){return '<th style="padding:8px 9px;border-bottom:2px solid rgba(255,255,255,0.15);'+(ex||'')+'">'+t+'</th>';};
+        var html='<div style="margin-bottom:10px;font-size:12px;color:#8899aa">'+list.length+' birebir eşleşen ürün (≥2 pazaryeri) · yayılıma göre sıralı</div>';
+        html+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">';
+        html+='<thead><tr style="background:rgba(255,255,255,0.06);font-weight:600;text-align:left">'+th('Ürün')+th('Ebat')+th('Y/H')+th('Sezon')
+          +kaynaklar.map(function(k){return th(k,'text-align:right');}).join('')+th('Min','text-align:right')+th('Yayılım','text-align:right')+'</tr></thead><tbody>';
+        list.forEach(function(grp){
+          var ls=grp.key.split('|')[3], sea=grp.key.split('|')[4], fl=grp.key.split('|')[5];
+          var badge=(fl.indexOf('SET')>=0?' <span style="background:#7c3f00;color:#ffd9a0;font-size:9px;padding:1px 4px;border-radius:6px">SET</span>':'')
+            +(fl.indexOf('RF')>=0?' <span style="background:#334155;color:#93c5fd;font-size:9px;padding:1px 4px;border-radius:6px">RFT</span>':'');
+          html+='<tr style="border-bottom:1px solid rgba(255,255,255,0.06)">'
+            +'<td style="padding:8px 9px;max-width:300px;color:#e2e8f0">'+esc(grp.name)+badge+'</td>'
+            +'<td style="padding:8px 9px;color:#9ab;font-family:monospace;white-space:nowrap">'+grp.g+'/'+grp.p+'R'+grp.c+'</td>'
+            +'<td style="padding:8px 9px;color:#9ab;white-space:nowrap">'+esc(ls.toUpperCase())+'</td>'
+            +'<td style="padding:8px 9px;color:#9ab;white-space:nowrap">'+(seaLbl[sea]||sea)+'</td>'
+            +kaynaklar.map(function(k){var cell=grp.fiyat[k];
+              if(!cell)return '<td style="padding:8px 9px;text-align:right;color:#445">—</td>';
+              var isMin=cell.fy===grp.min;
+              var inner=money(cell.fy);
+              if(cell.url) inner='<a href="'+esc(cell.url)+'" target="_blank" rel="noopener noreferrer" style="text-decoration:none;color:inherit">'+inner+' ↗</a>';
+              return '<td style="padding:8px 9px;text-align:right;white-space:nowrap;'+(isMin?'color:#38a169;font-weight:700':'color:#94a3b8')+'">'+inner+'</td>';
+            }).join('')
+            +'<td style="padding:8px 9px;text-align:right;font-weight:700;white-space:nowrap">'+money(grp.min)+'</td>'
+            +'<td style="padding:8px 9px;text-align:right;font-weight:700;color:'+(grp.spread>=20?'#f59e0b':grp.spread>=10?'#eab308':'#64748b')+'">+'+grp.spread.toFixed(0)+'%</td>'
+            +'</tr>';
+        });
+        html+='</tbody></table></div>';
+        res.innerHTML=html;
+      }catch(e){ res.innerHTML='<div style="color:#e53e3e;padding:20px">Hata: '+(e&&e.message)+'</div>'; }
+    };
     window.rfPiyasaIzleEkle = function() {
       const m = document.getElementById('rf-marka')?.value.trim();
       const e = document.getElementById('rf-ebat')?.value.trim();
