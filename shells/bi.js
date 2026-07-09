@@ -249,7 +249,7 @@ export function initBiSurface(container, me, sub, callbacks) {
       _br.className = 'vmo-room vmo-room-hidden';
       _br.dataset.dept = 'brain';
       _br.style.cssText = '--c:#e11d48;background:linear-gradient(160deg,#1a0010 0%,#0a0a1e 100%)';
-      _br.innerHTML = "<aside class=\"vmo-officer-panel\" style=\"display:flex;flex-direction:column;min-width:0;flex:3;width:auto\"><div class=\"vmo-officer-stage\"><div class=\"vmo-avatar-wrap\"><div class=\"vmo-pulse-ring\"></div><div class=\"vmo-pulse-ring vmo-pulse-ring-2\"></div><div class=\"vmo-avatar-circle\" style=\"font-size:26px\">🧠</div></div><div class=\"vmo-officer-info\"><div class=\"vmo-officer-name\">CEO Assistant</div><div class=\"vmo-officer-dept\">CEO Assistant · All Departments</div><div class=\"vmo-live-badge\"><span class=\"vmo-live-dot\"></span> Çevrimici · Öğreniyor</div></div></div><div id=\"vmo-brain-ctx\" style=\"display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;color:#a78bfa;padding:8px 16px;border-bottom:1px solid rgba(225,29,72,0.2);background:rgba(0,0,0,0.2);flex-shrink:0\"><span id=\"vmo-brain-greeting\">Yükleniyor…</span><span id=\"vmo-brain-weather\" style=\"margin-left:auto\"></span><span id=\"vmo-brain-tasks-count\"></span></div><div class=\"vmo-chat-area\"><div class=\"vmo-chat-messages\" id=\"vmo-brain-msgs\"></div><form class=\"vmo-chat-form\" id=\"vmo-brain-form\" autocomplete=\"off\"><input class=\"vmo-chat-input\" type=\"text\" id=\"vmo-brain-inp\" placeholder=\"Asistanınıza yazın…\" autocomplete=\"off\"><button type=\"submit\" class=\"vmo-send-btn\" id=\"vmo-brain-send\" title=\"Gönder\"><svg width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" viewBox=\"0 0 24 24\"><line x1=\"22\" y1=\"2\" x2=\"11\" y2=\"13\"/><polygon points=\"22 2 15 22 11 13 2 9 22 2\"/></svg></button></form></div></aside><div class=\"vmo-data-wall\" style=\"display:flex;flex-direction:column;padding:0;gap:0;overflow:hidden;flex:1;max-width:380px\"><div style=\"padding:14px 16px 10px;border-bottom:1px solid rgba(225,29,72,0.2);display:flex;align-items:center;justify-content:space-between;flex-shrink:0\"><span style=\"font-weight:700;color:#f1f5f9;font-size:14px\">📋 Görev Takibi</span><div style=\"display:flex;gap:6px;align-items:center\"><button onclick=\"window._brainNewTask()\" style=\"background:#e11d48;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;font-weight:600\">+ Yeni</button><select id=\"vmo-brain-task-filter\" onchange=\"window._brainFilter(this.value)\" style=\"background:#1a0a2a;color:#a78bfa;border:1px solid rgba(225,29,72,0.3);border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer\"><option value=\"open\">Açık</option><option value=\"in_progress\">Devam</option><option value=\"done\">Bitti</option><option value=\"all\">Tümü</option></select></div></div><div id=\"vmo-brain-task-list\" style=\"flex:1;overflow-y:auto;padding:10px 16px;min-height:0\"><div style=\"color:#64748b;font-size:12px;text-align:center;padding:40px 0\">Yükleniyor…</div></div><details style=\"font-size:12px;flex-shrink:0;border-top:1px solid rgba(225,29,72,0.2);padding:10px 16px;background:rgba(0,0,0,0.2)\"><summary style=\"cursor:pointer;color:#7c3aed;font-weight:600;padding:4px 0;list-style:none\">⚙️ Sahip Ayarları</summary><div style=\"margin-top:8px;display:flex;flex-direction:column;gap:6px\"><input id=\"vmo-bp-name\" placeholder=\"Adınız\" style=\"background:#1a0a2a;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#f1f5f9;outline:none\"><input id=\"vmo-bp-title\" placeholder=\"Unvanınız (CEO, Kurucu...)\" style=\"background:#1a0a2a;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#f1f5f9;outline:none\"><input id=\"vmo-bp-company\" placeholder=\"Şirket adı\" style=\"background:#1a0a2a;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#f1f5f9;outline:none\"><input id=\"vmo-bp-city\" placeholder=\"Şehir (İstanbul)\" style=\"background:#1a0a2a;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#f1f5f9;outline:none\"><button onclick=\"window._brainSavePrefs()\" style=\"background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;font-weight:600\">Kaydet</button></div></details></div>";
+      _br.innerHTML = "<aside class=\"vmo-officer-panel\" style=\"display:flex;flex-direction:column;min-width:0;flex:3;width:auto\"><div class=\"vmo-officer-stage\"><div class=\"vmo-avatar-wrap\"><div class=\"vmo-pulse-ring\"></div><div class=\"vmo-pulse-ring vmo-pulse-ring-2\"></div><div class=\"vmo-avatar-circle\" style=\"font-size:26px\">🧠</div></div><div class=\"vmo-officer-info\"><div class=\"vmo-officer-name\">CEO Assistant</div><div class=\"vmo-officer-dept\">CEO Assistant · All Departments</div><div class=\"vmo-live-badge\"><span class=\"vmo-live-dot\"></span> Çevrimici · Öğreniyor</div></div></div><div id=\"vmo-brain-ctx\" style=\"display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;color:#a78bfa;padding:8px 16px;border-bottom:1px solid rgba(225,29,72,0.2);background:rgba(0,0,0,0.2);flex-shrink:0\"><span id=\"vmo-brain-greeting\">Yükleniyor…</span><span id=\"vmo-brain-weather\" style=\"margin-left:auto\"></span><span id=\"vmo-brain-tasks-count\"></span></div><div class=\"vmo-chat-area\"><div class=\"vmo-chat-messages\" id=\"vmo-brain-msgs\"></div><form class=\"vmo-chat-form\" id=\"vmo-brain-form\" autocomplete=\"off\"><input class=\"vmo-chat-input\" type=\"text\" id=\"vmo-brain-inp\" placeholder=\"Asistanınıza yazın…\" autocomplete=\"off\"><button type=\"button\" class=\"vmo-send-btn\" id=\"vmo-brain-mic\" title=\"Sesli komut (tr)\" style=\"background:rgba(124,58,237,0.25)\">🎤</button><button type=\"button\" class=\"vmo-send-btn\" id=\"vmo-brain-tts\" title=\"Yanıtları sesli oku\" style=\"background:rgba(255,255,255,0.08)\">🔊</button><button type=\"submit\" class=\"vmo-send-btn\" id=\"vmo-brain-send\" title=\"Gönder\"><svg width=\"16\" height=\"16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.2\" viewBox=\"0 0 24 24\"><line x1=\"22\" y1=\"2\" x2=\"11\" y2=\"13\"/><polygon points=\"22 2 15 22 11 13 2 9 22 2\"/></svg></button></form></div></aside><div class=\"vmo-data-wall\" style=\"display:flex;flex-direction:column;padding:0;gap:0;overflow:hidden;flex:1;max-width:380px\"><div style=\"padding:14px 16px 10px;border-bottom:1px solid rgba(225,29,72,0.2);display:flex;align-items:center;justify-content:space-between;flex-shrink:0\"><span style=\"font-weight:700;color:#f1f5f9;font-size:14px\">📋 Görev Takibi</span><div style=\"display:flex;gap:6px;align-items:center\"><button onclick=\"window._brainNewTask()\" style=\"background:#e11d48;color:#fff;border:none;border-radius:6px;padding:5px 10px;font-size:12px;cursor:pointer;font-weight:600\">+ Yeni</button><select id=\"vmo-brain-task-filter\" onchange=\"window._brainFilter(this.value)\" style=\"background:#1a0a2a;color:#a78bfa;border:1px solid rgba(225,29,72,0.3);border-radius:6px;padding:4px 8px;font-size:12px;cursor:pointer\"><option value=\"open\">Açık</option><option value=\"in_progress\">Devam</option><option value=\"done\">Bitti</option><option value=\"all\">Tümü</option></select></div></div><div id=\"vmo-brain-task-list\" style=\"flex:1;overflow-y:auto;padding:10px 16px;min-height:0\"><div style=\"color:#64748b;font-size:12px;text-align:center;padding:40px 0\">Yükleniyor…</div></div><details style=\"font-size:12px;flex-shrink:0;border-top:1px solid rgba(225,29,72,0.2);padding:10px 16px;background:rgba(0,0,0,0.2)\"><summary style=\"cursor:pointer;color:#7c3aed;font-weight:600;padding:4px 0;list-style:none\">⚙️ Sahip Ayarları</summary><div style=\"margin-top:8px;display:flex;flex-direction:column;gap:6px\"><input id=\"vmo-bp-name\" placeholder=\"Adınız\" style=\"background:#1a0a2a;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#f1f5f9;outline:none\"><input id=\"vmo-bp-title\" placeholder=\"Unvanınız (CEO, Kurucu...)\" style=\"background:#1a0a2a;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#f1f5f9;outline:none\"><input id=\"vmo-bp-company\" placeholder=\"Şirket adı\" style=\"background:#1a0a2a;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#f1f5f9;outline:none\"><input id=\"vmo-bp-city\" placeholder=\"Şehir (İstanbul)\" style=\"background:#1a0a2a;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#f1f5f9;outline:none\"><button onclick=\"window._brainSavePrefs()\" style=\"background:#7c3aed;color:#fff;border:none;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;font-weight:600\">Kaydet</button></div></details></div>";
       _off.appendChild(_br);
     }
   }
@@ -370,6 +370,7 @@ export function initBiSurface(container, me, sub, callbacks) {
             } catch(pe) {}
           }
         }
+        if (window._brainTTS && txt && txt.trim()) { try { _brainSpeak(txt); } catch(_){} }
       } catch(e) {
         const thEl2 = document.getElementById('vmo-brain-thinking');
         if (thEl2) thEl2.remove();
@@ -390,6 +391,61 @@ export function initBiSurface(container, me, sub, callbacks) {
         if (v) { inp.value = ''; sendBrainMsg(v); }
       });
     }
+
+    // Voice I/O (Türkçe) — VOICE_IO_V1
+    (function(){
+      var micBtn = container.querySelector('#vmo-brain-mic');
+      var ttsBtn = container.querySelector('#vmo-brain-tts');
+      window._brainTTS = false;
+      window._brainSpeak = function(text){
+        try {
+          if (!('speechSynthesis' in window)) return;
+          window.speechSynthesis.cancel();
+          var clean = String(text).replace(/[*_`#>|]/g,'').replace(/\s+/g,' ').trim();
+          if (!clean) return;
+          var u = new SpeechSynthesisUtterance(clean);
+          u.lang = 'tr-TR'; u.rate = 1.05;
+          var vs = window.speechSynthesis.getVoices();
+          var tv = vs.find(function(v){ return /tr(-|_)?TR/i.test(v.lang) || /türk|turk/i.test(v.name); });
+          if (tv) u.voice = tv;
+          window.speechSynthesis.speak(u);
+        } catch(_){}
+      };
+      if (ttsBtn) {
+        ttsBtn.addEventListener('click', function(){
+          window._brainTTS = !window._brainTTS;
+          ttsBtn.style.background = window._brainTTS ? '#7c3aed' : 'rgba(255,255,255,0.08)';
+          ttsBtn.title = window._brainTTS ? 'Sesli okuma açık' : 'Yanıtları sesli oku';
+          if (!window._brainTTS && ('speechSynthesis' in window)) window.speechSynthesis.cancel();
+        });
+      }
+      var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) { if (micBtn) { micBtn.style.opacity = '0.4'; micBtn.title = 'Tarayıcı sesli komutu desteklemiyor'; } return; }
+      var rec = new SR();
+      rec.lang = 'tr-TR'; rec.interimResults = true; rec.continuous = false;
+      var listening = false;
+      rec.onresult = function(ev){
+        var interim = '', fin = '';
+        for (var i = ev.resultIndex; i < ev.results.length; i++) {
+          var r = ev.results[i];
+          if (r.isFinal) fin += r[0].transcript; else interim += r[0].transcript;
+        }
+        inp.value = (fin || interim);
+      };
+      rec.onend = function(){
+        listening = false;
+        if (micBtn) micBtn.style.background = 'rgba(124,58,237,0.25)';
+        var v = inp.value.trim();
+        if (v) { inp.value = ''; sendBrainMsg(v); }
+      };
+      rec.onerror = function(){ listening = false; if (micBtn) micBtn.style.background = 'rgba(124,58,237,0.25)'; };
+      if (micBtn) {
+        micBtn.addEventListener('click', function(){
+          if (listening) { try { rec.stop(); } catch(_){} return; }
+          try { inp.value = ''; rec.start(); listening = true; micBtn.style.background = '#e11d48'; } catch(_){}
+        });
+      }
+    })();
 
     window._brainMarkDone = async function(id) {
       try {
