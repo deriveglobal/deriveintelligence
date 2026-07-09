@@ -24257,6 +24257,26 @@ function buildDeptSystemPrompt(dept, context, session) {
             required: ['to', 'subject', 'body']
           }
         },
+        {
+          name: 'bekleyen_teklifler',
+          description: 'Onay bekleyen (ONAY_BEKLIYOR) saha tekliflerini listele. Her teklif; talep edilen fiyat, mevcut stok, birim maliyet, marj %, rakip fiyat ve müşteri/temsilci ile birlikte gelir. Sahip "onay bekleyen teklifler / bekleyen teklif var mı / teklifleri göster" dediğinde kullan.',
+          input_schema: { type: 'object', properties: {} }
+        },
+        {
+          name: 'teklif_detay',
+          description: 'Belirli bir teklifin tüm detayını getir (kalemler, talep fiyatı, stok, rakip, maliyet, marj).',
+          input_schema: { type: 'object', properties: { id: { type: 'string', description: 'Teklif ID (uuid)' } }, required: ['id'] }
+        },
+        {
+          name: 'teklif_onayla',
+          description: 'Bir teklifi ONAYLA (durum ONAYLANDI). Sahip bir teklifi onayladığında kullan.',
+          input_schema: { type: 'object', properties: { id: { type: 'string' }, not: { type: 'string', description: 'Opsiyonel onay notu' } }, required: ['id'] }
+        },
+        {
+          name: 'teklif_reddet',
+          description: 'Bir teklifi REDDET — taslağa döndürülür, temsilci revize edebilir. Sahip bir teklifi reddettiğinde kullan.',
+          input_schema: { type: 'object', properties: { id: { type: 'string' }, neden: { type: 'string', description: 'Red gerekçesi' } }, required: ['id'] }
+        },
         // BRAIN_RAKIP_V1
         {
           name: 'query_rakip_fiyat',
@@ -24383,6 +24403,59 @@ function buildDeptSystemPrompt(dept, context, session) {
             }
             return { success: true, izle_id: _iid, message: marka + ' ' + ebat + ' fiyat alarmı kuruldu' + (_x ? (' · düşerse ' + _x + ' TL') : '') + (_y ? (' · çıkarsa ' + _y + ' TL') : '') + ' (3x/gün takip, e-posta aktif)' };
           } catch (e) { return { error: e.message }; }
+        }
+        if (toolName === 'bekleyen_teklifler' || toolName === 'teklif_detay') {
+          const one = toolName === 'teklif_detay';
+          const params = one ? [tenantId, input.id] : [tenantId];
+          const whereClause = one ? "t.id=$2" : "t.durum='ONAY_BEKLIYOR'";
+          const r = await query(
+            "SELECT t.id, t.durum, t.marka, t.model, t.ebat, t.adet, t.kalem_kodu, " +
+            " t.talep_fiyat, t.birim_fiyat, t.toplam_tutar, t.mevcut_stok, " +
+            " t.rakip_marka, t.rakip_fiyat, t.created_at, " +
+            " m.firma AS musteri, COALESCE(u.full_name,u.email) AS rep, " +
+            " s.eldeki_miktar AS canli_stok, s.birim_maliyet, " +
+            " r2.piyasa_min, r2.piyasa_max, r2.n_ilan, r3.marka_min, r3.marka_max " +
+            " FROM saha_teklif t " +
+            " LEFT JOIN saha_musteri m ON m.id=t.musteri_id " +
+            " LEFT JOIN users u ON u.id=t.rep_id " +
+            " LEFT JOIN LATERAL (SELECT SUM(eldeki_miktar) AS eldeki_miktar, MAX(birim_maliyet) AS birim_maliyet FROM bi_stok_durumu b WHERE b.tenant_id=t.tenant_id AND b.kalem_kodu=t.kalem_kodu AND b.export_date=(SELECT MAX(export_date) FROM bi_stok_durumu WHERE tenant_id=t.tenant_id AND kalem_kodu=t.kalem_kodu)) s ON true " +
+            " LEFT JOIN LATERAL (SELECT MIN(fiyat) AS piyasa_min, MAX(fiyat) AS piyasa_max, COUNT(*) AS n_ilan FROM bi_rakip_fiyat_son rf WHERE rf.ebat=t.ebat) r2 ON true " +
+            " LEFT JOIN LATERAL (SELECT MIN(fiyat) AS marka_min, MAX(fiyat) AS marka_max FROM bi_rakip_fiyat_son rf WHERE rf.ebat=t.ebat AND t.rakip_marka IS NOT NULL AND lower(rf.marka)=lower(t.rakip_marka)) r3 ON true " +
+            " WHERE t.tenant_id=$1 AND " + whereClause +
+            " ORDER BY t.created_at DESC LIMIT 30", params);
+          const list = r.rows.map(function(t){
+            const talep = t.talep_fiyat != null ? Number(t.talep_fiyat) : (t.birim_fiyat != null ? Number(t.birim_fiyat) : null);
+            const maliyet = t.birim_maliyet != null ? Number(t.birim_maliyet) : null;
+            const marj_pct = (talep && maliyet) ? Math.round((talep - maliyet) / talep * 1000) / 10 : null;
+            const stok = t.mevcut_stok != null ? Number(t.mevcut_stok) : (t.canli_stok != null ? Number(t.canli_stok) : null);
+            const num = function(x){ return x != null ? Number(x) : null; };
+            return { id: t.id, durum: t.durum, musteri: t.musteri, rep: t.rep,
+              urun: [t.marka, t.ebat, t.model].filter(Boolean).join(' '), ebat: t.ebat, adet: t.adet,
+              talep_fiyat: talep, birim_maliyet: maliyet, marj_pct: marj_pct, mevcut_stok: stok,
+              rep_rakip: t.rakip_marka ? { marka: t.rakip_marka, fiyat: num(t.rakip_fiyat) } : null,
+              piyasa_bu_ebat: { en_dusuk: num(t.piyasa_min), en_yuksek: num(t.piyasa_max), ilan_sayisi: t.n_ilan != null ? Number(t.n_ilan) : 0 },
+              rakip_marka_bu_ebat: (t.marka_min != null) ? { marka: t.rakip_marka, en_dusuk: num(t.marka_min), en_yuksek: num(t.marka_max) } : null,
+              tarih: t.created_at };
+          });
+          return one ? (list[0] || { hata: 'Teklif bulunamadı' }) : { adet: list.length, teklifler: list };
+        }
+        if (toolName === 'teklif_onayla' || toolName === 'teklif_reddet') {
+          if (!input.id) return { error: 'id zorunlu' };
+          const cur = await query("SELECT durum, marka, ebat, notlar FROM saha_teklif WHERE tenant_id=$1 AND id=$2", [tenantId, input.id]);
+          if (!cur.rows.length) return { error: 'Teklif bulunamadı' };
+          const eskiDurum = cur.rows[0].durum;
+          const urunAd = ((cur.rows[0].marka || '') + ' ' + (cur.rows[0].ebat || '')).trim();
+          if (toolName === 'teklif_onayla') {
+            await query("UPDATE saha_teklif SET durum='ONAYLANDI', updated_at=now() WHERE tenant_id=$1 AND id=$2", [tenantId, input.id]);
+            try { await query("INSERT INTO saha_teklif_log (teklif_id,alan,eski_deger,yeni_deger,degistiren_kullanici) VALUES ($1,'durum',$2,'ONAYLANDI',NULL)", [input.id, eskiDurum]); } catch(e){}
+            return { success: true, message: 'Teklif ONAYLANDI: ' + urunAd };
+          } else {
+            const neden = input.neden || 'Sahip tarafından reddedildi';
+            const yeniNot = (cur.rows[0].notlar ? cur.rows[0].notlar + '\n' : '') + '[RED] ' + neden;
+            await query("UPDATE saha_teklif SET durum='TASLAK', notlar=$3, updated_at=now() WHERE tenant_id=$1 AND id=$2", [tenantId, input.id, yeniNot]);
+            try { await query("INSERT INTO saha_teklif_log (teklif_id,alan,eski_deger,yeni_deger,degistiren_kullanici) VALUES ($1,'durum',$2,'TASLAK (RED)',NULL)", [input.id, eskiDurum]); } catch(e){}
+            return { success: true, message: 'Teklif reddedildi (taslağa döndürüldü): ' + urunAd + ' — ' + neden };
+          }
         }
         if (toolName === 'generate_report') {
           try {
@@ -24536,7 +24609,7 @@ function buildDeptSystemPrompt(dept, context, session) {
           const r = await query('SELECT content FROM brain_notes WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 5', [tenantId]);
           if (r.rows.length) notesCtx = '\n\nHatırlat: ' + r.rows.map(n => n.content).join(' | ');
         } catch {}
-        return KRB_COMPANY_PROFILE + '\n\n' + 'Sen CEO Assistant\'sın — ' + company + ownerTitle + ownerName + '\' için kişisel CEO/sahip asistanısın.\n\nBağlam:\n- ' + timeStr + '\n- Hava: ' + weatherTxt + '\n- ' + greet + ', ' + ownerName + '!' + tasksCtx + notesCtx + '\n\nGörevin:\n1. Türkçe konuş, akıllıca ve nazikçe.\n2. Zaman, hava, bağlamı sohbete doğal dahil et.\n3. Görev talebi = hemen create_task kullan.\n4. HER iş sorusunda query_database ile veriyi sessizce çek — tablo adı, SQL sorgusu, veritabanı detayı ASLA söyleme. Sanki her şeyi zaten biliyormuşsun gibi doğal ve insan gibi cevap ver..\n5. Özet KPI için get_dept_kpis kullan.\n6. Önemli bilgileri save_note kaydet.\n7. Proaktif önerilerde bulun.\n8. Net, kısa ve doğrudan cevap ver.\n9. Rakip fiyat / piyasa / fiyat alarmı sorularında query_rakip_fiyat kullan — piyasa durumu, okunmamış alarmlar, marka fiyat karşılaştırması.\n10. YETKİLİSİN — "yapamam / gönderemem / elimde yok" DEME. Rapor veya bildirimi ilgili kişiye (mimar, Finans, IT, tedarikçi) send_email ile GERÇEKTEN gönder. Dış birine göndermeden önce alıcı ve konuyu tek cümleyle teyit ettir, onay gelince gönder ve sonucu bildir.\n11. Bir işi bitirmek için gereken araçları arka arkaya kendin çağır, yarım bırakma; somut ve sonuç odaklı ol.\n12. Fiyat alarmı kurmak için rakip_alarm_kur aracını kullan — SKU izlemeye eklenir, hedef fiyat(lar) ayarlanır, tetiklenince e-posta gider.';
+        return KRB_COMPANY_PROFILE + '\n\n' + 'Sen CEO Assistant\'sın — ' + company + ownerTitle + ownerName + '\' için kişisel CEO/sahip asistanısın.\n\nBağlam:\n- ' + timeStr + '\n- Hava: ' + weatherTxt + '\n- ' + greet + ', ' + ownerName + '!' + tasksCtx + notesCtx + '\n\nGörevin:\n1. Türkçe konuş, akıllıca ve nazikçe.\n2. Zaman, hava, bağlamı sohbete doğal dahil et.\n3. Görev talebi = hemen create_task kullan.\n4. HER iş sorusunda query_database ile veriyi sessizce çek — tablo adı, SQL sorgusu, veritabanı detayı ASLA söyleme. Sanki her şeyi zaten biliyormuşsun gibi doğal ve insan gibi cevap ver..\n5. Özet KPI için get_dept_kpis kullan.\n6. Önemli bilgileri save_note kaydet.\n7. Proaktif önerilerde bulun.\n8. Net, kısa ve doğrudan cevap ver.\n9. Rakip fiyat / piyasa / fiyat alarmı sorularında query_rakip_fiyat kullan — piyasa durumu, okunmamış alarmlar, marka fiyat karşılaştırması.\n10. YETKİLİSİN — "yapamam / gönderemem / elimde yok" DEME. Rapor veya bildirimi ilgili kişiye (mimar, Finans, IT, tedarikçi) send_email ile GERÇEKTEN gönder. Dış birine göndermeden önce alıcı ve konuyu tek cümleyle teyit ettir, onay gelince gönder ve sonucu bildir.\n11. Bir işi bitirmek için gereken araçları arka arkaya kendin çağır, yarım bırakma; somut ve sonuç odaklı ol.\n12. Fiyat alarmı kurmak için rakip_alarm_kur aracını kullan — SKU izlemeye eklenir, hedef fiyat(lar) ayarlanır, tetiklenince e-posta gider.\n13. Teklif onayı: "onay bekleyen teklifler" için bekleyen_teklifler kullan — her teklifte talep fiyatı, mevcut stok, birim maliyet/marj, temsilcinin girdiği rakip fiyat VE o ebattaki gerçek piyasa aralığı (min-max) hazır gelir. Rakip fiyatı yorumla: müşterinin söylediği rakip fiyat o markanın o ebattaki piyasa aralığının ALTINDAYSA muhtemelen blöf; aralık İÇİNDEYSE rakip daha ucuz/alt-segment modelini teklif etmiş olabilir (gerçek rekabet). teklif_detay ile incele, teklif_onayla / teklif_reddet ile karar ver. Excel gerekmez.';
       }
 
       async function _handleBrainChat(session, request, response) {
