@@ -1949,8 +1949,8 @@ async function teklifDetayModal(t) {
       <div style="font-weight:600;font-size:12px;color:#475569;margin-bottom:6px">
         Ürün Kalemleri (${kalemler.length})
       </div>
-      <div style="overflow-x:auto;border-radius:8px;border:1px solid #e2e8f0">
-        <div style="display:grid;grid-template-columns:28px 1fr 56px ${approverMode ? "80px 110px" : "80px 90px"} 90px 64px${approverMode ? " auto" : ""};background:#e2e8f0;padding:6px 0;font-size:11px;font-weight:600;color:#1e293b">
+      <div style="overflow-x:auto;max-width:100%;border-radius:8px;border:1px solid #e2e8f0">
+        <div style="display:grid;grid-template-columns:24px minmax(52px,1fr) 32px ${approverMode ? "50px 64px" : "56px 80px"} 80px 88px${approverMode ? " auto" : ""};background:#e2e8f0;padding:6px 0;font-size:11px;font-weight:600;color:#1e293b">
           <span style="padding:0 8px">#</span>
           <span style="padding:0 8px">Marka / Model / Ebat</span>
           <span style="padding:0 8px;text-align:right">Adet</span>
@@ -1966,7 +1966,7 @@ async function teklifDetayModal(t) {
           const odColor = od === "ONAYLANDI" ? "#16a34a" : od === "REDDEDILDI" ? "#dc2626" : "#f59e0b";
           const odLabel = od === "ONAYLANDI" ? "✓" : od === "REDDEDILDI" ? "✕" : "⏳";
           return `
-          <div style="display:grid;grid-template-columns:28px 1fr 56px ${approverMode ? "80px 110px" : "80px 90px"} 90px 64px${approverMode ? " auto" : ""};padding:8px 0;border-top:1px solid #f1f5f9;font-size:12px;background:#fff;color:#0f172a;align-items:center">
+          <div style="display:grid;grid-template-columns:24px minmax(52px,1fr) 32px ${approverMode ? "50px 64px" : "56px 80px"} 80px 88px${approverMode ? " auto" : ""};padding:8px 0;border-top:1px solid #f1f5f9;font-size:12px;background:#fff;color:#0f172a;align-items:center">
             <span style="padding:0 8px;color:#94a3b8">${i + 1}</span>
             <span style="padding:0 8px">
               <b style="color:#0f172a">${esc(k.marka || "")}</b> <span style="color:#334155">${k.model ? esc(k.model) : ""}</span>
@@ -1981,7 +1981,7 @@ async function teklifDetayModal(t) {
               ${od !== "BEKLIYOR"
                 ? `<span style="color:${odColor};font-weight:700">${k.onaylayan_iskonto_pct != null ? `%${Number(k.onaylayan_iskonto_pct)}` : "—"}</span>`
                 : `<input type="number" data-kalem-isk="${k.kalem_id}" value="${k.musteri_ek_iskonto_pct || 0}" min="0" max="100" step="0.5"
-                    style="width:68px;padding:3px 6px;border:1px solid #cbd5e1;border-radius:5px;font-size:12px;text-align:right;color:#0f172a;background:#fff">`
+                    style="width:56px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:5px;font-size:12px;text-align:right;color:#0f172a;background:#fff">`
               }
             </span>` : ""}
             <span style="padding:0 8px;text-align:right;color:#0f172a">${k.birim_fiyat != null ? fiyat(k.birim_fiyat) : "—"}</span>
@@ -1997,7 +1997,7 @@ async function teklifDetayModal(t) {
                   </span>`}
             </span>` : ""}
           </div>`;}).join("")}
-        <div style="display:grid;grid-template-columns:28px 1fr 56px ${approverMode ? "80px 110px" : "80px 90px"} 90px 64px${approverMode ? " auto" : ""};padding:8px 0;border-top:1px solid #e2e8f0;background:#f8fafc;font-size:12px;color:#0f172a">
+        <div style="display:grid;grid-template-columns:24px minmax(52px,1fr) 32px ${approverMode ? "50px 64px" : "56px 80px"} 80px 88px${approverMode ? " auto" : ""};padding:8px 0;border-top:1px solid #e2e8f0;background:#f8fafc;font-size:12px;color:#0f172a">
           <span></span><span></span><span></span><span></span>${approverMode ? "<span></span>" : ""}
           <span style="padding:0 8px;text-align:right;color:#64748b;font-size:11px">Genel Toplam</span>
           <span style="padding:0 8px;text-align:right;font-weight:700;color:#0f172a">${fiyat(t.toplam_tutar)}</span>
@@ -5787,6 +5787,7 @@ function injectStyles() {
   .dosya-btn{display:inline-flex;align-items:center;justify-content:center;text-align:center}
   .modal-fon{position:fixed;inset:0;background:rgba(15,23,42,.55);z-index:50;display:flex;align-items:flex-end;justify-content:center}
   .modal-kutu{background:#fff;color-scheme:light;border-radius:18px 18px 0 0;width:100%;max-width:min(95vw,760px);max-height:88vh;overflow-y:auto;padding:18px 16px 26px;color:#0f172a}
+  @media(max-width:640px){.modal-kutu{max-width:100vw;border-radius:14px 14px 0 0;max-height:92vh;padding:14px 10px 0}.modal-kutu .modal-btnlar{position:sticky;bottom:0;background:#fff;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin:10px -10px 0;padding:10px 10px calc(14px + env(safe-area-inset-bottom,0px));border-top:1px solid #eef2f6;z-index:5}}
   .modal-kutu table{border-collapse:collapse;width:100%}
   .modal-kutu table thead tr{background:#e2e8f0 !important}
   .modal-kutu table thead th{color:#1e293b !important;font-weight:600;padding:6px 8px}

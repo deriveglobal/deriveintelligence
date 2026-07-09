@@ -26855,7 +26855,8 @@ async function handleSahaApi(request, response, url, deps) {
             l.notlar || null]);
       }
       let _asistan = null;
-      if (p.notlar) { try { const _sg = await _extractIntent(p.notlar); const _ack = await _applyIntents(_sg, { tenantId: session.tenantId, repId: session.userId, musteriId: p.musteri_id, kaynakTip: "teklif", kaynakId: teklifId, hamMetin: p.notlar }); _asistan = _ack && _ack.mesaj; } catch (e) {} }
+      const _teklifNotlar = [p.notlar].concat((lines || []).map(function (l) { return l && l.notlar; })).filter(Boolean).join(" · ");
+      if (_teklifNotlar) { try { const _sg = await _extractIntent(_teklifNotlar); const _ack = await _applyIntents(_sg, { tenantId: session.tenantId, repId: session.userId, musteriId: p.musteri_id, kaynakTip: "teklif", kaynakId: teklifId, hamMetin: _teklifNotlar }); _asistan = _ack && _ack.mesaj; } catch (e) {} }
       sendJson(response, 200, { teklif: { ...hdr.rows[0], kalem_sayisi: lines.length }, asistan: _asistan });
       return;
     }
