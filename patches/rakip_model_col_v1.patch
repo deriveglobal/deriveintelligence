@@ -1,0 +1,15 @@
+--- a/shells/bi.js
++++ b/shells/bi.js
+@@ -4656,3 +4656,3 @@
+           const key = r.marka.toLowerCase() + '|' + sz;
+-          if (!groups[key]) groups[key] = { marka: r.marka, ebat: sz, fiyatlar: {}, saticiPerKaynak: {}, demand: {} };
++          if (!groups[key]) groups[key] = { marka: r.marka, ebat: sz, fiyatlar: {}, saticiPerKaynak: {}, demand: {}, modeller: [] };
+           const pf = parseFloat(r.fiyat);
+@@ -4661,2 +4661,3 @@
+           kaynakSet.add(r.kaynak);
++          if (r.model && !groups[key].modeller.includes(r.model)) groups[key].modeller.push(r.model); // RAKIP_MODEL_COL_V1
+           if (r.satici_sayisi) groups[key].saticiPerKaynak[r.kaynak] = parseInt(r.satici_sayisi);
+@@ -4678,2 +4680,3 @@
+           + '<th style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15)">Ebat</th>'
++          + '<th style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15)">Model</th>'
+           + kaynaklar.map(k => `<th style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15);text-align:right">${k}</th>`).join('')

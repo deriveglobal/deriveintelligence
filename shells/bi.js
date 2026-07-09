@@ -4654,11 +4654,12 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           // Parsed boyut varsa marka+ebat yerine marka+205/55R16 kullan → cross-platform birleşme
           const sz = (r.genislik && r.profil && r.cap) ? `${r.genislik}/${r.profil}R${r.cap}` : r.ebat;
           const key = r.marka.toLowerCase() + '|' + sz;
-          if (!groups[key]) groups[key] = { marka: r.marka, ebat: sz, fiyatlar: {}, saticiPerKaynak: {}, demand: {} };
+          if (!groups[key]) groups[key] = { marka: r.marka, ebat: sz, fiyatlar: {}, saticiPerKaynak: {}, demand: {}, modeller: [] };
           const pf = parseFloat(r.fiyat);
           // Per kaynak en düşük fiyatı tut (aynı kaynaktan iki farklı model varsa ucuzunu göster)
           if (!groups[key].fiyatlar[r.kaynak] || pf < groups[key].fiyatlar[r.kaynak]) groups[key].fiyatlar[r.kaynak] = pf;
           kaynakSet.add(r.kaynak);
+          if (r.model && !groups[key].modeller.includes(r.model)) groups[key].modeller.push(r.model); // RAKIP_MODEL_COL_V1
           if (r.satici_sayisi) groups[key].saticiPerKaynak[r.kaynak] = parseInt(r.satici_sayisi);
           if (r.yorum_sayisi)  groups[key].demand.yorum_sayisi  = r.yorum_sayisi;
           if (r.puan)          groups[key].demand.puan          = r.puan;
@@ -4676,6 +4677,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           + '<thead><tr style="background:rgba(255,255,255,0.06);font-weight:600;text-align:left">'
           + '<th style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15)">Marka</th>'
           + '<th style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15)">Ebat</th>'
+          + '<th style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15)">Model</th>'
           + kaynaklar.map(k => `<th style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15);text-align:right">${k}</th>`).join('')
           + `<th onclick="_rfToggleMinSort()" style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15);text-align:right;cursor:pointer;user-select:none">Min ${_rfMinSort===1?'▲':_rfMinSort===-1?'▼':'⇅'}</th>`
           + '<th style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15)">Talep</th>'
