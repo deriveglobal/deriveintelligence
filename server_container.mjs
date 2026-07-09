@@ -26416,6 +26416,26 @@ async function handleSahaApi(request, response, url, deps) {
     }
 
     // ── Teklif oluştur (çok satırlı) ──
+    // GET /api/saha/stok-durumu?kalem_kodu= — current on-hand for a product — TEKLIF_TALEP_STOK_V1
+    if (method === "GET" && path === "/api/saha/stok-durumu") {
+      const session = await requireSahaAccess(request);
+      const kod = (url.searchParams.get("kalem_kodu") || "").trim();
+      if (!kod) { sendJson(response, 400, { error: "kalem_kodu zorunlu" }); return; }
+      const r = await query(
+        `SELECT SUM(eldeki_miktar) AS eldeki_miktar, MAX(birim_maliyet) AS birim_maliyet, MAX(export_date) AS tarih
+           FROM bi_stok_durumu
+          WHERE tenant_id=$1 AND kalem_kodu=$2
+            AND export_date=(SELECT MAX(export_date) FROM bi_stok_durumu WHERE tenant_id=$1 AND kalem_kodu=$2)`,
+        [session.tenantId, kod]);
+      const row = r.rows[0] || {};
+      sendJson(response, 200, {
+        eldeki_miktar: row.eldeki_miktar != null ? Number(row.eldeki_miktar) : null,
+        birim_maliyet: row.birim_maliyet != null ? Number(row.birim_maliyet) : null,
+        tarih: row.tarih || null
+      });
+      return;
+    }
+
     if (method === "POST" && path === "/api/saha/teklifler") {
       const session = await requireSahaAccess(request);
       const p = await readJson(request);
@@ -26432,7 +26452,7 @@ async function handleSahaApi(request, response, url, deps) {
         const adet     = Math.max(1, Number(k.adet) || 1);
         const listeFiyati = k.liste_fiyati != null ? Number(k.liste_fiyati) : null;
         const ekIsk    = k.musteri_ek_iskonto_pct != null ? Number(k.musteri_ek_iskonto_pct) : 0;
-        const birim    = listeFiyati != null ? Math.round(listeFiyati * (1 - ekIsk / 100) * 100) / 100 : null;
+        const birim    = k.talep_fiyat != null ? Number(k.talep_fiyat) : (listeFiyati != null ? Math.round(listeFiyati * (1 - ekIsk / 100) * 100) / 100 : null);
         let jantGrubu  = k.jant_grubu || null;
         if (!jantGrubu && k.ebat) {
           const jm = String(k.ebat).match(/R\s*(\d{2}(?:\.\d)?)/i);
@@ -26473,6 +26493,10 @@ async function handleSahaApi(request, response, url, deps) {
           ilk.kampanya_indirim_deger != null ? Number(ilk.kampanya_indirim_deger) : null,
           ilk.ekIsk > 0 ? ilk.ekIsk : null]);
       const teklifId = hdr.rows[0].id;
+      // TEKLIF_TALEP_STOK_V1 — talep fiyatı + mevcut stok snapshot (header, first line)
+      await query('UPDATE saha_teklif SET talep_fiyat=$2, mevcut_stok=$3 WHERE id=$1',
+        [teklifId, ilk.talep_fiyat != null ? Number(ilk.talep_fiyat) : (ilk.birim != null ? ilk.birim : null),
+         ilk.mevcut_stok != null ? Number(ilk.mevcut_stok) : null]);
 
       // Insert kalem rows
       for (const l of lines) {
