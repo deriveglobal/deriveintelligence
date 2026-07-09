@@ -4526,6 +4526,10 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
               </select>
               <input id="rf-yeni-esik" type="number" min="1" max="100" step="0.5" placeholder="Eşik %"
                 style="padding:7px 8px;border:1px solid rgba(255,255,255,0.18);border-radius:6px;font-size:13px;width:80px">
+              <input id="rf-yeni-hedef-dusuk" type="number" min="0" step="1" placeholder="Hedef ↓ ₺"
+                style="padding:7px 8px;border:1px solid rgba(74,222,128,0.45);border-radius:6px;font-size:13px;width:110px;color:#4ade80">
+              <input id="rf-yeni-hedef-yuksek" type="number" min="0" step="1" placeholder="Hedef ↑ ₺"
+                style="padding:7px 8px;border:1px solid rgba(248,113,113,0.45);border-radius:6px;font-size:13px;width:110px;color:#f87171">
               <input id="rf-yeni-aciklama" placeholder="Not (isteğe bağlı)"
                 style="padding:7px 12px;border:1px solid rgba(255,255,255,0.18);border-radius:6px;font-size:13px;width:180px">
               <button onclick="rfIzleEkle()"
@@ -4896,7 +4900,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
         }
         const em = s => s.replace(/'/g, "\\'");
         let html = '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:rgba(255,255,255,0.06);font-weight:600">'
-          + ['Marka','Ebat','Frekans','Alarm %','Durum','Alarm','İşlem']
+          + ['Marka','Ebat','Frekans','Alarm %','Hedef ↓ ₺','Hedef ↑ ₺','Durum','Alarm','İşlem']
               .map(h => `<th style="padding:9px 12px;border-bottom:2px solid rgba(255,255,255,0.15)">${h}</th>`).join('')
           + '</tr></thead><tbody>';
         for (const r of listData.rows) {
@@ -4917,6 +4921,16 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
               <input type="number" value="${r.alarm_esigi}" min="1" max="100" step="0.5"
                 onchange="rfGuncelle(${r.id},'alarm_esigi',parseFloat(this.value))"
                 style="width:55px;padding:3px 6px;border:1px solid rgba(255,255,255,0.18);border-radius:4px;font-size:12px;text-align:center"> %
+            </td>
+            <td style="padding:9px 12px;text-align:center">
+              <input type="number" value="${r.hedef_dusuk ?? ''}" min="0" step="1" placeholder="—"
+                onchange="rfGuncelle(${r.id},'hedef_dusuk',this.value===''?null:parseFloat(this.value))"
+                style="width:82px;padding:3px 6px;border:1px solid rgba(74,222,128,0.45);border-radius:4px;font-size:12px;text-align:right;color:#4ade80">
+            </td>
+            <td style="padding:9px 12px;text-align:center">
+              <input type="number" value="${r.hedef_yuksek ?? ''}" min="0" step="1" placeholder="—"
+                onchange="rfGuncelle(${r.id},'hedef_yuksek',this.value===''?null:parseFloat(this.value))"
+                style="width:82px;padding:3px 6px;border:1px solid rgba(248,113,113,0.45);border-radius:4px;font-size:12px;text-align:right;color:#f87171">
             </td>
             <td style="padding:9px 12px;text-align:center">
               ${r.aktif ? '<span style="color:#38a169">● Aktif</span>' : '<span style="color:#667">● Pasif</span>'}
@@ -4941,15 +4955,19 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       const ebat     = document.getElementById('rf-yeni-ebat')?.value.trim();
       const cekim    = parseInt(document.getElementById('rf-yeni-cekim')?.value || '3', 10);
       const esikRaw  = parseFloat(document.getElementById('rf-yeni-esik')?.value);
+      const hdRaw    = parseFloat(document.getElementById('rf-yeni-hedef-dusuk')?.value);
+      const hyRaw    = parseFloat(document.getElementById('rf-yeni-hedef-yuksek')?.value);
       const aciklama = document.getElementById('rf-yeni-aciklama')?.value.trim();
       if (!marka || !ebat) { alert('Marka ve ebat zorunlu.'); return; }
       try {
         const payload = { marka, ebat, gunluk_cekim: cekim };
         if (!isNaN(esikRaw)) payload.alarm_esigi = esikRaw;
+        if (!isNaN(hdRaw)) payload.hedef_dusuk = hdRaw;
+        if (!isNaN(hyRaw)) payload.hedef_yuksek = hyRaw;
         if (aciklama) payload.aciklama = aciklama;
         const data = await rfApi('/api/rakip/izle', 'POST', payload);
         if (data.error) { alert(data.error); return; }
-        ['rf-yeni-marka','rf-yeni-ebat','rf-yeni-esik','rf-yeni-aciklama']
+        ['rf-yeni-marka','rf-yeni-ebat','rf-yeni-esik','rf-yeni-hedef-dusuk','rf-yeni-hedef-yuksek','rf-yeni-aciklama']
           .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
         rfYukleIzle(); rfYukleOzet();
       } catch(e) { alert('Hata: ' + e.message); }
