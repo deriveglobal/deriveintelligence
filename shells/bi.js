@@ -5014,6 +5014,14 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           const yon = a.yon === 'YUKARI'
             ? '<span style="color:#e53e3e;font-weight:700">▲</span>'
             : '<span style="color:#38a169;font-weight:700">▼</span>';
+          const _dp = parseFloat(a.degisim_pct);
+          const _hedef = a.tetik === 'HEDEF_ALT' || a.tetik === 'HEDEF_UST';
+          const degisimCell = _hedef
+            ? (a.tetik === 'HEDEF_ALT'
+                ? '<span style="color:#38a169;font-weight:700">▼ Hedefe indi</span>'
+                : '<span style="color:#e53e3e;font-weight:700">▲ Hedefe çıktı</span>')
+              + (isNaN(_dp) ? '' : ' <span style="color:#8899aa">%' + _dp.toFixed(1) + '</span>')
+            : (isNaN(_dp) ? yon : yon + ' %' + _dp.toFixed(1));
           const tarih = new Date(a.alarm_at).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
           html += `<tr style="border-bottom:1px solid rgba(255,255,255,0.06);${a.goruldu?'':'background:rgba(237,137,54,0.12)'}">
             <td style="padding:9px 12px;color:#8899aa;font-size:12px">${tarih}</td>
@@ -5021,7 +5029,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
             <td style="padding:9px 12px;color:#9ab">${a.kaynak}</td>
             <td style="padding:9px 12px;text-align:right;color:#8899aa">${a.eski_fiyat?parseFloat(a.eski_fiyat).toLocaleString('tr-TR')+' ₺':'—'}</td>
             <td style="padding:9px 12px;text-align:right;font-weight:600">${a.yeni_fiyat?parseFloat(a.yeni_fiyat).toLocaleString('tr-TR')+' ₺':'—'}</td>
-            <td style="padding:9px 12px;text-align:center">${yon} %${parseFloat(a.degisim_pct).toFixed(1)}</td>
+            <td style="padding:9px 12px;text-align:center">${degisimCell}</td>
             <td style="padding:9px 12px;text-align:center">
               ${!a.goruldu?`<button onclick="rfOkundu(${a.id})" style="padding:2px 8px;background:rgba(56,161,105,0.18);border:1px solid rgba(56,161,105,0.4);border-radius:4px;font-size:11px;cursor:pointer;color:#68d391">Okundu</button>`:''}
             </td>

@@ -20449,7 +20449,7 @@ async function requireTenantAdmin(request) {
     const whereClause = sadecOkunmamis ? 'WHERE a.tenant_id=$1 AND NOT a.goruldu' : 'WHERE a.tenant_id=$1';
     const { rows } = await pool.query(
       'SELECT a.id,a.izle_id,a.kaynak,a.marka,a.ebat,' +
-      ' a.eski_fiyat,a.yeni_fiyat,a.degisim_pct,a.yon,' +
+      ' a.eski_fiyat,a.yeni_fiyat,a.degisim_pct,a.yon,a.tetik,' +
       ' a.alarm_at,a.goruldu,i.gunluk_cekim,i.alarm_esigi' +
       ' FROM bi_rakip_fiyat_alarm a' +
       ' LEFT JOIN bi_rakip_izle i ON i.id=a.izle_id' +
