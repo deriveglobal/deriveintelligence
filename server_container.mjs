@@ -20242,7 +20242,8 @@ async function requireTenantAdmin(request) {
     const _rSess = await requireModuleAccess(request, 'intelligence').catch(()=>null) || await requireModuleAccess(request, 'saha').catch(()=>null); const tid = _rSess?.tenantId || null; if (!tid) { sendJson(response, 401, { error: 'Unauthorized' }); return; }
     const { rows } = await pool.query(
       'SELECT id, marka, ebat, model_pattern, gunluk_cekim,' +
-      ' aktif, alarm_esigi, aciklama, olusturuldu_at' +
+      ' aktif, alarm_esigi, aciklama, olusturuldu_at,' +
+      ' hedef_dusuk, hedef_yuksek, son_min_fiyat' +
       ' FROM bi_rakip_izle WHERE tenant_id=$1 ORDER BY olusturuldu_at DESC', [tid]
     );
     const alarmQ = await pool.query(
@@ -20259,7 +20260,7 @@ async function requireTenantAdmin(request) {
   if (request.method === 'POST' && url.pathname === '/api/rakip/izle') {
     // RAKIP_BODY_FIX_V1
     let body = {}; try { let _r=''; for await (const c of request) _r+=c; body=JSON.parse(_r||'{}'); } catch {}
-    const { marka, ebat, model_pattern, gunluk_cekim = 3, alarm_esigi, aciklama } = body || {};
+    const { marka, ebat, model_pattern, gunluk_cekim = 3, alarm_esigi, aciklama, hedef_dusuk, hedef_yuksek } = body || {};
     if (!marka || !ebat) { sendJson(response, 400, { error: 'marka ve ebat zorunlu' }); return; }
     const _rSess = await requireModuleAccess(request, 'intelligence').catch(()=>null) || await requireModuleAccess(request, 'saha').catch(()=>null); const tid = _rSess?.tenantId || null; if (!tid) { sendJson(response, 401, { error: 'Unauthorized' }); return; }
     const ayarQ = await pool.query("SELECT value FROM bi_rakip_izle_ayar WHERE key='max_izle_sayisi'");
@@ -20277,10 +20278,10 @@ async function requireTenantAdmin(request) {
     try {
       const { rows } = await pool.query(
         'INSERT INTO bi_rakip_izle' +
-        ' (marka,ebat,model_pattern,gunluk_cekim,alarm_esigi,aciklama,tenant_id)' +
-        ' VALUES ($1,$2,$3,$4,$5,$6,$7)' +
-        ' RETURNING id,marka,ebat,gunluk_cekim,alarm_esigi,aktif',
-        [marka, ebat, model_pattern || null, gunluk_cekim, esik, aciklama || null, tid]
+        ' (marka,ebat,model_pattern,gunluk_cekim,alarm_esigi,aciklama,hedef_dusuk,hedef_yuksek,tenant_id)' +
+        ' VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)' +
+        ' RETURNING id,marka,ebat,gunluk_cekim,alarm_esigi,aktif,hedef_dusuk,hedef_yuksek',
+        [marka, ebat, model_pattern || null, gunluk_cekim, esik, aciklama || null, (hedef_dusuk===''||hedef_dusuk==null)?null:hedef_dusuk, (hedef_yuksek===''||hedef_yuksek==null)?null:hedef_yuksek, tid]
       );
       sendJson(response, 200, { row: rows[0] });
     } catch(e) { sendJson(response, 500, { error: e.message }); }
@@ -20291,19 +20292,22 @@ async function requireTenantAdmin(request) {
   if (request.method === 'PUT' && /^\/api\/rakip\/izle\/\d+$/.test(url.pathname)) {
     let body = {}; try { let _r=''; for await (const c of request) _r+=c; body=JSON.parse(_r||'{}'); } catch {}
     const izleId = parseInt(url.pathname.split('/').pop(), 10);
-    const { aktif, gunluk_cekim, alarm_esigi, aciklama, model_pattern } = body || {};
+    const { aktif, gunluk_cekim, alarm_esigi, aciklama, model_pattern, hedef_dusuk, hedef_yuksek } = body || {};
     const sets = []; const vals = [];
     if (aktif         !== undefined) { vals.push(aktif);         sets.push('aktif=$'         + vals.length); }
     if (gunluk_cekim  !== undefined) { vals.push(gunluk_cekim);  sets.push('gunluk_cekim=$'  + vals.length); }
     if (alarm_esigi   !== undefined) { vals.push(alarm_esigi);   sets.push('alarm_esigi=$'   + vals.length); }
     if (aciklama      !== undefined) { vals.push(aciklama);      sets.push('aciklama=$'      + vals.length); }
     if (model_pattern !== undefined) { vals.push(model_pattern); sets.push('model_pattern=$' + vals.length); }
+    if (hedef_dusuk   !== undefined) { vals.push((hedef_dusuk===''||hedef_dusuk===null)?null:hedef_dusuk);   sets.push('hedef_dusuk=$'  + vals.length); }
+    if (hedef_yuksek  !== undefined) { vals.push((hedef_yuksek===''||hedef_yuksek===null)?null:hedef_yuksek); sets.push('hedef_yuksek=$' + vals.length); }
+    if (hedef_dusuk !== undefined || hedef_yuksek !== undefined) { sets.push('son_min_fiyat=NULL'); }
     if (!sets.length) { sendJson(response, 400, { error: 'Güncellenecek alan yok' }); return; }
     vals.push(izleId); vals.push(tid);
     const { rows } = await pool.query(
       'UPDATE bi_rakip_izle SET ' + sets.join(',') + ',guncellendi_at=NOW()' +
       ' WHERE id=$' + (vals.length-1) + ' AND tenant_id=$' + vals.length +
-      ' RETURNING id,marka,ebat,aktif,gunluk_cekim,alarm_esigi', vals
+      ' RETURNING id,marka,ebat,aktif,gunluk_cekim,alarm_esigi,hedef_dusuk,hedef_yuksek', vals
     );
     if (!rows.length) { sendJson(response, 404, { error: 'Kayıt bulunamadı' }); return; }
     sendJson(response, 200, { row: rows[0] }); return;
