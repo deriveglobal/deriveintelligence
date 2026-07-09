@@ -28480,9 +28480,9 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     }
 
     // POST /api/saha/notlar — not oluştur
-    if (method === "POST" && path === "/api/saha/gunluk-ozet") {
+    if ((method === "POST" || method === "GET") && path === "/api/saha/gunluk-ozet") {
       let secret = "";
-      try { secret = request.headers["x-ozet-secret"] || ""; } catch (e) {}
+      try { secret = url.searchParams.get("key") || request.headers["x-ozet-secret"] || ""; } catch (e) {}
       let ok = false;
       try { const _s = await pool.query("SELECT value FROM bi_rakip_izle_ayar WHERE key='alarm_flush_secret'"); ok = !!(_s.rows[0] && _s.rows[0].value && _s.rows[0].value === secret); } catch (e) {}
       if (!ok) { sendJson(response, 403, { error: "forbidden" }); return; }
