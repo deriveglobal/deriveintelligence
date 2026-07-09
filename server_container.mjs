@@ -24275,6 +24275,20 @@ function buildDeptSystemPrompt(dept, context, session) {
             required: ['query_type']
           }
         },
+        {
+          name: 'rakip_alarm_kur',
+          description: 'Bir lastik SKU için rakip fiyat alarmı kur (izleme listesine ekle). Piyasadaki en düşük fiyat X TL\'ye DÜŞERSE veya Y TL\'ye ÇIKARSA alarm üretir ve e-posta gönderir. Sahip bir ürüne fiyat alarmı kurmanı ya da şu fiyata düşerse/çıkarsa haber vermeni istediğinde kullan.',
+          input_schema: {
+            type: 'object',
+            properties: {
+              marka: { type: 'string', description: 'Marka adı, örn. Lassa' },
+              ebat: { type: 'string', description: 'Lastik ebatı, örn. 195/65R15' },
+              hedef_dusuk: { type: 'number', description: 'Alt hedef X: piyasa en düşük fiyat buna DÜŞERSE alarm (opsiyonel)' },
+              hedef_yuksek: { type: 'number', description: 'Üst hedef Y: piyasa en düşük fiyat buna ÇIKARSA alarm (opsiyonel)' }
+            },
+            required: ['marka', 'ebat']
+          }
+        },
                 {
           name: 'generate_report',
           description: 'Create a downloadable HTML/PDF report. Use when user asks for a report, document, or printable summary. First collect all needed data via query_database, then call this with the structured content. Returns a download URL the user can open in the browser and print as PDF.',
@@ -24351,6 +24365,24 @@ function buildDeptSystemPrompt(dept, context, session) {
             await sendGraphMail({ to, subject, body: '<div style="font-family:Arial,sans-serif;color:#111;font-size:14px;line-height:1.55">' + _inner + '</div>' });
             return { success: true, message: 'E-posta gönderildi → ' + to + ' (konu: ' + subject + ')' };
           } catch (e) { return { error: 'E-posta gönderilemedi: ' + e.message }; }
+        }
+        if (toolName === 'rakip_alarm_kur') {
+          const { marka, ebat, hedef_dusuk = null, hedef_yuksek = null } = input;
+          if (!marka || !ebat) return { error: 'marka ve ebat zorunlu' };
+          const _x = (hedef_dusuk === '' || hedef_dusuk == null) ? null : hedef_dusuk;
+          const _y = (hedef_yuksek === '' || hedef_yuksek == null) ? null : hedef_yuksek;
+          try {
+            const _ex = await query("SELECT id FROM bi_rakip_izle WHERE tenant_id=$1 AND lower(marka)=lower($2) AND lower(ebat)=lower($3) LIMIT 1", [tenantId, marka, ebat]);
+            let _iid;
+            if (_ex.rows.length) {
+              _iid = _ex.rows[0].id;
+              await query("UPDATE bi_rakip_izle SET hedef_dusuk=$1, hedef_yuksek=$2, son_min_fiyat=NULL, aktif=true, guncellendi_at=NOW() WHERE id=$3", [_x, _y, _iid]);
+            } else {
+              const _r = await query("INSERT INTO bi_rakip_izle (marka, ebat, gunluk_cekim, alarm_esigi, hedef_dusuk, hedef_yuksek, tenant_id) VALUES ($1,$2,3,10.0,$3,$4,$5) RETURNING id", [marka, ebat, _x, _y, tenantId]);
+              _iid = _r.rows[0].id;
+            }
+            return { success: true, izle_id: _iid, message: marka + ' ' + ebat + ' fiyat alarmı kuruldu' + (_x ? (' · düşerse ' + _x + ' TL') : '') + (_y ? (' · çıkarsa ' + _y + ' TL') : '') + ' (3x/gün takip, e-posta aktif)' };
+          } catch (e) { return { error: e.message }; }
         }
         if (toolName === 'generate_report') {
           try {
@@ -24504,7 +24536,7 @@ function buildDeptSystemPrompt(dept, context, session) {
           const r = await query('SELECT content FROM brain_notes WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 5', [tenantId]);
           if (r.rows.length) notesCtx = '\n\nHatırlat: ' + r.rows.map(n => n.content).join(' | ');
         } catch {}
-        return KRB_COMPANY_PROFILE + '\n\n' + 'Sen CEO Assistant\'sın — ' + company + ownerTitle + ownerName + '\' için kişisel CEO/sahip asistanısın.\n\nBağlam:\n- ' + timeStr + '\n- Hava: ' + weatherTxt + '\n- ' + greet + ', ' + ownerName + '!' + tasksCtx + notesCtx + '\n\nGörevin:\n1. Türkçe konuş, akıllıca ve nazikçe.\n2. Zaman, hava, bağlamı sohbete doğal dahil et.\n3. Görev talebi = hemen create_task kullan.\n4. HER iş sorusunda query_database ile veriyi sessizce çek — tablo adı, SQL sorgusu, veritabanı detayı ASLA söyleme. Sanki her şeyi zaten biliyormuşsun gibi doğal ve insan gibi cevap ver..\n5. Özet KPI için get_dept_kpis kullan.\n6. Önemli bilgileri save_note kaydet.\n7. Proaktif önerilerde bulun.\n8. Net, kısa ve doğrudan cevap ver.\n9. Rakip fiyat / piyasa / fiyat alarmı sorularında query_rakip_fiyat kullan — piyasa durumu, okunmamış alarmlar, marka fiyat karşılaştırması.\n10. YETKİLİSİN — "yapamam / gönderemem / elimde yok" DEME. Rapor veya bildirimi ilgili kişiye (mimar, Finans, IT, tedarikçi) send_email ile GERÇEKTEN gönder. Dış birine göndermeden önce alıcı ve konuyu tek cümleyle teyit ettir, onay gelince gönder ve sonucu bildir.\n11. Bir işi bitirmek için gereken araçları arka arkaya kendin çağır, yarım bırakma; somut ve sonuç odaklı ol.';
+        return KRB_COMPANY_PROFILE + '\n\n' + 'Sen CEO Assistant\'sın — ' + company + ownerTitle + ownerName + '\' için kişisel CEO/sahip asistanısın.\n\nBağlam:\n- ' + timeStr + '\n- Hava: ' + weatherTxt + '\n- ' + greet + ', ' + ownerName + '!' + tasksCtx + notesCtx + '\n\nGörevin:\n1. Türkçe konuş, akıllıca ve nazikçe.\n2. Zaman, hava, bağlamı sohbete doğal dahil et.\n3. Görev talebi = hemen create_task kullan.\n4. HER iş sorusunda query_database ile veriyi sessizce çek — tablo adı, SQL sorgusu, veritabanı detayı ASLA söyleme. Sanki her şeyi zaten biliyormuşsun gibi doğal ve insan gibi cevap ver..\n5. Özet KPI için get_dept_kpis kullan.\n6. Önemli bilgileri save_note kaydet.\n7. Proaktif önerilerde bulun.\n8. Net, kısa ve doğrudan cevap ver.\n9. Rakip fiyat / piyasa / fiyat alarmı sorularında query_rakip_fiyat kullan — piyasa durumu, okunmamış alarmlar, marka fiyat karşılaştırması.\n10. YETKİLİSİN — "yapamam / gönderemem / elimde yok" DEME. Rapor veya bildirimi ilgili kişiye (mimar, Finans, IT, tedarikçi) send_email ile GERÇEKTEN gönder. Dış birine göndermeden önce alıcı ve konuyu tek cümleyle teyit ettir, onay gelince gönder ve sonucu bildir.\n11. Bir işi bitirmek için gereken araçları arka arkaya kendin çağır, yarım bırakma; somut ve sonuç odaklı ol.\n12. Fiyat alarmı kurmak için rakip_alarm_kur aracını kullan — SKU izlemeye eklenir, hedef fiyat(lar) ayarlanır, tetiklenince e-posta gider.';
       }
 
       async function _handleBrainChat(session, request, response) {
