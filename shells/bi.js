@@ -4649,13 +4649,17 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       try {
         const data = await rfApi('/api/rakip/piyasa?' + qs.toString());
         if (!data.rows?.length) { res.innerHTML = '<div style="color:#778;padding:20px">Sonuç bulunamadı.</div>'; return; }
-        const groups = {}, kaynakSet = new Set();
+        const groups = {}, kaynakSet = new Set(); // RAKIP_GROUPING_V1
         for (const r of data.rows) {
-          const key = r.marka + ' | ' + r.ebat;
-          if (!groups[key]) groups[key] = { marka: r.marka, ebat: r.ebat, fiyatlar: {}, demand: {} };
-          groups[key].fiyatlar[r.kaynak] = parseFloat(r.fiyat);
+          // Parsed boyut varsa marka+ebat yerine marka+205/55R16 kullan → cross-platform birleşme
+          const sz = (r.genislik && r.profil && r.cap) ? `${r.genislik}/${r.profil}R${r.cap}` : r.ebat;
+          const key = r.marka.toLowerCase() + '|' + sz;
+          if (!groups[key]) groups[key] = { marka: r.marka, ebat: sz, fiyatlar: {}, saticiPerKaynak: {}, demand: {} };
+          const pf = parseFloat(r.fiyat);
+          // Per kaynak en düşük fiyatı tut (aynı kaynaktan iki farklı model varsa ucuzunu göster)
+          if (!groups[key].fiyatlar[r.kaynak] || pf < groups[key].fiyatlar[r.kaynak]) groups[key].fiyatlar[r.kaynak] = pf;
           kaynakSet.add(r.kaynak);
-          if (r.satici_sayisi) groups[key].demand.satici_sayisi = r.satici_sayisi;
+          if (r.satici_sayisi) groups[key].saticiPerKaynak[r.kaynak] = parseInt(r.satici_sayisi);
           if (r.yorum_sayisi)  groups[key].demand.yorum_sayisi  = r.yorum_sayisi;
           if (r.puan)          groups[key].demand.puan          = r.puan;
         }
@@ -4681,16 +4685,17 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           const prices = Object.values(g.fiyatlar).filter(Boolean);
           const min = prices.length ? Math.min(...prices) : null;
           const demand = [];
-          if (g.demand.satici_sayisi) demand.push('🏪' + g.demand.satici_sayisi);
           if (g.demand.yorum_sayisi)  demand.push('🛒' + g.demand.yorum_sayisi);
           if (g.demand.puan)          demand.push('⭐' + g.demand.puan);
           const em = s => s.replace(/'/g, "\\'");
           html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.06)">'
             + `<td style="padding:9px 12px;font-weight:600">${g.marka}</td>`
-            + `<td style="padding:9px 12px;color:#9ab;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${g.ebat}">${g.ebat}</td>`
+            + `<td style="padding:9px 12px;color:#9ab;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${g.ebat}">${g.ebat}</td><td style="padding:9px 12px;max-width:260px;word-break:break-word;color:#8fa;font-size:11px;line-height:1.3" title="${(g.modeller||[]).join("|")}">${(g.modeller||[])[0]||"--"}</td>`
             + kaynaklar.map(k => {
                 const f = g.fiyatlar[k];
-                return `<td style="padding:9px 12px;text-align:right;${f&&f===min?'color:#38a169;font-weight:700':'color:#94a3b8'}">${f?f.toLocaleString('tr-TR')+' ₺':'<span style="color:#445">—</span>'}</td>`;
+                const sat = g.saticiPerKaynak?.[k];
+                const satStr = sat ? `<br><span style="font-size:10px;color:#7a8a9a">${sat} satıcı</span>` : '';
+                return `<td style="padding:9px 12px;text-align:right;${f&&f===min?'color:#38a169;font-weight:700':'color:#94a3b8'}">${f?f.toLocaleString('tr-TR')+' ₺'+satStr:'<span style="color:#445">—</span>'}</td>`;
               }).join('')
             + `<td style="padding:9px 12px;text-align:right;font-weight:700">${min?min.toLocaleString('tr-TR')+' ₺':'—'}</td>`
             + `<td style="padding:9px 12px;font-size:12px;color:#8899aa">${demand.join(' ')}</td>`
