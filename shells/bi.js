@@ -4650,6 +4650,23 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
     rfYuklePiyasaOzet();
 
     let _rfMinSort = 0; // 0=varsayılan 1=artan -1=azalan — RAKIP_UI_V1
+        window.rfRawIzleEkle = async function(marka, ebat) {
+          if (!marka || !ebat) { alert('Marka/ebat eksik.'); return; }
+          var x = prompt('"' + marka + ' ' + ebat + '"\nHEDEF ↓ — fiyat buna DÜŞERSE alarm (₺, boş bırakılabilir):', '');
+          if (x === null) return;
+          var y = prompt('HEDEF ↑ — fiyat buna ÇIKARSA alarm (₺, boş bırakılabilir):', '');
+          if (y === null) return;
+          var payload = { marka: marka, ebat: ebat, gunluk_cekim: 3 };
+          var xn = parseFloat(x), yn = parseFloat(y);
+          if (!isNaN(xn)) payload.hedef_dusuk = xn;
+          if (!isNaN(yn)) payload.hedef_yuksek = yn;
+          try {
+            var data = await rfApi('/api/rakip/izle', 'POST', payload);
+            if (data && data.error) { alert(data.error); return; }
+            var hedefTxt = (!isNaN(xn) || !isNaN(yn)) ? (' Hedef:' + (!isNaN(xn) ? ' ↓' + xn : '') + (!isNaN(yn) ? ' ↑' + yn : '')) : ' (Hedef için İzleme sekmesinden belirleyin.)';
+            alert('"' + marka + ' ' + ebat + '" izlemeye eklendi (3x/gün).' + hedefTxt);
+          } catch(e) { alert('Hata: ' + e.message); }
+        };
         window.rfPiyasaAra = async function() { // RAKIP_RAWDATA_V1 (flat per-listing; replaces pivot)
       const marka = (document.getElementById('rf-marka')?.value || '').trim();
       const ebat  = (document.getElementById('rf-ebat')?.value  || '').trim();
@@ -4719,6 +4736,9 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           const fy = parseFloat(r.fiyat);
           const birim = (set && fy) ? fy / 4 : null;
           const link = r.url ? '<a href="' + esc(r.url) + '" target="_blank" rel="noopener noreferrer" style="color:#63b3ed;text-decoration:none">↗</a>' : '';
+          const _wq = s => String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+          const _wsz = sizeOf(r);
+          const izleBtn = (r.marka && _wsz) ? '<button onclick="rfRawIzleEkle(\'' + _wq(r.marka) + '\',\'' + _wq(_wsz) + '\')" title="İzleme listesine ekle + hedef fiyat" style="padding:2px 7px;background:rgba(56,161,105,0.15);border:1px solid rgba(56,161,105,0.4);border-radius:5px;font-size:11px;cursor:pointer;color:#68d391;white-space:nowrap">+ İzle</button>' : '';
           const badge = set ? ' <span style="background:#7c3f00;color:#ffd9a0;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;white-space:nowrap">4\'LÜ SET</span>' : '';
           html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.06)">'
             + '<td style="padding:8px 10px;color:#94a3b8;white-space:nowrap">' + esc(r.kaynak) + '</td>'
@@ -4729,7 +4749,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
             + '<td style="padding:8px 10px;text-align:right;white-space:nowrap;color:' + (birim ? '#38a169' : '#556') + '">' + (birim ? money(birim) : '—') + '</td>'
             + '<td style="padding:8px 10px;color:#8899aa;white-space:nowrap">' + (r.satici_sayisi ? ('🏪' + r.satici_sayisi) : '') + '</td>'
             + '<td style="padding:8px 10px;color:#8899aa;white-space:nowrap">' + (r.puan ? ('⭐' + r.puan) : '') + '</td>'
-            + '<td style="padding:8px 10px">' + link + '</td>'
+            + '<td style="padding:8px 10px;white-space:nowrap">' + izleBtn + ' ' + link + '</td>'
             + '</tr>';
         }
         html += '</tbody></table></div>';
