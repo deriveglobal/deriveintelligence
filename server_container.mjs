@@ -24243,6 +24243,20 @@ function buildDeptSystemPrompt(dept, context, session) {
             required: ['sql']
           }
         },
+        {
+          name: 'send_email',
+          description: 'Gerçek e-posta gönder (rapor, bildirim, uyarı). Sahip birine rapor/bilgi iletmeni ya da mimara/Finans/IT/tedarikçiye bildirim göndermeni istediğinde kullan. GERÇEKTEN gönderir. Dış birine göndermeden önce alıcıyı ve konuyu tek cümleyle sahibe teyit ettir, onay gelince gönder.',
+          input_schema: {
+            type: 'object',
+            properties: {
+              to: { type: 'string', description: 'Alıcı e-posta adresi' },
+              subject: { type: 'string', description: 'E-posta konusu' },
+              body: { type: 'string', description: 'E-posta metni (düz metin; satır sonları korunur)' },
+              html: { type: 'string', description: 'Opsiyonel HTML gövde (verilirse body yerine kullanılır)' }
+            },
+            required: ['to', 'subject', 'body']
+          }
+        },
         // BRAIN_RAKIP_V1
         {
           name: 'query_rakip_fiyat',
@@ -24328,6 +24342,15 @@ function buildDeptSystemPrompt(dept, context, session) {
           } catch(e) {
             return { dept: input.dept, error: e.message };
           }
+        }
+        if (toolName === 'send_email') {
+          const { to, subject, body = '', html } = input;
+          if (!to || !subject || (!body && !html)) return { error: 'to, subject ve body zorunlu' };
+          try {
+            const _inner = html ? String(html) : String(body).replace(/\n/g, '<br>');
+            await sendGraphMail({ to, subject, body: '<div style="font-family:Arial,sans-serif;color:#111;font-size:14px;line-height:1.55">' + _inner + '</div>' });
+            return { success: true, message: 'E-posta gönderildi → ' + to + ' (konu: ' + subject + ')' };
+          } catch (e) { return { error: 'E-posta gönderilemedi: ' + e.message }; }
         }
         if (toolName === 'generate_report') {
           try {
@@ -24481,7 +24504,7 @@ function buildDeptSystemPrompt(dept, context, session) {
           const r = await query('SELECT content FROM brain_notes WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 5', [tenantId]);
           if (r.rows.length) notesCtx = '\n\nHatırlat: ' + r.rows.map(n => n.content).join(' | ');
         } catch {}
-        return KRB_COMPANY_PROFILE + '\n\n' + 'Sen CEO Assistant\'sın — ' + company + ownerTitle + ownerName + '\' için kişisel CEO/sahip asistanısın.\n\nBağlam:\n- ' + timeStr + '\n- Hava: ' + weatherTxt + '\n- ' + greet + ', ' + ownerName + '!' + tasksCtx + notesCtx + '\n\nGörevin:\n1. Türkçe konuş, akıllıca ve nazikçe.\n2. Zaman, hava, bağlamı sohbete doğal dahil et.\n3. Görev talebi = hemen create_task kullan.\n4. HER iş sorusunda query_database ile veriyi sessizce çek — tablo adı, SQL sorgusu, veritabanı detayı ASLA söyleme. Sanki her şeyi zaten biliyormuşsun gibi doğal ve insan gibi cevap ver..\n5. Özet KPI için get_dept_kpis kullan.\n6. Önemli bilgileri save_note kaydet.\n7. Proaktif önerilerde bulun.\n8. Net, kısa ve doğrudan cevap ver.\n9. Rakip fiyat / piyasa / fiyat alarmı sorularında query_rakip_fiyat kullan — piyasa durumu, okunmamış alarmlar, marka fiyat karşılaştırması.';
+        return KRB_COMPANY_PROFILE + '\n\n' + 'Sen CEO Assistant\'sın — ' + company + ownerTitle + ownerName + '\' için kişisel CEO/sahip asistanısın.\n\nBağlam:\n- ' + timeStr + '\n- Hava: ' + weatherTxt + '\n- ' + greet + ', ' + ownerName + '!' + tasksCtx + notesCtx + '\n\nGörevin:\n1. Türkçe konuş, akıllıca ve nazikçe.\n2. Zaman, hava, bağlamı sohbete doğal dahil et.\n3. Görev talebi = hemen create_task kullan.\n4. HER iş sorusunda query_database ile veriyi sessizce çek — tablo adı, SQL sorgusu, veritabanı detayı ASLA söyleme. Sanki her şeyi zaten biliyormuşsun gibi doğal ve insan gibi cevap ver..\n5. Özet KPI için get_dept_kpis kullan.\n6. Önemli bilgileri save_note kaydet.\n7. Proaktif önerilerde bulun.\n8. Net, kısa ve doğrudan cevap ver.\n9. Rakip fiyat / piyasa / fiyat alarmı sorularında query_rakip_fiyat kullan — piyasa durumu, okunmamış alarmlar, marka fiyat karşılaştırması.\n10. YETKİLİSİN — "yapamam / gönderemem / elimde yok" DEME. Rapor veya bildirimi ilgili kişiye (mimar, Finans, IT, tedarikçi) send_email ile GERÇEKTEN gönder. Dış birine göndermeden önce alıcı ve konuyu tek cümleyle teyit ettir, onay gelince gönder ve sonucu bildir.\n11. Bir işi bitirmek için gereken araçları arka arkaya kendin çağır, yarım bırakma; somut ve sonuç odaklı ol.';
       }
 
       async function _handleBrainChat(session, request, response) {
