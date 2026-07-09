@@ -1,0 +1,24 @@
+--- a/shells/bi.js
++++ b/shells/bi.js
+@@ -4445,3 +4445,4 @@
+             style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;
+-                   cursor:pointer;border-bottom:3px solid #3182ce;color:#3182ce;margin-bottom:-2px">Piyasa</button>
++                   cursor:pointer;border-bottom:3px solid #3182ce;color:#3182ce;margin-bottom:-2px">Ham Veri</button>
++          <button onclick="rfTab('akilli')" id="rf-tab-akilli" style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;cursor:pointer;border-bottom:3px solid transparent;color:#778;margin-bottom:-2px">🎯 Smart Matched</button>
+           <button onclick="rfTab('izleme')" id="rf-tab-izleme"
+@@ -4490,3 +4490,10 @@
+           <div id="rf-piyasa-result"></div>
+         </div>
++        <div id="rf-pane-akilli" style="display:none">
++          <div style="padding:48px 20px;text-align:center;color:#8899aa">
++            <div style="font-size:40px;margin-bottom:12px">🎯</div>
++            <div style="font-size:18px;font-weight:700;color:#cbd5e1;margin-bottom:8px">Smart Matched — Yakında</div>
++            <div style="font-size:13px;max-width:540px;margin:0 auto;line-height:1.55">Farklı pazaryerlerindeki ilanlar %100 birebir ürün eşleşmesine göre normalize edilip karşılaştırılacak: desen adı, ebat, yük/hız endeksi, mevsim (yaz/kış/4 mevsim) ve tekli/set ayrımı. Şu anda geliştiriliyor.</div>
++          </div>
++        </div>
+         <div id="rf-pane-izleme" style="display:none">
+@@ -4613,3 +4613,3 @@
+     window.rfTab = function(tab) {
+-      ['piyasa','izleme','alarmlar','ayarlar'].forEach(t => {
++      ['piyasa','akilli','izleme','alarmlar','ayarlar'].forEach(t => {
+         const pane = document.getElementById('rf-pane-' + t);

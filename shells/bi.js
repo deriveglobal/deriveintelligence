@@ -4443,7 +4443,8 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
         <div style="display:flex;gap:0;border-bottom:2px solid rgba(255,255,255,0.15);margin-bottom:20px">
           <button onclick="rfTab('piyasa')" id="rf-tab-piyasa"
             style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;
-                   cursor:pointer;border-bottom:3px solid #3182ce;color:#3182ce;margin-bottom:-2px">Piyasa</button>
+                   cursor:pointer;border-bottom:3px solid #3182ce;color:#3182ce;margin-bottom:-2px">Ham Veri</button>
+          <button onclick="rfTab('akilli')" id="rf-tab-akilli" style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;cursor:pointer;border-bottom:3px solid transparent;color:#778;margin-bottom:-2px">🎯 Smart Matched</button>
           <button onclick="rfTab('izleme')" id="rf-tab-izleme"
             style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;
                    cursor:pointer;border-bottom:3px solid transparent;color:#778;margin-bottom:-2px">İzleme</button>
@@ -4488,6 +4489,13 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
               style="padding:8px 16px;background:#38a169;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer">⭐ İzlemeye Ekle</button>
           </div>
           <div id="rf-piyasa-result"></div>
+        </div>
+        <div id="rf-pane-akilli" style="display:none">
+          <div style="padding:48px 20px;text-align:center;color:#8899aa">
+            <div style="font-size:40px;margin-bottom:12px">🎯</div>
+            <div style="font-size:18px;font-weight:700;color:#cbd5e1;margin-bottom:8px">Smart Matched — Yakında</div>
+            <div style="font-size:13px;max-width:540px;margin:0 auto;line-height:1.55">Farklı pazaryerlerindeki ilanlar %100 birebir ürün eşleşmesine göre normalize edilip karşılaştırılacak: desen adı, ebat, yük/hız endeksi, mevsim (yaz/kış/4 mevsim) ve tekli/set ayrımı. Şu anda geliştiriliyor.</div>
+          </div>
         </div>
         <div id="rf-pane-izleme" style="display:none">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -4611,7 +4619,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
     `;
 
     window.rfTab = function(tab) {
-      ['piyasa','izleme','alarmlar','ayarlar'].forEach(t => {
+      ['piyasa','akilli','izleme','alarmlar','ayarlar'].forEach(t => {
         const pane = document.getElementById('rf-pane-' + t);
         const btn  = document.getElementById('rf-tab-'  + t);
         if (!pane || !btn) return;
@@ -4636,7 +4644,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
     rfYuklePiyasaOzet();
 
     let _rfMinSort = 0; // 0=varsayılan 1=artan -1=azalan — RAKIP_UI_V1
-        window.rfPiyasaAra = async function() {
+        window.rfPiyasaAra = async function() { // RAKIP_RAWDATA_V1 (flat per-listing; replaces pivot)
       const marka = (document.getElementById('rf-marka')?.value || '').trim();
       const ebat  = (document.getElementById('rf-ebat')?.value  || '').trim();
       if (!marka && !ebat) { alert('Lütfen marka veya ebat girin.'); return; }
@@ -4645,69 +4653,48 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       const qs = new URLSearchParams();
       if (marka) qs.set('marka', marka);
       if (ebat)  qs.set('ebat', ebat);
-      qs.set('limit', '300');
+      qs.set('limit', '500');
       try {
         const data = await rfApi('/api/rakip/piyasa?' + qs.toString());
         if (!data.rows?.length) { res.innerHTML = '<div style="color:#778;padding:20px">Sonuç bulunamadı.</div>'; return; }
-        const groups = {}, kaynakSet = new Set(); // RAKIP_GROUPING_V1
-        for (const r of data.rows) {
-          // Parsed boyut varsa marka+ebat yerine marka+205/55R16 kullan → cross-platform birleşme
-          const sz = (r.genislik && r.profil && r.cap) ? `${r.genislik}/${r.profil}R${r.cap}` : r.ebat;
-          const key = r.marka.toLowerCase() + '|' + sz;
-          if (!groups[key]) groups[key] = { marka: r.marka, ebat: sz, fiyatlar: {}, saticiPerKaynak: {}, demand: {}, modeller: [] };
-          const pf = parseFloat(r.fiyat);
-          // Per kaynak en düşük fiyatı tut (aynı kaynaktan iki farklı model varsa ucuzunu göster)
-          if (!groups[key].fiyatlar[r.kaynak] || pf < groups[key].fiyatlar[r.kaynak]) groups[key].fiyatlar[r.kaynak] = pf;
-          kaynakSet.add(r.kaynak);
-          if (r.model && !groups[key].modeller.includes(r.model)) groups[key].modeller.push(r.model); // RAKIP_MODEL_COL_V1
-          if (r.satici_sayisi) groups[key].saticiPerKaynak[r.kaynak] = parseInt(r.satici_sayisi);
-          if (r.yorum_sayisi)  groups[key].demand.yorum_sayisi  = r.yorum_sayisi;
-          if (r.puan)          groups[key].demand.puan          = r.puan;
-        }
-        const kaynaklar = [...kaynakSet].sort();
-        let rows = Object.values(groups).sort((a,b) => (a.marka+a.ebat).localeCompare(b.marka+b.ebat));
-        if (_rfMinSort !== 0) {
-          rows.sort((a,b) => {
-            const ma = Object.values(a.fiyatlar).filter(Boolean).reduce((m,v)=>v<m?v:m, Infinity);
-            const mb = Object.values(b.fiyatlar).filter(Boolean).reduce((m,v)=>v<m?v:m, Infinity);
-            return _rfMinSort * (ma - mb);
-          });
-        }
-        let html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">'
+        const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        const isSet = m => /(4\s*['`´]?\s*l[üu]|4\s*adet|takım|takim|set olarak)/i.test(m || '');
+        const money = n => (n == null || isNaN(n)) ? '—' : Number(n).toLocaleString('tr-TR', { maximumFractionDigits: 0 }) + ' ₺';
+        const sizeOf = r => (r.genislik && r.profil && r.cap) ? (r.genislik + '/' + r.profil + 'R' + r.cap) : (r.ebat || '');
+        const rows = data.rows.slice().sort((a,b) =>
+          sizeOf(a).localeCompare(sizeOf(b)) ||
+          (a.marka || '').localeCompare(b.marka || '') ||
+          ((parseFloat(a.fiyat) || 0) - (parseFloat(b.fiyat) || 0)));
+        const th = (t, extra) => '<th style="padding:9px 10px;border-bottom:2px solid rgba(255,255,255,0.15);' + (extra || '') + '">' + t + '</th>';
+        let html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
           + '<thead><tr style="background:rgba(255,255,255,0.06);font-weight:600;text-align:left">'
-          + '<th style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15)">Marka</th>'
-          + '<th style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15)">Ebat</th>'
-          + '<th style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15)">Model</th>'
-          + kaynaklar.map(k => `<th style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15);text-align:right">${k}</th>`).join('')
-          + `<th onclick="_rfToggleMinSort()" style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15);text-align:right;cursor:pointer;user-select:none">Min ${_rfMinSort===1?'▲':_rfMinSort===-1?'▼':'⇅'}</th>`
-          + '<th style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15)">Talep</th>'
-          + '<th style="padding:10px 12px;border-bottom:2px solid rgba(255,255,255,0.15)"></th>'
+          + th('Kaynak') + th('Marka') + th('Ebat') + th('Model')
+          + th('Fiyat','text-align:right') + th('Birim (₺/adet)','text-align:right')
+          + th('Satıcı') + th('Puan') + th('')
           + '</tr></thead><tbody>';
-        for (const g of rows) {
-          const prices = Object.values(g.fiyatlar).filter(Boolean);
-          const min = prices.length ? Math.min(...prices) : null;
-          const demand = [];
-          if (g.demand.yorum_sayisi)  demand.push('🛒' + g.demand.yorum_sayisi);
-          if (g.demand.puan)          demand.push('⭐' + g.demand.puan);
-          const em = s => s.replace(/'/g, "\\'");
+        let setCount = 0;
+        for (const r of rows) {
+          const set = isSet(r.model); if (set) setCount++;
+          const fy = parseFloat(r.fiyat);
+          const birim = (set && fy) ? fy / 4 : null;
+          const link = r.url ? '<a href="' + esc(r.url) + '" target="_blank" rel="noopener noreferrer" style="color:#63b3ed;text-decoration:none">↗</a>' : '';
+          const badge = set ? ' <span style="background:#7c3f00;color:#ffd9a0;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;white-space:nowrap">4\'LÜ SET</span>' : '';
           html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.06)">'
-            + `<td style="padding:9px 12px;font-weight:600">${g.marka}</td>`
-            + `<td style="padding:9px 12px;color:#9ab;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${g.ebat}">${g.ebat}</td><td style="padding:9px 12px;max-width:260px;word-break:break-word;color:#8fa;font-size:11px;line-height:1.3" title="${(g.modeller||[]).join("|")}">${(g.modeller||[])[0]||"--"}</td>`
-            + kaynaklar.map(k => {
-                const f = g.fiyatlar[k];
-                const sat = g.saticiPerKaynak?.[k];
-                const satStr = sat ? `<br><span style="font-size:10px;color:#7a8a9a">${sat} satıcı</span>` : '';
-                return `<td style="padding:9px 12px;text-align:right;${f&&f===min?'color:#38a169;font-weight:700':'color:#94a3b8'}">${f?f.toLocaleString('tr-TR')+' ₺'+satStr:'<span style="color:#445">—</span>'}</td>`;
-              }).join('')
-            + `<td style="padding:9px 12px;text-align:right;font-weight:700">${min?min.toLocaleString('tr-TR')+' ₺':'—'}</td>`
-            + `<td style="padding:9px 12px;font-size:12px;color:#8899aa">${demand.join(' ')}</td>`
-            + `<td style="padding:9px 12px"><button onclick="rfHizliIzleEkle('${em(g.marka)}','${em(g.ebat)}')" style="padding:3px 8px;background:rgba(49,130,206,0.18);color:#63b3ed;border:1px solid rgba(49,130,206,0.4);border-radius:4px;font-size:11px;cursor:pointer">⭐</button></td>`
+            + '<td style="padding:8px 10px;color:#94a3b8;white-space:nowrap">' + esc(r.kaynak) + '</td>'
+            + '<td style="padding:8px 10px;font-weight:600;white-space:nowrap">' + esc(r.marka) + '</td>'
+            + '<td style="padding:8px 10px;color:#9ab;font-family:monospace;white-space:nowrap">' + esc(sizeOf(r)) + '</td>'
+            + '<td style="padding:8px 10px;max-width:360px;word-break:break-word;color:#cbd5e1">' + esc(r.model) + badge + '</td>'
+            + '<td style="padding:8px 10px;text-align:right;font-weight:700;' + (set ? 'color:#f59e0b' : 'color:#e2e8f0') + ';white-space:nowrap">' + money(fy) + '</td>'
+            + '<td style="padding:8px 10px;text-align:right;white-space:nowrap;color:' + (birim ? '#38a169' : '#556') + '">' + (birim ? money(birim) : '—') + '</td>'
+            + '<td style="padding:8px 10px;color:#8899aa;white-space:nowrap">' + (r.satici_sayisi ? ('🏪' + r.satici_sayisi) : '') + '</td>'
+            + '<td style="padding:8px 10px;color:#8899aa;white-space:nowrap">' + (r.puan ? ('⭐' + r.puan) : '') + '</td>'
+            + '<td style="padding:8px 10px">' + link + '</td>'
             + '</tr>';
         }
         html += '</tbody></table></div>';
-        html += `<div style="margin-top:10px;font-size:12px;color:#667;text-align:right">${rows.length} SKU, ${data.rows.length} fiyat kaydı</div>`;
+        html += '<div style="margin-top:10px;font-size:12px;color:#667;text-align:right">' + rows.length + ' ilan (ham veri)' + (setCount ? (' · ' + setCount + ' set 4\'lü — birim = fiyat/4') : '') + '</div>';
         res.innerHTML = html;
-      } catch(e) { res.innerHTML = `<div style="color:#e53e3e;padding:20px">Hata: ${e.message}</div>`; }
+      } catch (e) { res.innerHTML = '<div style="color:#e53e3e;padding:20px">Hata: ' + (e && e.message) + '</div>'; }
     };
 
     window.rfPiyasaIzleEkle = function() {
