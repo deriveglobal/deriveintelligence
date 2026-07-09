@@ -1,0 +1,1495 @@
+{
+  "operations_manager_question_bank_v1_revised": [
+    {
+      "question_id": "OPS-001",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Role & Responsibility",
+      "question_text": "Which operational areas are you directly responsible for?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Service Delivery",
+        "Field Operations",
+        "Branch Operations",
+        "Warehouse Operations",
+        "Inventory Management",
+        "Procurement",
+        "Logistics",
+        "Customer Service",
+        "Finance Coordination",
+        "Reporting",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "governance",
+      "assessment_category": "governance",
+      "problem_types_detectable": [
+        "unclear_ownership",
+        "process_complexity"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Leadership",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "operations_scope_coverage"
+      ],
+      "ai_analysis_purpose": "Identify the operational scope controlled by the Operations Manager and detect ownership complexity.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which areas require the most daily attention?",
+        "Which areas have unclear ownership or shared accountability?"
+      ],
+      "recommendation_triggers": [
+        "operational_governance_map",
+        "role_and_ownership_clarification"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-002",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Role & Responsibility",
+      "question_text": "How clearly are responsibilities defined across operations teams?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1 = Not defined",
+        "2 = Partially defined",
+        "3 = Mostly defined",
+        "4 = Clearly defined",
+        "5 = Fully defined and documented"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 5,
+        "2": 4,
+        "3": 3,
+        "4": 2,
+        "5": 1
+      },
+      "business_domain": "governance",
+      "assessment_category": "governance",
+      "problem_types_detectable": [
+        "unclear_ownership",
+        "lack_of_standardization",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "risk_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Leadership",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "role_clarity_score"
+      ],
+      "ai_analysis_purpose": "Measure operational role clarity and identify ownership-related root causes.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Where do responsibility conflicts occur most often?",
+        "Which processes suffer most from unclear ownership?"
+      ],
+      "recommendation_triggers": [
+        "responsibility_matrix",
+        "process_owner_assignment"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-003",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Operational Priorities",
+      "question_text": "Rank the top operational priorities for the next 12 months.",
+      "response_type": "ranking",
+      "options": [
+        "Reduce service delays",
+        "Improve customer visibility",
+        "Improve inventory accuracy",
+        "Increase workforce productivity",
+        "Reduce manual reporting",
+        "Standardize branch operations",
+        "Improve profitability",
+        "Reduce operational risk",
+        "Improve technology adoption"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "strategy",
+      "assessment_category": "governance",
+      "problem_types_detectable": [
+        "bottleneck",
+        "reporting_gap",
+        "inventory_waste",
+        "workload_imbalance",
+        "operational_risk"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "customer_impact",
+        "revenue_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Strategy",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "priority_rankings"
+      ],
+      "ai_analysis_purpose": "Connect operational priorities to business objectives and roadmap themes.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Why did you rank the top priority first?",
+        "Which priority would create the fastest measurable business impact?"
+      ],
+      "recommendation_triggers": [
+        "executive_priority_alignment",
+        "operations_roadmap_prioritization"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-004",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Operational Priorities",
+      "question_text": "What is the most important operational KPI you currently monitor?",
+      "response_type": "open_text",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "reporting_analytics",
+      "assessment_category": "reporting",
+      "problem_types_detectable": [
+        "reporting_gap",
+        "missing_data",
+        "no_single_source_of_truth"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Analytics",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "current_primary_operations_kpi"
+      ],
+      "ai_analysis_purpose": "Identify the current KPI anchor for operations and compare it with the platform KPI library.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Where is this KPI tracked?",
+        "How often is it reviewed?",
+        "Who owns the accuracy of this KPI?",
+        "Please provide a recent example.",
+        "Which department or team was involved?",
+        "What happened as a result?",
+        "How often does this happen?"
+      ],
+      "recommendation_triggers": [
+        "kpi_governance_review",
+        "operations_scorecard_design"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "low",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-005",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Process Discovery",
+      "question_text": "Which operational processes should be mapped first during this assessment?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Service request intake",
+        "Dispatch and scheduling",
+        "Field service execution",
+        "Inventory replenishment",
+        "Warehouse picking/receiving",
+        "Customer complaint handling",
+        "Billing handoff",
+        "Branch reporting",
+        "Procurement approvals",
+        "Retreading workflow",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "bottleneck",
+        "manual_process",
+        "process_complexity",
+        "lack_of_standardization"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Automation"
+      ],
+      "kpi_outputs": [
+        "priority_process_inventory"
+      ],
+      "ai_analysis_purpose": "Create the initial process inventory and identify high-value workflows for assessment.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which selected process creates the most delays?",
+        "Which selected process has the highest business impact?",
+        "Please provide a recent example.",
+        "Which department or team was involved?",
+        "What happened as a result?",
+        "How often does this happen?"
+      ],
+      "recommendation_triggers": [
+        "process_mapping_workshop",
+        "workflow_standardization"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-006",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Process Discovery",
+      "question_text": "How standardized are operational processes across branches or teams?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1 = Different everywhere",
+        "2 = Mostly informal",
+        "3 = Partially standardized",
+        "4 = Mostly standardized",
+        "5 = Fully standardized and audited"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 5,
+        "2": 4,
+        "3": 3,
+        "4": 2,
+        "5": 1
+      },
+      "business_domain": "branch_operations",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "lack_of_standardization",
+        "rework",
+        "service_quality_issue"
+      ],
+      "impact_dimensions": [
+        "cost_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Customer Experience"
+      ],
+      "kpi_outputs": [
+        "process_standardization_score"
+      ],
+      "ai_analysis_purpose": "Measure process standardization maturity across operational locations or teams.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which branches or teams work differently?",
+        "What problems are caused by inconsistent execution?"
+      ],
+      "recommendation_triggers": [
+        "standard_operating_procedures",
+        "branch_operating_model"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-007",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Process Discovery",
+      "question_text": "Approximately how many key operational processes depend on a specific employee's personal knowledge?",
+      "response_type": "numeric",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "risk_management",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "knowledge_dependency",
+        "business_continuity_risk",
+        "unclear_ownership"
+      ],
+      "impact_dimensions": [
+        "risk_impact",
+        "employee_impact",
+        "time_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Risk Management"
+      ],
+      "kpi_outputs": [
+        "critical_process_dependency_count"
+      ],
+      "ai_analysis_purpose": "Quantify operational knowledge dependency and business continuity exposure.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which processes are most dependent on one person?",
+        "What happens if that person is unavailable?"
+      ],
+      "recommendation_triggers": [
+        "process_documentation_program",
+        "knowledge_transfer_plan"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-008",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Bottlenecks & Delays",
+      "question_text": "Where do operational delays occur most frequently?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Customer request intake",
+        "Missing customer information",
+        "Approval waiting",
+        "Technician assignment",
+        "Inventory availability",
+        "Warehouse picking",
+        "Transportation/logistics",
+        "Service completion reporting",
+        "Billing handoff",
+        "Management reporting",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "bottleneck",
+        "approval_delay",
+        "missing_data",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Customer Experience"
+      ],
+      "kpi_outputs": [
+        "delay_location_frequency"
+      ],
+      "ai_analysis_purpose": "Locate operational delay points and connect them to process, data, or communication root causes.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which delay occurs daily?",
+        "Which delay creates the greatest customer impact?",
+        "Please provide a recent example.",
+        "Which department or team was involved?",
+        "What happened as a result?",
+        "How often does this happen?",
+        "Frequency: Rarely / Monthly / Weekly / Daily / Continuously.",
+        "Severity: Rate the business severity from 1 = Minor to 5 = Critical.",
+        "Business impact: Which dimensions are affected most? Time / Cost / Customer / Risk / Employee."
+      ],
+      "recommendation_triggers": [
+        "bottleneck_removal",
+        "service_flow_redesign"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-009",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Bottlenecks & Delays",
+      "question_text": "What is the average delay caused by approvals in critical operational workflows?",
+      "response_type": "time_duration",
+      "options": [
+        "No meaningful delay",
+        "Less than 15 minutes",
+        "15-30 minutes",
+        "30-60 minutes",
+        "1-4 hours",
+        "Same day",
+        "More than 1 day",
+        "Unknown"
+      ],
+      "required": true,
+      "score_mapping": {
+        "No meaningful delay": 1,
+        "Less than 15 minutes": 1,
+        "15-30 minutes": 2,
+        "30-60 minutes": 3,
+        "1-4 hours": 4,
+        "Same day": 4,
+        "More than 1 day": 5,
+        "Unknown": 4
+      },
+      "business_domain": "governance",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "approval_delay",
+        "bottleneck",
+        "process_complexity"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Automation"
+      ],
+      "kpi_outputs": [
+        "approval_cycle_time",
+        "approval_delay_gap"
+      ],
+      "ai_analysis_purpose": "Estimate approval-related delay and determine whether approval automation is justified.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which approvals create the longest delay?",
+        "Are approval rules documented?",
+        "Can any approvals be automated or delegated?",
+        "What would be an acceptable target approval delay for critical workflows?",
+        "Calculate approval_delay_gap = current approval delay - target approval delay."
+      ],
+      "recommendation_triggers": [
+        "approval_workflow_automation",
+        "delegation_matrix"
+      ],
+      "roadmap_relevance": "quick_win",
+      "gap_analysis": {
+        "current_state_value": "current_approval_delay",
+        "desired_state_value": "target_approval_delay",
+        "gap_value": "approval_delay_gap = current_approval_delay - target_approval_delay",
+        "improvement_potential": "Quantifies time reduction potential from approval redesign, delegation, or automation."
+      },
+      "finding_strength": "high",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-010",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Bottlenecks & Delays",
+      "question_text": "What percentage of operational work requires rework or correction?",
+      "response_type": "percentage",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "rework",
+        "inaccurate_data",
+        "service_quality_issue",
+        "training_gap"
+      ],
+      "impact_dimensions": [
+        "cost_impact",
+        "time_impact",
+        "employee_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Customer Experience"
+      ],
+      "kpi_outputs": [
+        "rework_rate"
+      ],
+      "ai_analysis_purpose": "Quantify rework exposure and identify quality, data, or training root causes.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What causes most rework?",
+        "Which teams or processes are most affected?",
+        "How is rework tracked today?",
+        "Frequency: Rarely / Monthly / Weekly / Daily / Continuously.",
+        "Severity: Rate the business severity from 1 = Minor to 5 = Critical.",
+        "Business impact: Which dimensions are affected most? Time / Cost / Customer / Risk / Employee."
+      ],
+      "recommendation_triggers": [
+        "quality_control_checkpoints",
+        "training_program",
+        "data_validation_rules"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-011",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Data & Reporting",
+      "question_text": "How much time does your team spend preparing recurring operational reports each week?",
+      "response_type": "numeric",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "reporting_analytics",
+      "assessment_category": "reporting",
+      "problem_types_detectable": [
+        "manual_process",
+        "spreadsheet_dependency",
+        "reporting_gap",
+        "duplicate_activity"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Analytics",
+        "Automation",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "report_preparation_time",
+        "hours_lost_to_manual_work",
+        "reporting_time_gap"
+      ],
+      "ai_analysis_purpose": "Quantify reporting burden and identify reporting automation opportunities.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which reports take the longest?",
+        "Which reports are built manually?",
+        "Who consumes these reports?",
+        "What would be an acceptable target time per week for preparing these reports?",
+        "Calculate reporting_time_gap = current weekly reporting hours - target weekly reporting hours."
+      ],
+      "recommendation_triggers": [
+        "automated_reporting",
+        "kpi_dashboard",
+        "single_source_reporting_layer"
+      ],
+      "roadmap_relevance": "quick_win",
+      "gap_analysis": {
+        "current_state_value": "current_report_preparation_hours_per_week",
+        "desired_state_value": "target_report_preparation_hours_per_week",
+        "gap_value": "reporting_time_gap = current_report_preparation_hours_per_week - target_report_preparation_hours_per_week",
+        "improvement_potential": "Quantifies weekly hours that could be recovered through reporting automation and dashboarding."
+      },
+      "finding_strength": "high",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-012",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Data & Reporting",
+      "question_text": "How reliable is the operational data used for management decisions?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1 = Not reliable",
+        "2 = Often disputed",
+        "3 = Sometimes reliable",
+        "4 = Mostly reliable",
+        "5 = Reliable and trusted"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 5,
+        "2": 4,
+        "3": 3,
+        "4": 2,
+        "5": 1
+      },
+      "business_domain": "data_management",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "inaccurate_data",
+        "missing_data",
+        "no_single_source_of_truth",
+        "data_silo"
+      ],
+      "impact_dimensions": [
+        "risk_impact",
+        "cost_impact",
+        "revenue_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "data_accuracy_rate",
+        "single_source_of_truth_score"
+      ],
+      "ai_analysis_purpose": "Assess trust in operational data and detect data governance gaps.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which data is most often disputed?",
+        "What causes data inaccuracies?",
+        "Who owns correction of inaccurate data?"
+      ],
+      "recommendation_triggers": [
+        "data_governance_model",
+        "master_data_cleanup",
+        "source_of_truth_definition"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-013",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Data & Reporting",
+      "question_text": "Which KPIs are currently unavailable but important for operations?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Average dispatch time",
+        "Response time",
+        "Service completion time",
+        "First-time resolution rate",
+        "Rework rate",
+        "Inventory accuracy",
+        "Stockout rate",
+        "Technician utilization",
+        "Customer downtime",
+        "Cost per service",
+        "SLA compliance",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "reporting_analytics",
+      "assessment_category": "reporting",
+      "problem_types_detectable": [
+        "reporting_gap",
+        "missing_data",
+        "no_single_source_of_truth"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Analytics",
+        "Data",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "missing_operations_kpis"
+      ],
+      "ai_analysis_purpose": "Identify KPI gaps that should feed Layer 13 KPI discovery and measurement planning.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which missing KPI would change decision-making most?",
+        "What data is needed to calculate it?",
+        "Is any estimate available today?",
+        "Please provide a recent example.",
+        "Which department or team was involved?",
+        "What happened as a result?",
+        "How often does this happen?"
+      ],
+      "recommendation_triggers": [
+        "kpi_gap_report",
+        "data_capture_plan",
+        "operations_dashboard"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-014",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Technology & Systems",
+      "question_text": "How many systems or tools are required to complete a typical service request from intake to completion?",
+      "response_type": "single_choice",
+      "options": [
+        "1 system",
+        "2 systems",
+        "3 systems",
+        "4-5 systems",
+        "6+ systems",
+        "Unknown"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1 system": 1,
+        "2 systems": 2,
+        "3 systems": 3,
+        "4-5 systems": 4,
+        "6+ systems": 5,
+        "Unknown": 4
+      },
+      "business_domain": "technology",
+      "assessment_category": "technology",
+      "problem_types_detectable": [
+        "missing_integration",
+        "duplicate_activity",
+        "process_complexity",
+        "poor_usability"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology",
+        "Automation"
+      ],
+      "kpi_outputs": [
+        "systems_per_service_request",
+        "system_complexity_gap"
+      ],
+      "ai_analysis_purpose": "Measure system fragmentation in service delivery and identify integration opportunities.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which systems are involved?",
+        "Where is data entered more than once?",
+        "Which system creates the most friction?",
+        "What would be the desired number of systems for a typical service request?",
+        "Calculate system_complexity_gap = current system count - target system count."
+      ],
+      "recommendation_triggers": [
+        "system_integration_assessment",
+        "workflow_orchestration"
+      ],
+      "roadmap_relevance": "foundation",
+      "gap_analysis": {
+        "current_state_value": "current_system_count_per_service_request",
+        "desired_state_value": "target_system_count_per_service_request",
+        "gap_value": "system_complexity_gap = current_system_count_per_service_request - target_system_count_per_service_request",
+        "improvement_potential": "Quantifies simplification potential from integration, workflow consolidation, or single intake layer."
+      },
+      "finding_strength": "high",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-015",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Technology & Systems",
+      "question_text": "Which informal tools are used to manage operational work?",
+      "response_type": "multiple_choice",
+      "options": [
+        "WhatsApp",
+        "Excel/Spreadsheets",
+        "Paper forms",
+        "Phone calls",
+        "Personal notebooks",
+        "Email chains",
+        "Shared drives",
+        "None",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "technology",
+      "assessment_category": "communication",
+      "problem_types_detectable": [
+        "whatsapp_dependency",
+        "spreadsheet_dependency",
+        "paper_based_process",
+        "communication_breakdown",
+        "missing_integration"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "risk_impact",
+        "employee_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology",
+        "Automation",
+        "Data"
+      ],
+      "kpi_outputs": [
+        "shadow_tool_dependency"
+      ],
+      "ai_analysis_purpose": "Detect shadow tools and informal coordination patterns that create data and visibility gaps.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which informal tool is most critical?",
+        "What operational data exists only in informal tools?",
+        "What would break if this tool disappeared?",
+        "Please provide a recent example.",
+        "Which department or team was involved?",
+        "What happened as a result?",
+        "How often does this happen?",
+        "Frequency: Rarely / Monthly / Weekly / Daily / Continuously.",
+        "Severity: Rate the business severity from 1 = Minor to 5 = Critical.",
+        "Business impact: Which dimensions are affected most? Time / Cost / Customer / Risk / Employee."
+      ],
+      "recommendation_triggers": [
+        "centralized_work_management",
+        "digital_forms",
+        "communication_standardization"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-016",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Technology & Systems",
+      "question_text": "How satisfied are operations users with current systems?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1 = Very dissatisfied",
+        "2 = Dissatisfied",
+        "3 = Neutral",
+        "4 = Satisfied",
+        "5 = Very satisfied"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 5,
+        "2": 4,
+        "3": 3,
+        "4": 2,
+        "5": 1
+      },
+      "business_domain": "technology",
+      "assessment_category": "technology",
+      "problem_types_detectable": [
+        "poor_usability",
+        "lack_of_automation",
+        "training_gap",
+        "manual_process"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "time_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology",
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "system_satisfaction_score",
+        "system_adoption_risk"
+      ],
+      "ai_analysis_purpose": "Assess system usability and adoption barriers in operations.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which system causes the most frustration?",
+        "What tasks are hardest to complete in current systems?",
+        "Is the problem training, usability, or missing functionality?"
+      ],
+      "recommendation_triggers": [
+        "system_usability_review",
+        "training_program",
+        "workflow_redesign"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-017",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Workforce Productivity",
+      "question_text": "What percentage of operational work is manual and repeatable?",
+      "response_type": "percentage",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "automation",
+      "assessment_category": "automation",
+      "problem_types_detectable": [
+        "manual_process",
+        "lack_of_automation",
+        "duplicate_activity"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Automation",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "manual_process_ratio",
+        "automation_rate",
+        "manual_work_reduction_gap"
+      ],
+      "ai_analysis_purpose": "Estimate automation potential by quantifying manual repeatable work.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which manual task is repeated most often?",
+        "How many people perform it?",
+        "What data or approval is needed to automate it?",
+        "What would be an acceptable target percentage for manual and repeatable work?",
+        "Calculate manual_work_reduction_gap = current manual work percentage - target manual work percentage."
+      ],
+      "recommendation_triggers": [
+        "workflow_automation",
+        "digital_forms",
+        "process_automation_backlog"
+      ],
+      "roadmap_relevance": "quick_win",
+      "gap_analysis": {
+        "current_state_value": "current_manual_repeatable_work_percentage",
+        "desired_state_value": "target_manual_repeatable_work_percentage",
+        "gap_value": "manual_work_reduction_gap = current_manual_repeatable_work_percentage - target_manual_repeatable_work_percentage",
+        "improvement_potential": "Quantifies automation potential across repeatable operational work."
+      },
+      "finding_strength": "high",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-018",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Workforce Productivity",
+      "question_text": "Where does workload imbalance occur most often?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Dispatch",
+        "Customer service",
+        "Technicians",
+        "Warehouse",
+        "Branch managers",
+        "Inventory team",
+        "Finance handoff",
+        "Reporting/admin",
+        "No major imbalance",
+        "Unknown"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "workforce",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "workload_imbalance",
+        "resource_shortage",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "time_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "workload_imbalance_locations"
+      ],
+      "ai_analysis_purpose": "Identify workforce capacity pressure points and productivity risks.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What causes the imbalance?",
+        "Is the imbalance seasonal, daily, or continuous?",
+        "Which KPI would reveal this problem earlier?",
+        "Frequency: Rarely / Monthly / Weekly / Daily / Continuously.",
+        "Severity: Rate the business severity from 1 = Minor to 5 = Critical.",
+        "Business impact: Which dimensions are affected most? Time / Cost / Customer / Risk / Employee."
+      ],
+      "recommendation_triggers": [
+        "capacity_planning",
+        "workload_dashboard",
+        "role_redesign"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-019",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Workforce Productivity",
+      "question_text": "How many hours per week are lost because employees search for missing information?",
+      "response_type": "numeric",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "data_management",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "missing_data",
+        "data_silo",
+        "communication_breakdown",
+        "no_single_source_of_truth"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "employee_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "hours_lost_to_missing_information",
+        "information_search_time_gap"
+      ],
+      "ai_analysis_purpose": "Quantify productivity loss caused by missing or hard-to-access operational information.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What information is searched for most often?",
+        "Where should this information exist?",
+        "Who usually has to provide it?",
+        "What would be an acceptable target number of hours lost per week?",
+        "Calculate information_search_time_gap = current search hours lost - target search hours lost."
+      ],
+      "recommendation_triggers": [
+        "single_source_of_truth",
+        "operational_knowledge_base",
+        "data_access_improvement"
+      ],
+      "roadmap_relevance": "quick_win",
+      "gap_analysis": {
+        "current_state_value": "current_hours_lost_searching_per_week",
+        "desired_state_value": "target_hours_lost_searching_per_week",
+        "gap_value": "information_search_time_gap = current_hours_lost_searching_per_week - target_hours_lost_searching_per_week",
+        "improvement_potential": "Quantifies productivity gain from better data availability, ownership, and searchability."
+      },
+      "finding_strength": "high",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-020",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Customer Impact",
+      "question_text": "Which operational issues most often affect customers?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Slow response time",
+        "Unclear service status",
+        "Missed appointment or delay",
+        "Incomplete service information",
+        "Repeat visits",
+        "Inventory not available",
+        "Billing delay",
+        "Poor complaint follow-up",
+        "Inconsistent service quality",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "customer_experience",
+      "assessment_category": "customer",
+      "problem_types_detectable": [
+        "slow_response_time",
+        "poor_service_visibility",
+        "customer_complaints",
+        "service_quality_issue",
+        "billing_delay"
+      ],
+      "impact_dimensions": [
+        "customer_impact",
+        "revenue_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Customer Experience",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "customer_impact_issue_frequency"
+      ],
+      "ai_analysis_purpose": "Connect operational problems to customer-facing pain points and retention risk.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which issue creates the most complaints?",
+        "Which issue creates the most revenue risk?",
+        "How is customer impact measured today?",
+        "Please provide a recent example.",
+        "Which department or team was involved?",
+        "What happened as a result?",
+        "How often does this happen?",
+        "Frequency: Rarely / Monthly / Weekly / Daily / Continuously.",
+        "Severity: Rate the business severity from 1 = Minor to 5 = Critical.",
+        "Business impact: Which dimensions are affected most? Time / Cost / Customer / Risk / Employee."
+      ],
+      "recommendation_triggers": [
+        "customer_visibility_portal",
+        "service_status_tracking",
+        "complaint_management_process"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-021",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Customer Impact",
+      "question_text": "How often do customers ask for service status or follow-up information?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously",
+        "Unknown"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5,
+        "Unknown": 3
+      },
+      "business_domain": "customer_experience",
+      "assessment_category": "customer",
+      "problem_types_detectable": [
+        "poor_service_visibility",
+        "slow_response_time",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "customer_impact",
+        "employee_impact",
+        "time_impact"
+      ],
+      "maturity_dimensions": [
+        "Customer Experience",
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "customer_status_request_frequency",
+        "customer_visibility_gap"
+      ],
+      "ai_analysis_purpose": "Determine whether lack of service visibility creates customer and employee workload.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What information do customers ask for most?",
+        "Who answers these requests?",
+        "Can this information be self-served digitally?",
+        "What would be an acceptable target frequency for customers needing to ask for status manually?",
+        "Calculate customer_visibility_gap = current request frequency - target request frequency."
+      ],
+      "recommendation_triggers": [
+        "customer_portal",
+        "service_tracking_notifications",
+        "customer_status_dashboard"
+      ],
+      "roadmap_relevance": "optimization",
+      "gap_analysis": {
+        "current_state_value": "current_customer_status_request_frequency",
+        "desired_state_value": "target_customer_status_request_frequency",
+        "gap_value": "customer_visibility_gap = current_customer_status_request_frequency - target_customer_status_request_frequency",
+        "improvement_potential": "Quantifies potential reduction in reactive customer follow-up through portals, notifications, or tracking visibility."
+      },
+      "finding_strength": "high",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-022",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Risk & Continuity",
+      "question_text": "Which operational risks are most concerning today?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Key person dependency",
+        "System outage",
+        "Inventory shortage",
+        "Supplier delay",
+        "Service partner performance",
+        "Compliance/documentation gap",
+        "Customer SLA failure",
+        "Data loss or inaccurate data",
+        "Branch disruption",
+        "No major risk",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "risk_management",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "operational_risk",
+        "technology_risk",
+        "business_continuity_risk",
+        "missing_data"
+      ],
+      "impact_dimensions": [
+        "risk_impact",
+        "customer_impact",
+        "revenue_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Risk Management",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "top_operational_risks"
+      ],
+      "ai_analysis_purpose": "Identify current operational risk profile and business continuity concerns.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which risk could stop operations?",
+        "Is there a documented contingency plan?",
+        "How often is this risk reviewed?",
+        "Please provide a recent example.",
+        "Which department or team was involved?",
+        "What happened as a result?",
+        "How often does this happen?",
+        "Frequency: Rarely / Monthly / Weekly / Daily / Continuously.",
+        "Severity: Rate the business severity from 1 = Minor to 5 = Critical.",
+        "Business impact: Which dimensions are affected most? Time / Cost / Customer / Risk / Employee."
+      ],
+      "recommendation_triggers": [
+        "risk_register",
+        "business_continuity_plan",
+        "operational_controls"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-023",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Risk & Continuity",
+      "question_text": "How prepared is operations to continue work if a core system is unavailable?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1 = Not prepared",
+        "2 = Informal workaround only",
+        "3 = Partial backup process",
+        "4 = Documented backup process",
+        "5 = Tested continuity plan"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 5,
+        "2": 4,
+        "3": 3,
+        "4": 2,
+        "5": 1
+      },
+      "business_domain": "risk_management",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "technology_risk",
+        "business_continuity_risk",
+        "paper_based_process",
+        "knowledge_dependency"
+      ],
+      "impact_dimensions": [
+        "risk_impact",
+        "customer_impact",
+        "revenue_impact"
+      ],
+      "maturity_dimensions": [
+        "Risk Management",
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "system_continuity_readiness_score"
+      ],
+      "ai_analysis_purpose": "Assess business continuity maturity for system dependency in operations.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which system is most critical?",
+        "How long can operations continue without it?",
+        "When was the backup process last tested?"
+      ],
+      "recommendation_triggers": [
+        "continuity_plan",
+        "system_dependency_assessment",
+        "backup_process_testing"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-024",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Transformation Opportunities",
+      "question_text": "Which operational improvements would create the highest value if implemented first?",
+      "response_type": "ranking",
+      "options": [
+        "Digital service request intake",
+        "Dispatch automation",
+        "Technician mobile forms",
+        "Inventory visibility",
+        "Automated reporting",
+        "Customer service tracking",
+        "Branch KPI dashboard",
+        "Approval workflow automation",
+        "System integration",
+        "Workforce planning dashboard"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "automation",
+      "assessment_category": "automation",
+      "problem_types_detectable": [
+        "manual_process",
+        "lack_of_automation",
+        "missing_integration",
+        "reporting_gap"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Automation",
+        "Technology",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "operations_transformation_priority_rankings"
+      ],
+      "ai_analysis_purpose": "Prioritize transformation initiatives based on operational value perception.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Why is the first-ranked improvement most valuable?",
+        "What would need to change before implementation?",
+        "Which KPI would prove success?"
+      ],
+      "recommendation_triggers": [
+        "opportunity_matrix",
+        "quick_win_identification",
+        "operations_transformation_roadmap"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    },
+    {
+      "question_id": "OPS-025",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Operations Manager",
+      "section": "Transformation Opportunities",
+      "question_text": "If you could digitize one operational workflow in the next 90 days, which one would it be and why?",
+      "response_type": "open_text",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "automation",
+      "assessment_category": "automation",
+      "problem_types_detectable": [
+        "manual_process",
+        "lack_of_automation",
+        "bottleneck",
+        "duplicate_activity",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Automation",
+        "Innovation",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "candidate_quick_win_workflow"
+      ],
+      "ai_analysis_purpose": "Capture the Operations Manager's highest-confidence quick-win digitization opportunity.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What problem would this solve?",
+        "Who would benefit most?",
+        "What data would need to be captured?",
+        "What would success look like after 90 days?",
+        "Please provide a recent example.",
+        "Which department or team was involved?",
+        "What happened as a result?",
+        "How often does this happen?"
+      ],
+      "recommendation_triggers": [
+        "quick_win_digital_workflow",
+        "pilot_project_definition",
+        "roadmap_phase_1_candidate"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "low",
+      "stakeholder_group_id": "management",
+      "stakeholder_role_id": "operations_manager"
+    }
+  ]
+}

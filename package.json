@@ -1,0 +1,15 @@
+{
+  "name": "digital-transformation-assessment-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.102.0",
+    "pdfkit": "^0.19.0",
+    "pg": "^8.13.1",
+    "xlsx": "^0.18.5"
+  }
+}

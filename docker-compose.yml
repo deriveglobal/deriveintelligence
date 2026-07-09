@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: krb-assessment-postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: assessment_platform
+      POSTGRES_USER: assessment_app
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-change-me-before-production}"
+    volumes:
+      - krb_assessment_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U assessment_app -d assessment_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+
+  krb-assessment:
+    image: krb-assessment:secure
+    container_name: krb-assessment
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgres://assessment_app:${POSTGRES_PASSWORD:-change-me-before-production}@postgres:5432/assessment_platform"
+      MICROSOFT_TENANT_ID: "850db4e5-8ef9-4e05-b91c-a19238934fdc"
+      MICROSOFT_CLIENT_ID: "ef004f2a-d5fe-41fd-ae24-4b18c578a7a0"
+      MICROSOFT_SENDER: "consult@deriveglobal.com"
+      MICROSOFT_CLIENT_SECRET: "${MICROSOFT_CLIENT_SECRET:-}"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      BI_INGEST_TOKEN: YJu5oRCEg7XbszHx49DNQ8KQHez1KGjqxJ3lmTpjTc0NSOP8
+    ports:
+      - "8080:3000"
+
+volumes:
+  krb_assessment_postgres:

@@ -1,0 +1,1036 @@
+{
+  "service_partner_assessment_v1": [
+    {
+      "question_id": "SP-001",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Partner Profile",
+      "question_text": "Which services do you provide for the company?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Field service",
+        "Roadside support",
+        "Installation",
+        "Repair",
+        "Inspection",
+        "Delivery",
+        "Retreading support",
+        "Emergency service",
+        "Customer support",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "partner_dependency_risk",
+        "service_quality_issue"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "partner_service_scope"
+      ],
+      "ai_analysis_purpose": "Identify partner service scope and exposure.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "partner_operating_model"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "SP-002",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Partner Profile",
+      "question_text": "How many company jobs or requests do you usually support per month?",
+      "response_type": "numeric",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "reporting",
+      "problem_types_detectable": [
+        "missing_data",
+        "reporting_gap"
+      ],
+      "impact_dimensions": [
+        "time_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "partner_service_volume"
+      ],
+      "ai_analysis_purpose": "Quantify partner volume and dependency.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "partner_capacity_planning"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SP-003",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Service Coordination",
+      "question_text": "How often are service requests from the company clear enough to act on immediately?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Almost always"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Almost always": 5
+      },
+      "business_domain": "service_delivery",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "missing_data",
+        "documentation_gap",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "partner_request_clarity_score"
+      ],
+      "ai_analysis_purpose": "Measure partner request clarity.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "service_request_standardization"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SP-004",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Service Coordination",
+      "question_text": "How often do missing details delay your work?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "service_delivery",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "missing_data",
+        "partner_service_delay",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "partner_missing_detail_delay_frequency"
+      ],
+      "ai_analysis_purpose": "Detect missing information delays.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "required_field_validation",
+        "partner_request_intake"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SP-005",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Communication",
+      "question_text": "How reliable is communication with the company during service coordination?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "service_delivery",
+      "assessment_category": "communication",
+      "problem_types_detectable": [
+        "communication_breakdown",
+        "poor_service_visibility"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "partner_communication_score"
+      ],
+      "ai_analysis_purpose": "Score partner coordination communication reliability.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "partner_communication_protocol"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SP-006",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Communication",
+      "question_text": "Which communication channels are used most often?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Phone",
+        "WhatsApp",
+        "Email",
+        "Portal",
+        "ERP/service system",
+        "SMS",
+        "Paper",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "technology",
+      "assessment_category": "communication",
+      "problem_types_detectable": [
+        "whatsapp_dependency",
+        "manual_process",
+        "poor_service_visibility"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "partner_channel_distribution"
+      ],
+      "ai_analysis_purpose": "Detect informal partner communication channels.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "partner_portal",
+        "centralized_partner_communication"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "SP-007",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Service Quality",
+      "question_text": "How clearly can you see job priority, customer expectations, and required completion timing?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "poor_service_visibility",
+        "partner_service_delay"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "partner_job_visibility_score",
+        "partner_visibility_gap"
+      ],
+      "ai_analysis_purpose": "Measure current partner job visibility and desired state gap.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "partner_job_visibility"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "current_state_value": true,
+      "desired_state_value": true,
+      "gap_calculation_enabled": true
+    },
+    {
+      "question_id": "SP-008",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Capacity & Availability",
+      "question_text": "How often do urgent requests create capacity pressure?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "field_operations",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "partner_capacity_constraint",
+        "SLA risk",
+        "partner_dependency_risk"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "partner_capacity_pressure_frequency"
+      ],
+      "ai_analysis_purpose": "Detect partner capacity pressure from urgent work.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "partner_capacity_planning"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SP-009",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Service Coordination",
+      "question_text": "How often do you experience delays caused by approvals, missing information, customer readiness, or inventory availability?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "approval_delay",
+        "missing_data",
+        "inventory_availability_problem",
+        "partner_service_delay"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "partner_delay_frequency"
+      ],
+      "ai_analysis_purpose": "Identify external-service delay drivers.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "partner_workflow_improvement"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SP-010",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Documentation & Reporting",
+      "question_text": "How easy is it to submit completion documentation?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "reporting_analytics",
+      "assessment_category": "reporting",
+      "problem_types_detectable": [
+        "documentation_gap",
+        "manual_process",
+        "poor_usability"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "partner_documentation_quality"
+      ],
+      "ai_analysis_purpose": "Measure partner completion documentation friction.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "digital_completion_documentation"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SP-011",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Documentation & Reporting",
+      "question_text": "Which documentation is hardest to provide consistently?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Photos",
+        "Completion notes",
+        "Customer signature",
+        "Time records",
+        "Parts/material usage",
+        "Invoice support",
+        "Service confirmation",
+        "Issue report",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "reporting_analytics",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "documentation_gap",
+        "missing_data",
+        "billing_delay"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "revenue_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "partner_documentation_gap_area"
+      ],
+      "ai_analysis_purpose": "Identify difficult partner documentation areas.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "documentation_standardization"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "SP-012",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Documentation & Reporting",
+      "question_text": "How often are service completion records questioned, corrected, or resent?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "reporting_analytics",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "documentation_gap",
+        "rework",
+        "billing_delay"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "partner_completion_record_rework"
+      ],
+      "ai_analysis_purpose": "Measure documentation rework frequency.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "partner_document_validation"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SP-013",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Payments & Commercial Friction",
+      "question_text": "How reliable are payment or commercial processes with the company?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "finance",
+      "assessment_category": "financial",
+      "problem_types_detectable": [
+        "payment_delay",
+        "partner_dependency_risk"
+      ],
+      "impact_dimensions": [
+        "cost_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "partner_payment_friction_score"
+      ],
+      "ai_analysis_purpose": "Assess partner commercial friction.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "partner_payment_visibility"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SP-014",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Payments & Commercial Friction",
+      "question_text": "How many days does payment or commercial resolution usually take after documentation is submitted?",
+      "response_type": "time_duration",
+      "options": [
+        "Same day",
+        "1-7 days",
+        "8-14 days",
+        "15-30 days",
+        "More than 30 days"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "finance",
+      "assessment_category": "financial",
+      "problem_types_detectable": [
+        "payment_delay",
+        "manual_process"
+      ],
+      "impact_dimensions": [
+        "cost_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "partner_payment_cycle_time"
+      ],
+      "ai_analysis_purpose": "Quantify partner payment cycle time.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [],
+      "recommendation_triggers": [
+        "payment_process_improvement"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SP-015",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Improvement Opportunities",
+      "question_text": "Which issues create the most friction in working with the company?",
+      "response_type": "ranking",
+      "options": [
+        "Missing job information",
+        "Poor communication",
+        "Unclear priorities",
+        "Payment delays",
+        "Documentation burden",
+        "Approval delays",
+        "Customer readiness",
+        "Inventory availability",
+        "Emergency pressure",
+        "System access"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "partner_service_delay",
+        "communication_breakdown",
+        "manual_process",
+        "payment_delay"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "partner_improvement_priority"
+      ],
+      "ai_analysis_purpose": "Rank partner friction priorities.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "partner_workflow_redesign"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SP-016",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Service Quality",
+      "question_text": "How would you rate the consistency of service quality expectations?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "service_delivery",
+      "assessment_category": "customer",
+      "problem_types_detectable": [
+        "service_quality_issue",
+        "lack_of_standardization"
+      ],
+      "impact_dimensions": [
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Customer Experience"
+      ],
+      "kpi_outputs": [
+        "partner_service_quality_score"
+      ],
+      "ai_analysis_purpose": "Measure clarity of partner service quality expectations.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "partner_quality_standards"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SP-017",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Capacity & Availability",
+      "question_text": "What percentage of urgent requests can you accept without disrupting other work?",
+      "response_type": "percentage",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "field_operations",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "partner_capacity_constraint",
+        "SLA risk"
+      ],
+      "impact_dimensions": [
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "partner_availability_score"
+      ],
+      "ai_analysis_purpose": "Estimate partner availability for urgent work.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [],
+      "recommendation_triggers": [
+        "partner_capacity_model"
+      ],
+      "roadmap_relevance": "optimization",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SP-018",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Documentation & Reporting",
+      "question_text": "How often can SLA performance be proven with reliable timestamps or records?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Almost always"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Almost always": 5
+      },
+      "business_domain": "reporting_analytics",
+      "assessment_category": "reporting",
+      "problem_types_detectable": [
+        "SLA risk",
+        "documentation_gap",
+        "missing_data"
+      ],
+      "impact_dimensions": [
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "partner_sla_reliability"
+      ],
+      "ai_analysis_purpose": "Assess partner SLA evidence quality.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "partner_sla_tracking"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SP-019",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Improvement Opportunities",
+      "question_text": "Describe a recent service coordination issue that affected delivery quality, timing, or customer experience.",
+      "response_type": "open_text",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "partner_service_delay",
+        "communication_breakdown",
+        "service_quality_issue",
+        "poor_service_visibility"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "partner_coordination_issue_evidence"
+      ],
+      "ai_analysis_purpose": "Collect concrete partner evidence.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Please provide a recent example.",
+        "What happened?",
+        "Who was involved?",
+        "How often does this happen?",
+        "What was the impact?",
+        "What should change?"
+      ],
+      "recommendation_triggers": [
+        "partner_coordination_improvement"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "SP-020",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Improvement Opportunities",
+      "question_text": "If you could improve one partner workflow in the next 30 days, what would it be?",
+      "response_type": "open_text",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "manual_process",
+        "communication_breakdown",
+        "documentation_gap"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "partner_improvement_priority"
+      ],
+      "ai_analysis_purpose": "Generate partner quick-win ideas.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Please provide a recent example.",
+        "What happened?",
+        "Who was involved?",
+        "How often does this happen?",
+        "What was the impact?",
+        "What should change?"
+      ],
+      "recommendation_triggers": [
+        "partner_quick_win"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "SP-021",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "service_partner",
+      "section": "Capacity & Availability",
+      "question_text": "How often does the company provide enough advance notice to properly plan work?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Almost always"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Almost always": 5
+      },
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "poor_planning",
+        "partner_capacity_constraint",
+        "communication_breakdown",
+        "service_delay",
+        "SLA risk"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "operational_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Customer Experience"
+      ],
+      "kpi_outputs": [
+        "partner_advance_notice_score",
+        "partner_planning_maturity_score"
+      ],
+      "ai_analysis_purpose": "Measure whether service partners receive enough advance notice to plan capacity, resources, and service execution properly.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which types of work most often lack enough advance notice?",
+        "What happens when notice is too short?",
+        "How often does this affect service quality, timing, or customer experience?",
+        "What would better advance notice look like?"
+      ],
+      "recommendation_triggers": [
+        "partner_capacity_planning",
+        "partner_workflow_improvement",
+        "service_planning_improvement",
+        "partner_communication_protocol"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    }
+  ]
+}

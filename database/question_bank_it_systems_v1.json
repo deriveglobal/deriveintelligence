@@ -1,0 +1,1213 @@
+{
+  "it_systems_assessment_v1": [
+    {
+      "question_id": "IT-001",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "System Landscape",
+      "question_text": "Which core systems are used across the business?",
+      "response_type": "multiple_choice",
+      "options": [
+        "ERP",
+        "CRM",
+        "Accounting system",
+        "Dispatch/service system",
+        "Warehouse/inventory system",
+        "HR system",
+        "Customer portal",
+        "Supplier/partner portal",
+        "Spreadsheets",
+        "Messaging tools",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "technology",
+      "assessment_category": "technology",
+      "problem_types_detectable": [
+        "system_fragmentation",
+        "spreadsheet_dependency",
+        "shadow_it"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "core_system_landscape"
+      ],
+      "ai_analysis_purpose": "Map core system landscape.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "system_inventory"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "IT-002",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "System Landscape",
+      "question_text": "How many major systems are required to run daily operations?",
+      "response_type": "single_choice",
+      "options": [
+        "1-2",
+        "3-5",
+        "6-10",
+        "11-20",
+        "More than 20"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1-2": 1,
+        "3-5": 2,
+        "6-10": 3,
+        "11-20": 4,
+        "More than 20": 5
+      },
+      "business_domain": "technology",
+      "assessment_category": "technology",
+      "problem_types_detectable": [
+        "system_fragmentation",
+        "system_complexity"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "system_complexity_score"
+      ],
+      "ai_analysis_purpose": "Measure system complexity.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "system_rationalization"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "IT-003",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Integration & Data Flow",
+      "question_text": "How well are core systems integrated?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "technology",
+      "assessment_category": "technology",
+      "problem_types_detectable": [
+        "missing_integration",
+        "duplicate_data_entry",
+        "system_fragmentation"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "integration_gap_score",
+        "integration_desired_state_gap"
+      ],
+      "ai_analysis_purpose": "Measure integration maturity and desired gap.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "integration_roadmap"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "current_state_value": true,
+      "desired_state_value": true,
+      "gap_calculation_enabled": true
+    },
+    {
+      "question_id": "IT-004",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Integration & Data Flow",
+      "question_text": "Where are the biggest integration gaps?",
+      "response_type": "multiple_choice",
+      "options": [
+        "CRM to ERP",
+        "Dispatch to billing",
+        "Inventory to finance",
+        "Field service to reporting",
+        "Customer portal to operations",
+        "Supplier systems",
+        "HR/payroll",
+        "Reporting/data warehouse",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "technology",
+      "assessment_category": "technology",
+      "problem_types_detectable": [
+        "missing_integration",
+        "data_quality_issue",
+        "duplicate_data_entry"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "integration_gap_area"
+      ],
+      "ai_analysis_purpose": "Identify integration gap areas.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "system_integration"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "IT-005",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Integration & Data Flow",
+      "question_text": "How often is the same data entered into multiple systems?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "technology",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "duplicate_data_entry",
+        "manual_process",
+        "missing_integration"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology",
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "duplicate_data_entry_frequency"
+      ],
+      "ai_analysis_purpose": "Measure duplicate entry frequency.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "integration_automation"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "IT-006",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Data Quality",
+      "question_text": "How reliable is business data across systems?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "data_management",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "data_quality_issue",
+        "no_single_source_of_truth"
+      ],
+      "impact_dimensions": [
+        "risk_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "data_quality_score"
+      ],
+      "ai_analysis_purpose": "Score cross-system data reliability.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "data_governance"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "IT-007",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Data Quality",
+      "question_text": "Which data problems are most common?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Duplicate records",
+        "Missing fields",
+        "Inconsistent naming",
+        "Delayed updates",
+        "Manual corrections",
+        "Conflicting reports",
+        "Unclear ownership",
+        "Poor master data",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "data_management",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "duplicate_data",
+        "missing_data",
+        "poor_data_quality",
+        "unclear_ownership"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "data_problem_distribution"
+      ],
+      "ai_analysis_purpose": "Detect data quality problem types.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "master_data_governance"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "IT-008",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "System Reliability",
+      "question_text": "How often do system issues interrupt operations?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "technology",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "system_downtime",
+        "technology_risk"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "system_reliability_score"
+      ],
+      "ai_analysis_purpose": "Measure operational system interruption.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "system_reliability_improvement"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "IT-009",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "User Support & Adoption",
+      "question_text": "Which systems create the most user frustration?",
+      "response_type": "multiple_choice",
+      "options": [
+        "ERP",
+        "CRM",
+        "Dispatch/service system",
+        "Warehouse/inventory system",
+        "Accounting system",
+        "Reporting tools",
+        "HR system",
+        "Customer portal",
+        "Partner portal",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "technology",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "poor_usability",
+        "poor_adoption"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "time_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology",
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "user_frustration_area"
+      ],
+      "ai_analysis_purpose": "Identify systems causing user friction.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "usability_improvement"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "IT-010",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "User Support & Adoption",
+      "question_text": "How often do employees use workarounds outside official systems?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "technology",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "shadow_it",
+        "spreadsheet_dependency",
+        "whatsapp_dependency"
+      ],
+      "impact_dimensions": [
+        "risk_impact",
+        "time_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "shadow_it_frequency"
+      ],
+      "ai_analysis_purpose": "Measure shadow IT frequency.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "official_workflow_adoption"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "IT-011",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "User Support & Adoption",
+      "question_text": "Which unofficial tools are used most often?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Excel",
+        "WhatsApp",
+        "Email chains",
+        "Personal notes",
+        "Shared drives",
+        "Paper",
+        "Personal cloud storage",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "technology",
+      "assessment_category": "technology",
+      "problem_types_detectable": [
+        "spreadsheet_dependency",
+        "whatsapp_dependency",
+        "paper_based_process",
+        "shadow_it"
+      ],
+      "impact_dimensions": [
+        "risk_impact",
+        "time_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "unofficial_tool_usage"
+      ],
+      "ai_analysis_purpose": "Identify unofficial tools and data leakage risk.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "shadow_it_reduction"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "IT-012",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Security & Access",
+      "question_text": "How controlled are user roles, permissions, and access rights?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "technology",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "security_risk",
+        "access_control_gap"
+      ],
+      "impact_dimensions": [
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "access_control_risk"
+      ],
+      "ai_analysis_purpose": "Assess access control maturity.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "access_governance"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "IT-013",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Security & Access",
+      "question_text": "How often do access issues delay work?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "technology",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "access_control_gap",
+        "approval_delay"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "access_delay_frequency"
+      ],
+      "ai_analysis_purpose": "Measure access-related work delays.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "access_request_workflow"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "IT-014",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Automation Readiness",
+      "question_text": "How ready are current systems for automation or AI-assisted workflows?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "automation",
+      "assessment_category": "automation",
+      "problem_types_detectable": [
+        "automation_readiness_gap",
+        "technology_debt"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Automation"
+      ],
+      "kpi_outputs": [
+        "automation_readiness_score"
+      ],
+      "ai_analysis_purpose": "Assess automation readiness.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "automation_readiness_plan"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "IT-015",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Automation Readiness",
+      "question_text": "Which automation opportunities are most technically feasible?",
+      "response_type": "ranking",
+      "options": [
+        "Reporting automation",
+        "Workflow approvals",
+        "Dispatch automation",
+        "Inventory alerts",
+        "Billing handoff",
+        "Customer notifications",
+        "Data quality checks",
+        "Document capture",
+        "KPI dashboards",
+        "Integrations"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "automation",
+      "assessment_category": "automation",
+      "problem_types_detectable": [
+        "lack_of_automation",
+        "manual_process"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Automation"
+      ],
+      "kpi_outputs": [
+        "technology_improvement_priority"
+      ],
+      "ai_analysis_purpose": "Rank technically feasible automation opportunities.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "automation_roadmap"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "IT-016",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "System Reliability",
+      "question_text": "How many support requests does IT handle in an average week?",
+      "response_type": "numeric",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "technology",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "user_support_load",
+        "poor_usability"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "time_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology",
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "user_support_load"
+      ],
+      "ai_analysis_purpose": "Quantify IT support load.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [],
+      "recommendation_triggers": [
+        "support_demand_analysis"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "IT-017",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Data Quality",
+      "question_text": "What percentage of critical reports require manual correction before use?",
+      "response_type": "percentage",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "reporting_analytics",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "manual_corrections",
+        "data_quality_issue",
+        "reporting_gap"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "report_manual_correction_rate"
+      ],
+      "ai_analysis_purpose": "Estimate reporting correction burden.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "reporting_data_quality"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "IT-018",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "System Landscape",
+      "question_text": "How old or difficult to maintain are the most critical systems?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "technology",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "technology_debt",
+        "system_performance_issue"
+      ],
+      "impact_dimensions": [
+        "risk_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "technology_debt_score"
+      ],
+      "ai_analysis_purpose": "Assess technology debt.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "technology_modernization"
+      ],
+      "roadmap_relevance": "optimization",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "IT-019",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Security & Access",
+      "question_text": "Which security or access risks concern you most?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Shared accounts",
+        "Over-permissioned users",
+        "Slow offboarding",
+        "Weak audit trail",
+        "Uncontrolled spreadsheets",
+        "Personal devices",
+        "Partner access",
+        "No major concern",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "technology",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "security_risk",
+        "access_control_gap",
+        "shadow_it"
+      ],
+      "impact_dimensions": [
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "security_risk_area"
+      ],
+      "ai_analysis_purpose": "Identify security risk areas.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "security_access_review"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "IT-020",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Integration & Data Flow",
+      "question_text": "How often do integration failures or missing interfaces create manual work?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "technology",
+      "assessment_category": "technology",
+      "problem_types_detectable": [
+        "missing_integration",
+        "manual_process",
+        "duplicate_data_entry"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "integration_failure_manual_work_frequency"
+      ],
+      "ai_analysis_purpose": "Measure integration-driven manual effort.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "integration_backlog"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "IT-021",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Automation Readiness",
+      "question_text": "What percentage of high-volume workflows could be automated with current systems?",
+      "response_type": "percentage",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "automation",
+      "assessment_category": "automation",
+      "problem_types_detectable": [
+        "automation_readiness_gap",
+        "lack_of_automation"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Automation"
+      ],
+      "kpi_outputs": [
+        "workflow_automation_feasibility"
+      ],
+      "ai_analysis_purpose": "Estimate automation opportunity coverage.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [],
+      "recommendation_triggers": [
+        "automation_business_case"
+      ],
+      "roadmap_relevance": "optimization",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "IT-022",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "User Support & Adoption",
+      "question_text": "How consistently do users follow standard system processes?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "technology",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "poor_adoption",
+        "process_bypass"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology",
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "system_adoption_score"
+      ],
+      "ai_analysis_purpose": "Measure process adoption through systems.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "user_adoption_program"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "IT-023",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Improvement Opportunities",
+      "question_text": "Describe a recent system or data issue that disrupted operations or decision-making.",
+      "response_type": "open_text",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "technology",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "system_downtime",
+        "data_quality_issue",
+        "technology_risk"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "system_data_issue_evidence"
+      ],
+      "ai_analysis_purpose": "Collect system/data disruption evidence.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What happened?",
+        "Who was involved?",
+        "How often does this happen?",
+        "What was the impact?",
+        "What should change?"
+      ],
+      "recommendation_triggers": [
+        "technology_issue_resolution"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "IT-024",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Improvement Opportunities",
+      "question_text": "If you could improve one system or data flow in the next 30 days, what would it be?",
+      "response_type": "open_text",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "technology",
+      "assessment_category": "technology",
+      "problem_types_detectable": [
+        "missing_integration",
+        "data_quality_issue",
+        "manual_process"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "technology_improvement_priority"
+      ],
+      "ai_analysis_purpose": "Generate IT quick-win ideas.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What happened?",
+        "Who was involved?",
+        "How often does this happen?",
+        "What was the impact?",
+        "What should change?"
+      ],
+      "recommendation_triggers": [
+        "systems_quick_win"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "IT-025",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "it_manager",
+      "section": "Data Quality",
+      "question_text": "How often are business decisions delayed because required data is unavailable, incomplete, or unreliable?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "data_management",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "data_quality_issue",
+        "reporting_gap",
+        "no_single_source_of_truth",
+        "delayed_visibility",
+        "poor_decision_visibility",
+        "missing_data"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "operational_impact",
+        "financial_impact",
+        "risk_impact",
+        "decision_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics",
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "decision_delay_due_to_data_frequency",
+        "executive_data_reliability_score",
+        "decision_visibility_gap"
+      ],
+      "ai_analysis_purpose": "Connect IT and data quality directly to business decision-making delays and executive visibility problems.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which decisions are most often delayed?",
+        "What data is usually missing or unreliable?",
+        "Which systems or reports are involved?",
+        "What business impact occurs when decisions are delayed?",
+        "What would make the data decision-ready?"
+      ],
+      "recommendation_triggers": [
+        "data_governance",
+        "reporting_data_quality",
+        "single_source_of_truth",
+        "executive_dashboard_improvement",
+        "data_quality_program"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    }
+  ]
+}

@@ -1,0 +1,1811 @@
+// =============================================================================
+// DERIVE PLATFORM ADDITIONS — paste into server.mjs BEFORE the final 404 handler
+// =============================================================================
+// ALSO ADD to normalizeRole() function (server.mjs line ~280), before final return:
+//
+//   if (["bi_user", "tenant_admin"].includes(value)) return value;
+//
+// =============================================================================
+
+// ─── RLS-aware query helper ───────────────────────────────────────────────────
+// ALL BI data queries MUST use queryAsTenant() so PostgreSQL Row-Level Security
+// policies activate. Plain query() bypasses RLS because SET LOCAL only applies
+// within the same transaction.
+//
+// Usage:
+//   const result = await queryAsTenant(ctx.tenantId, `SELECT ...`, [params]);
+
+async function queryAsTenant(tenantId, sql, params = []) {
+  const db = requireDatabase();
+  const client = await db.pool.connect();          // checkout dedicated client
+  try {
+    await client.query('BEGIN');
+    // Activate RLS policy for this tenant — SET LOCAL scoped to this transaction
+    await client.query('SET LOCAL app.current_tenant_id = $1', [tenantId]);
+    const result = await client.query(sql, params);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+// ─── Schema guard (idempotent) ───────────────────────────────────────────────
+
+let platformSchemaReady = false;
+
+async function ensurePlatformSchema() {
+  if (platformSchemaReady) return;
+  await requireDatabase().query(`
+    CREATE TABLE IF NOT EXISTS platform_tenants (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      name text NOT NULL, slug text NOT NULL UNIQUE,
+      status text NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended','cancelled')),
+      timezone text NOT NULL DEFAULT 'Europe/Istanbul', currency text NOT NULL DEFAULT 'TRY',
+      config_json jsonb NOT NULL DEFAULT '{}',
+      created_at timestamptz NOT NULL DEFAULT now(), created_by uuid REFERENCES users(id)
+    );
+    CREATE TABLE IF NOT EXISTS platform_modules (
+      id text PRIMARY KEY, name text NOT NULL, description text,
+      version text NOT NULL DEFAULT '1.0', active boolean NOT NULL DEFAULT true,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    INSERT INTO platform_modules (id, name, description) VALUES
+      ('assessment','Derive Assessment','Digital transformation assessment framework'),
+      ('intelligence','Derive Intelligence','AI-powered Virtual Management Office')
+    ON CONFLICT (id) DO NOTHING;
+    CREATE TABLE IF NOT EXISTS module_plans (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      module_id text NOT NULL REFERENCES platform_modules(id) ON DELETE CASCADE,
+      plan_key text NOT NULL, name text NOT NULL,
+      features_json jsonb NOT NULL DEFAULT '{}',
+      price_monthly_usd numeric(10,2), price_annual_usd numeric(10,2),
+      active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (module_id, plan_key)
+    );
+    CREATE TABLE IF NOT EXISTS tenant_subscriptions (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+      module_id text NOT NULL REFERENCES platform_modules(id),
+      plan_id uuid NOT NULL REFERENCES module_plans(id),
+      status text NOT NULL DEFAULT 'active' CHECK (status IN ('trial','active','suspended','cancelled')),
+      trial_ends_at timestamptz,
+      current_period_start timestamptz NOT NULL DEFAULT now(),
+      current_period_end timestamptz,
+      config_json jsonb NOT NULL DEFAULT '{}',
+      created_at timestamptz NOT NULL DEFAULT now(), created_by uuid REFERENCES users(id),
+      UNIQUE (tenant_id, module_id)
+    );
+    CREATE TABLE IF NOT EXISTS tenant_users (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      tenant_role text NOT NULL DEFAULT 'member' CHECK (tenant_role IN ('tenant_admin','member')),
+      active boolean NOT NULL DEFAULT true,
+      invited_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (tenant_id, user_id)
+    );
+    CREATE TABLE IF NOT EXISTS tenant_user_modules (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      module_id text NOT NULL REFERENCES platform_modules(id),
+      module_role text NOT NULL DEFAULT 'viewer',
+      permissions_json jsonb NOT NULL DEFAULT '{}',
+      active boolean NOT NULL DEFAULT true,
+      granted_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (tenant_id, user_id, module_id)
+    );
+    CREATE TABLE IF NOT EXISTS user_invitations (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+      invited_email text NOT NULL, invited_by uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash text NOT NULL UNIQUE, module_id text REFERENCES platform_modules(id),
+      module_role text NOT NULL DEFAULT 'viewer', permissions_json jsonb NOT NULL DEFAULT '{}',
+      status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','expired','cancelled')),
+      accepted_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL,
+      expires_at timestamptz NOT NULL DEFAULT (now() + interval '7 days'),
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS bi_ingestion_log (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+      source_subject text, query_type text NOT NULL, export_date date,
+      received_at timestamptz NOT NULL DEFAULT now(), processed_at timestamptz,
+      row_count_raw integer, row_count_kept integer,
+      status text NOT NULL DEFAULT 'ok' CHECK (status IN ('ok','error','partial','duplicate')),
+      error_detail text, file_hash text, ingest_version text NOT NULL DEFAULT '1'
+    );
+    CREATE TABLE IF NOT EXISTS bi_stok_hareketleri (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+      export_date date NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(),
+      belge_turu text, belge_no text, belge_tarihi date,
+      muhatap_kodu text, muhatap_tanimi text, temsilci text, depo text,
+      kalem_kodu text NOT NULL, grup_adi text, kategori text, marka text, kalem_tanimi text,
+      birim_maliyet numeric(14,4), giris_miktari numeric(14,4), giris_tutari numeric(14,2),
+      cikis_miktari numeric(14,4), cikis_tutari numeric(14,2),
+      stok_bakiye_tutari numeric(14,2), aciklama text
+    );
+    CREATE TABLE IF NOT EXISTS bi_tedarikci_faturalari (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+      export_date date NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(),
+      fatura_tarihi date, fatura_no text, tedarikci_fatura_no text, satin_alma_siparis_no text,
+      sube text, tedarikci_kodu text, tedarikci_adi text,
+      kalem_kodu text, grup_adi text, kategori text, jant_capi text, marka text, kalem_tanimi text,
+      miktar numeric(14,4), birim_fiyat_kdv_haric numeric(14,4), birim_fiyat_kdv_dahil numeric(14,4),
+      satir_kdv_haric numeric(14,2), satir_kdv_dahil numeric(14,2),
+      vade_turu text, vade_gun integer,
+      vade_tarihi date, odeme_tarihi date, odeme_durumu text
+    );
+    CREATE TABLE IF NOT EXISTS bi_stok_durumu (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+      export_date date NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(),
+      kalem_kodu text NOT NULL, kalem_tanimi text, grup_adi text, kategori text, marka text, depo text,
+      eldeki_miktar numeric(14,4), siparis_miktar numeric(14,4), min_stok numeric(14,4),
+      birim_maliyet numeric(14,4), toplam_deger numeric(14,2),
+      UNIQUE (tenant_id, kalem_kodu, depo, export_date)
+    );
+    CREATE TABLE IF NOT EXISTS bi_satis_faturalari (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+      export_date date NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(),
+      fatura_tarihi date NOT NULL, fatura_no text, musteri_kodu text, musteri_adi text,
+      sube text, temsilci text, kalem_kodu text, kalem_tanimi text, grup_adi text,
+      kategori text, marka text, jant_capi text,
+      miktar numeric(14,4), birim_fiyat numeric(14,4), satir_tutar numeric(14,2),
+      kdv_orani numeric(5,2), kdv_tutari numeric(14,2), toplam_tutar numeric(14,2),
+      vade_tarihi date, odeme_tarihi date, odeme_durumu text
+    );
+    CREATE TABLE IF NOT EXISTS bi_musteri_bakiye (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+      export_date date NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(),
+      musteri_kodu text NOT NULL, musteri_adi text, sube text,
+      borc_tutari numeric(14,2), alacak_tutari numeric(14,2), bakiye numeric(14,2),
+      vadesi_gecmis_tutar numeric(14,2), en_uzun_vade_gun integer,
+      UNIQUE (tenant_id, musteri_kodu, export_date)
+    );
+    CREATE TABLE IF NOT EXISTS bi_kacan_satislar (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+      export_date date NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(),
+      tarih date, siparis_no text, musteri_kodu text, musteri_adi text,
+      sube text, temsilci text, kalem_kodu text, kalem_tanimi text,
+      marka text, kategori text, jant_capi text,
+      talep_miktar numeric(14,4), karsilanan_miktar numeric(14,4), kacan_miktar numeric(14,4),
+      birim_fiyat numeric(14,4), tahmini_gelir_kaybi numeric(14,2), neden text
+    );
+    CREATE TABLE IF NOT EXISTS bi_odeme_gecmisi (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+      export_date date NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(),
+      fatura_no text NOT NULL, fatura_tarihi date, vade_tarihi date, odeme_tarihi date,
+      musteri_kodu text, musteri_adi text, sube text,
+      fatura_tutari numeric(14,2), odenen_tutar numeric(14,2),
+      gecikme_gun integer, dso_contribution numeric(14,2)
+    );
+    CREATE TABLE IF NOT EXISTS bi_conversations (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+      user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      department text NOT NULL CHECK (department IN ('sales','pricing','warehouse','it')),
+      messages_json jsonb NOT NULL DEFAULT '[]', message_count integer NOT NULL DEFAULT 0,
+      created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (tenant_id, user_id, department)
+    );
+    CREATE TABLE IF NOT EXISTS bi_morning_briefings (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+      briefing_date date NOT NULL, generated_at timestamptz NOT NULL DEFAULT now(),
+      generated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      content_json jsonb NOT NULL DEFAULT '{}', data_snapshot jsonb,
+      model_used text DEFAULT 'claude-haiku-4-5-20251001',
+      UNIQUE (tenant_id, briefing_date)
+    );
+    CREATE TABLE IF NOT EXISTS bi_price_monitor (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
+      scraped_at timestamptz NOT NULL DEFAULT now(),
+      kalem_kodu text, marka text, ebat text, jant_capi text, kategori text,
+      krb_fiyat numeric(12,2), rakip_adi text, rakip_fiyat numeric(12,2),
+      kaynak_url text, fiyat_farki numeric(12,2), fiyat_farki_pct numeric(6,2)
+    );
+    -- Indexes (all IF NOT EXISTS via unique names)
+    CREATE INDEX IF NOT EXISTS idx_ts_tenant ON tenant_subscriptions (tenant_id, status);
+    CREATE INDEX IF NOT EXISTS idx_tu_user ON tenant_users (user_id, active);
+    CREATE INDEX IF NOT EXISTS idx_tu_tenant ON tenant_users (tenant_id, active);
+    CREATE INDEX IF NOT EXISTS idx_tum_user ON tenant_user_modules (user_id, module_id, active);
+    CREATE INDEX IF NOT EXISTS idx_bil_tenant ON bi_ingestion_log (tenant_id, query_type, export_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_bsh_kalem ON bi_stok_hareketleri (tenant_id, kalem_kodu, belge_tarihi DESC);
+    CREATE INDEX IF NOT EXISTS idx_bsh_date ON bi_stok_hareketleri (tenant_id, belge_tarihi DESC);
+    CREATE INDEX IF NOT EXISTS idx_btf_tedarikci ON bi_tedarikci_faturalari (tenant_id, tedarikci_kodu, fatura_tarihi DESC);
+    CREATE INDEX IF NOT EXISTS idx_bsf_musteri ON bi_satis_faturalari (tenant_id, musteri_kodu, fatura_tarihi DESC);
+    CREATE INDEX IF NOT EXISTS idx_bsf_date ON bi_satis_faturalari (tenant_id, fatura_tarihi DESC);
+    CREATE INDEX IF NOT EXISTS idx_bsd_item ON bi_stok_durumu (tenant_id, kalem_kodu, export_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_bmb_musteri ON bi_musteri_bakiye (tenant_id, musteri_kodu, export_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_bog_musteri ON bi_odeme_gecmisi (tenant_id, musteri_kodu, odeme_tarihi DESC);
+    CREATE INDEX IF NOT EXISTS idx_bconv_tenant ON bi_conversations (tenant_id, department, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_bmb2_tenant ON bi_morning_briefings (tenant_id, briefing_date DESC);
+    CREATE INDEX IF NOT EXISTS idx_bpm_ebat ON bi_price_monitor (tenant_id, ebat, scraped_at DESC);
+  `);
+  platformSchemaReady = true;
+}
+
+// ─── Auth helpers ─────────────────────────────────────────────────────────────
+
+// Full module access check: valid session + active tenant subscription + user membership
+async function requireModuleAccess(request, moduleId) {
+  await ensurePlatformSchema();
+  const session = await getSessionUser(request);
+  if (!session) throw Object.assign(new Error("Authentication required."), { statusCode: 401 });
+
+  if (normalizeRole(session.role) === "platform_owner") {
+    // Platform owner can impersonate any tenant by passing ?tenantId=<uuid>
+    const overrideTenantId = new URL(request.url, "http://x").searchParams.get("tenantId") || null;
+    let tenantName = null;
+    if (overrideTenantId) {
+      const tn = await query(`SELECT name FROM platform_tenants WHERE id = $1`, [overrideTenantId]);
+      tenantName = tn.rows[0]?.name || null;
+    }
+    return { ...session, tenantId: overrideTenantId, tenantName, tenantRole: "platform_owner",
+             moduleRole: "admin", plan: "internal", features: {}, permissions: {} };
+  }
+
+  const result = await query(`
+    SELECT
+      pt.id            AS tenant_id,
+      pt.name          AS tenant_name,
+      pt.config_json   AS tenant_config,
+      ts.config_json   AS sub_config,
+      mp.features_json AS plan_features,
+      tu.tenant_role,
+      tum.module_role,
+      tum.permissions_json
+    FROM tenant_users tu
+    JOIN platform_tenants pt     ON pt.id = tu.tenant_id AND pt.status = 'active'
+    JOIN tenant_subscriptions ts ON ts.tenant_id = pt.id AND ts.module_id = $2
+                                 AND ts.status IN ('active','trial')
+                                 AND (ts.current_period_end IS NULL OR ts.current_period_end > now())
+    JOIN module_plans mp          ON mp.id = ts.plan_id
+    JOIN tenant_user_modules tum  ON tum.tenant_id = pt.id
+                                 AND tum.user_id = tu.user_id
+                                 AND tum.module_id = $2
+                                 AND tum.active = true
+    WHERE tu.user_id = $1 AND tu.active = true
+    LIMIT 1
+  `, [session.userId, moduleId]);
+
+  if (!result.rowCount) {
+    throw Object.assign(
+      new Error(`Access to the ${moduleId} module is not authorized.`),
+      { statusCode: 403 }
+    );
+  }
+  const row = result.rows[0];
+  const features = { ...row.plan_features, ...row.sub_config, ...row.tenant_config };
+  return {
+    ...session,
+    tenantId:    row.tenant_id,
+    tenantName:  row.tenant_name,
+    tenantRole:  row.tenant_role,
+    moduleRole:  row.module_role,
+    plan:        row.plan_features,
+    features,
+    permissions: row.permissions_json || {}
+  };
+}
+
+// Tenant admin check — for /api/tenant/ management routes
+async function requireTenantAdmin(request) {
+  await ensurePlatformSchema();
+  const session = await getSessionUser(request);
+  if (!session) throw Object.assign(new Error("Authentication required."), { statusCode: 401 });
+  if (normalizeRole(session.role) === "platform_owner") {
+    // Inject the single tenant's ID so platform_owner can manage tenant users
+    const tenantRow = await query(
+      `SELECT id, name FROM platform_tenants WHERE status = 'active' LIMIT 1`);
+    const tenant = tenantRow.rows[0];
+    return { ...session,
+      tenantId:   tenant?.id   || null,
+      tenantName: tenant?.name || null,
+      tenantRole: "platform_owner" };
+  }
+
+  const result = await query(`
+    SELECT pt.id AS tenant_id, pt.name AS tenant_name, tu.tenant_role
+    FROM tenant_users tu
+    JOIN platform_tenants pt ON pt.id = tu.tenant_id AND pt.status = 'active'
+    WHERE tu.user_id = $1 AND tu.active = true AND tu.tenant_role = 'tenant_admin'
+    LIMIT 1
+  `, [session.userId]);
+
+  if (!result.rowCount)
+    throw Object.assign(new Error("Tenant admin access required."), { statusCode: 403 });
+
+  const row = result.rows[0];
+  return { ...session, tenantId: row.tenant_id, tenantName: row.tenant_name,
+           tenantRole: row.tenant_role };
+}
+
+// ─── /api/platform/ routes ────────────────────────────────────────────────────
+
+// GET /api/platform/me — full subscription context for logged-in user
+if (request.method === "GET" && url.pathname === "/api/platform/me") {
+  try {
+    await ensurePlatformSchema();
+    const session = await getSessionUser(request);
+    if (!session) { sendJson(response, 401, { error: "Authentication required." }); return; }
+
+    if (normalizeRole(session.role) === "platform_owner") {
+      sendJson(response, 200, {
+        userId: session.userId, name: session.name, globalRole: "platform_owner",
+        tenantId: null, tenantName: null, tenantRole: "platform_owner",
+        subscriptions: []
+      });
+      return;
+    }
+
+    const [tenantRow, subRows] = await Promise.all([
+      query(`SELECT pt.id, pt.name, tu.tenant_role
+             FROM tenant_users tu
+             JOIN platform_tenants pt ON pt.id = tu.tenant_id AND pt.status = 'active'
+             WHERE tu.user_id = $1 AND tu.active = true LIMIT 1`, [session.userId]),
+      query(`SELECT ts.module_id, pm.name AS module_name, mp.plan_key AS plan,
+                    ts.status AS sub_status, ts.trial_ends_at,
+                    mp.features_json AS plan_features, ts.config_json AS sub_config,
+                    pt.config_json AS tenant_config,
+                    tum.module_role, tum.permissions_json
+             FROM tenant_users tu
+             JOIN platform_tenants pt     ON pt.id = tu.tenant_id AND pt.status = 'active'
+             JOIN tenant_subscriptions ts ON ts.tenant_id = pt.id AND ts.status IN ('active','trial')
+                                         AND (ts.current_period_end IS NULL OR ts.current_period_end > now())
+             JOIN platform_modules pm     ON pm.id = ts.module_id AND pm.active = true
+             JOIN module_plans mp         ON mp.id = ts.plan_id
+             JOIN tenant_user_modules tum ON tum.tenant_id = pt.id AND tum.user_id = tu.user_id
+                                         AND tum.module_id = ts.module_id AND tum.active = true
+             WHERE tu.user_id = $1 AND tu.active = true`, [session.userId])
+    ]);
+
+    if (!tenantRow.rowCount) { sendJson(response, 200, { userId: session.userId, name: session.name, globalRole: session.role, tenantId: null, tenantName: null, tenantRole: null, subscriptions: [] }); return; }
+
+    const tenant = tenantRow.rows[0];
+    const subscriptions = subRows.rows.map(r => ({
+      moduleId:    r.module_id,
+      moduleName:  r.module_name,
+      plan:        r.plan,
+      subStatus:   r.sub_status,
+      trialEndsAt: r.trial_ends_at,
+      moduleRole:  r.module_role,
+      features:    { ...r.plan_features, ...r.sub_config, ...r.tenant_config },
+      permissions: r.permissions_json || {}
+    }));
+
+    sendJson(response, 200, {
+      userId: session.userId, name: session.name, globalRole: session.role,
+      tenantId: tenant.id, tenantName: tenant.name, tenantRole: tenant.tenant_role,
+      subscriptions
+    });
+  } catch (error) {
+    sendJson(response, error.statusCode || 500, { error: error.message });
+  }
+  return;
+}
+
+// GET /api/platform/tenants (platform_owner only)
+if (request.method === "GET" && url.pathname === "/api/platform/tenants") {
+  try {
+    await requireAuth(request, ["platform_owner"]);
+    await ensurePlatformSchema();
+    const result = await query(`
+      SELECT pt.*,
+             COUNT(DISTINCT tu.user_id) FILTER (WHERE tu.active) AS user_count,
+             COUNT(DISTINCT ts.module_id) FILTER (WHERE ts.status IN ('active','trial')) AS module_count
+      FROM platform_tenants pt
+      LEFT JOIN tenant_users tu ON tu.tenant_id = pt.id
+      LEFT JOIN tenant_subscriptions ts ON ts.tenant_id = pt.id
+      GROUP BY pt.id ORDER BY pt.created_at DESC`);
+    sendJson(response, 200, result.rows);
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// POST /api/platform/tenants (platform_owner only)
+if (request.method === "POST" && url.pathname === "/api/platform/tenants") {
+  try {
+    const session = await requireAuth(request, ["platform_owner"]);
+    await ensurePlatformSchema();
+    const { name, slug, timezone, currency, config_json } = await readJson(request);
+    if (!name || !slug) throw Object.assign(new Error("name and slug are required."), { statusCode: 400 });
+    const result = await query(
+      `INSERT INTO platform_tenants (name, slug, timezone, currency, config_json, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [name, slug.toLowerCase(), timezone || "Europe/Istanbul", currency || "TRY",
+       config_json || {}, session.userId]
+    );
+    sendJson(response, 201, result.rows[0]);
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// POST /api/platform/tenants/:id/subscriptions (platform_owner only)
+const tenantSubMatch = url.pathname.match(/^\/api\/platform\/tenants\/([^/]+)\/subscriptions$/);
+if (request.method === "POST" && tenantSubMatch) {
+  try {
+    const session = await requireAuth(request, ["platform_owner"]);
+    await ensurePlatformSchema();
+    const tenantId = tenantSubMatch[1];
+    const { module_id, plan_id, status, current_period_end } = await readJson(request);
+    const result = await query(
+      `INSERT INTO tenant_subscriptions (tenant_id, module_id, plan_id, status, current_period_end, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (tenant_id, module_id) DO UPDATE
+         SET plan_id = EXCLUDED.plan_id, status = EXCLUDED.status,
+             current_period_end = EXCLUDED.current_period_end
+       RETURNING *`,
+      [tenantId, module_id, plan_id, status || "active",
+       current_period_end || null, session.userId]
+    );
+    sendJson(response, 201, result.rows[0]);
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /api/platform/plans (platform_owner only)
+if (request.method === "GET" && url.pathname === "/api/platform/plans") {
+  try {
+    await requireAuth(request, ["platform_owner"]);
+    await ensurePlatformSchema();
+    const result = await query(`SELECT mp.*, pm.name AS module_name FROM module_plans mp JOIN platform_modules pm ON pm.id = mp.module_id ORDER BY mp.module_id, mp.created_at`);
+    sendJson(response, 200, result.rows);
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// POST /api/platform/plans (platform_owner only)
+if (request.method === "POST" && url.pathname === "/api/platform/plans") {
+  try {
+    await requireAuth(request, ["platform_owner"]);
+    await ensurePlatformSchema();
+    const { module_id, plan_key, name, features_json, price_monthly_usd, price_annual_usd } = await readJson(request);
+    const result = await query(
+      `INSERT INTO module_plans (module_id, plan_key, name, features_json, price_monthly_usd, price_annual_usd)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [module_id, plan_key, name, features_json || {}, price_monthly_usd || null, price_annual_usd || null]
+    );
+    sendJson(response, 201, result.rows[0]);
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// ─── /api/tenant/ routes (Tenant Admin self-service) ─────────────────────────
+
+// GET /api/tenant/me
+if (request.method === "GET" && url.pathname === "/api/tenant/me") {
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 200, { tenantId: null, role: "platform_owner" }); return; }
+    const result = await query(`
+      SELECT pt.*,
+             COUNT(DISTINCT tu.user_id) FILTER (WHERE tu.active) AS seats_used,
+             json_agg(json_build_object('module_id', ts.module_id, 'plan_key', mp.plan_key,
+               'status', ts.status, 'features', mp.features_json,
+               'expires', ts.current_period_end)) FILTER (WHERE ts.id IS NOT NULL) AS subscriptions
+      FROM platform_tenants pt
+      LEFT JOIN tenant_users tu ON tu.tenant_id = pt.id
+      LEFT JOIN tenant_subscriptions ts ON ts.tenant_id = pt.id AND ts.status IN ('active','trial')
+      LEFT JOIN module_plans mp ON mp.id = ts.plan_id
+      WHERE pt.id = $1
+      GROUP BY pt.id`, [session.tenantId]);
+    sendJson(response, 200, result.rows[0] || {});
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /api/tenant/users
+if (request.method === "GET" && url.pathname === "/api/tenant/users") {
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const result = await query(`
+      SELECT u.id, u.email, u.name, u.full_name, u.last_login_at,
+             tu.tenant_role, tu.active AS tenant_active, tu.created_at AS joined_at,
+             json_agg(json_build_object('module_id', tum.module_id, 'module_role', tum.module_role,
+               'permissions', tum.permissions_json, 'active', tum.active))
+             FILTER (WHERE tum.id IS NOT NULL) AS module_access
+      FROM tenant_users tu
+      JOIN users u ON u.id = tu.user_id
+      LEFT JOIN tenant_user_modules tum ON tum.tenant_id = tu.tenant_id AND tum.user_id = tu.user_id
+      WHERE tu.tenant_id = $1
+      GROUP BY u.id, tu.tenant_role, tu.active, tu.created_at
+      ORDER BY tu.created_at`, [session.tenantId]);
+    sendJson(response, 200, result.rows);
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// PATCH /api/tenant/users/:id/modules
+const tenantUserModuleMatch = url.pathname.match(/^\/api\/tenant\/users\/([^/]+)\/modules$/);
+if (request.method === "PATCH" && tenantUserModuleMatch) {
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const targetUserId = tenantUserModuleMatch[1];
+    const { module_id, module_role, permissions_json, active } = await readJson(request);
+
+    // Verify target user belongs to this tenant
+    const memberCheck = await query(
+      `SELECT id FROM tenant_users WHERE tenant_id = $1 AND user_id = $2 AND active = true`,
+      [session.tenantId, targetUserId]);
+    if (!memberCheck.rowCount) throw Object.assign(new Error("User not found in this tenant."), { statusCode: 404 });
+
+    // Verify tenant has subscription for this module
+    const subCheck = await query(
+      `SELECT id FROM tenant_subscriptions WHERE tenant_id = $1 AND module_id = $2 AND status IN ('active','trial')`,
+      [session.tenantId, module_id]);
+    if (!subCheck.rowCount) throw Object.assign(new Error(`No active subscription for module: ${module_id}`), { statusCode: 400 });
+
+    const result = await query(`
+      INSERT INTO tenant_user_modules (tenant_id, user_id, module_id, module_role, permissions_json, active, granted_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      ON CONFLICT (tenant_id, user_id, module_id) DO UPDATE
+        SET module_role = EXCLUDED.module_role, permissions_json = EXCLUDED.permissions_json,
+            active = EXCLUDED.active, granted_by = EXCLUDED.granted_by, updated_at = now()
+      RETURNING *`,
+      [session.tenantId, targetUserId, module_id, module_role || "viewer",
+       permissions_json || {}, active !== false, session.userId]);
+    sendJson(response, 200, result.rows[0]);
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// POST /api/tenant/users/invite
+if (request.method === "POST" && url.pathname === "/api/tenant/users/invite") {
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const { email, module_id, module_role, permissions_json } = await readJson(request);
+    if (!email) throw Object.assign(new Error("email is required."), { statusCode: 400 });
+
+    const token = randomBytes(32).toString("base64url");
+    await query(`
+      INSERT INTO user_invitations (tenant_id, invited_email, invited_by, token_hash, module_id, module_role, permissions_json)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [session.tenantId, email.toLowerCase().trim(), session.userId,
+       hashToken(token), module_id || null, module_role || "viewer", permissions_json || {}]);
+
+    // TODO: send invite email via existing email infrastructure
+    // For now return the token for manual sharing
+    sendJson(response, 201, {
+      message: "Invitation created.",
+      inviteUrl: `${getRequestOrigin(request)}/invite/${token}`,
+      expiresIn: "7 days"
+    });
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+
+// [patch: user-management-routes]
+// PATCH /api/tenant/users/:id — change tenant_role or active status
+const tenantUserUpdateMatch = url.pathname.match(/^\/api\/tenant\/users\/([^/]+)$/);
+if (request.method === "PATCH" && tenantUserUpdateMatch) {
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const targetUserId = tenantUserUpdateMatch[1];
+    const body = await readJson(request);
+    const { tenant_role, active } = body;
+
+    // Prevent self-deactivation
+    if (targetUserId === session.userId && active === false) {
+      throw Object.assign(new Error("Kendi hesabınızı devre dışı bırakamazsınız."), { statusCode: 400 });
+    }
+    // Prevent self-demotion from only admin
+    if (targetUserId === session.userId && tenant_role === "member") {
+      const adminCheck = await query(
+        `SELECT COUNT(*) FROM tenant_users WHERE tenant_id = $1 AND tenant_role = 'tenant_admin' AND active = true`,
+        [session.tenantId]);
+      if (parseInt(adminCheck.rows[0].count, 10) <= 1)
+        throw Object.assign(new Error("En az bir admin kalmalı. Başka bir kullanıcıyı önce admin yapın."), { statusCode: 400 });
+    }
+
+    const setClauses = [];
+    const params = [session.tenantId, targetUserId];
+    if (tenant_role !== undefined) {
+      if (!["tenant_admin","member"].includes(tenant_role))
+        throw Object.assign(new Error("Geçersiz rol."), { statusCode: 400 });
+      params.push(tenant_role); setClauses.push(`tenant_role = ${params.length}`);
+    }
+    if (active !== undefined) {
+      params.push(!!active); setClauses.push(`active = ${params.length}`);
+    }
+    if (!setClauses.length) throw Object.assign(new Error("Güncellenecek alan yok."), { statusCode: 400 });
+
+    const result = await query(
+      `UPDATE tenant_users SET ${setClauses.join(", ")} WHERE tenant_id = $1 AND user_id = $2 RETURNING *`,
+      params);
+    if (!result.rowCount) throw Object.assign(new Error("Kullanıcı bu tenant'ta bulunamadı."), { statusCode: 404 });
+    sendJson(response, 200, { ok: true });
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /api/tenant/invitations — list pending invitations
+if (request.method === "GET" && url.pathname === "/api/tenant/invitations") {
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const result = await query(`
+      SELECT ui.id, ui.invited_email, ui.module_id, ui.module_role,
+             ui.created_at, ui.expires_at,
+             u.full_name AS invited_by_name, u.email AS invited_by_email
+      FROM user_invitations ui
+      LEFT JOIN users u ON u.id = ui.invited_by
+      WHERE ui.tenant_id = $1 AND ui.status = 'pending' AND ui.expires_at > now()
+      ORDER BY ui.created_at DESC`, [session.tenantId]);
+    sendJson(response, 200, result.rows);
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// DELETE /api/tenant/invitations/:id — cancel invitation
+const tenantInvDeleteMatch = url.pathname.match(/^\/api\/tenant\/invitations\/([^/]+)$/);
+if (request.method === "DELETE" && tenantInvDeleteMatch) {
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const invId = tenantInvDeleteMatch[1];
+    const result = await query(
+      `UPDATE user_invitations SET status = 'cancelled'
+       WHERE id = $1 AND tenant_id = $2 AND status = 'pending' RETURNING id`,
+      [invId, session.tenantId]);
+    if (!result.rowCount)
+      throw Object.assign(new Error("Davet bulunamadı veya zaten işlendi."), { statusCode: 404 });
+    sendJson(response, 200, { ok: true });
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /api/tenant/usage
+if (request.method === "GET" && url.pathname === "/api/tenant/usage") {
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const result = await query(`
+      SELECT ts.module_id, mp.plan_key, mp.features_json->>'max_seats' AS max_seats,
+             COUNT(DISTINCT tum.user_id) FILTER (WHERE tum.active) AS seats_used,
+             MAX(bil.received_at) AS last_ingest
+      FROM tenant_subscriptions ts
+      JOIN module_plans mp ON mp.id = ts.plan_id
+      LEFT JOIN tenant_user_modules tum ON tum.tenant_id = ts.tenant_id AND tum.module_id = ts.module_id
+      LEFT JOIN bi_ingestion_log bil ON bil.tenant_id = ts.tenant_id
+      WHERE ts.tenant_id = $1 AND ts.status IN ('active','trial')
+      GROUP BY ts.module_id, mp.plan_key, mp.features_json`, [session.tenantId]);
+    sendJson(response, 200, result.rows);
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// ─── /api/bi/ routes (Derive Intelligence module) ────────────────────────────
+
+// GET /api/bi/health — data freshness per query type
+if (request.method === "GET" && url.pathname === "/api/bi/health") {
+  try {
+    const session = await requireModuleAccess(request, "intelligence");
+    if (!session.tenantId) { sendJson(response, 200, { status: "platform_admin" }); return; }
+    const result = await query(`
+      SELECT query_type, MAX(export_date) AS last_export_date, MAX(received_at) AS last_received,
+             SUM(row_count_kept) AS total_rows,
+             COUNT(*) FILTER (WHERE status = 'error') AS error_count
+      FROM bi_ingestion_log
+      WHERE tenant_id = $1
+      GROUP BY query_type ORDER BY query_type`, [session.tenantId]);
+    sendJson(response, 200, result.rows);
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /api/bi/morning-briefing — generate if missing, cache per day
+if (request.method === "GET" && url.pathname === "/api/bi/morning-briefing") {
+  try {
+    const session = await requireModuleAccess(request, "intelligence");
+    if (!session.tenantId) { sendJson(response, 200, { cached: false, content: null }); return; }
+    const today = new Date().toISOString().slice(0, 10);
+
+    // Check cache
+    const cached = await query(
+      `SELECT * FROM bi_morning_briefings WHERE tenant_id = $1 AND briefing_date = $2`,
+      [session.tenantId, today]);
+    if (cached.rowCount) { sendJson(response, 200, { cached: true, ...cached.rows[0] }); return; }
+
+    // Gather KPI snapshot for generation
+    const kpis = await gatherBiKpiSnapshot(session.tenantId);
+
+    // Generate with Claude Haiku
+    const prompt = buildMorningBriefingPrompt(kpis, session);
+    const aiResponse = await anthropic.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 800,
+      messages: [{ role: "user", content: prompt }]
+    });
+    const raw = aiResponse.content[0].text;
+    let content_json;
+    try { content_json = JSON.parse(raw); } catch { content_json = { summary: raw }; }
+
+    const result = await query(`
+      INSERT INTO bi_morning_briefings (tenant_id, briefing_date, content_json, data_snapshot, generated_by)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (tenant_id, briefing_date) DO UPDATE
+        SET content_json = EXCLUDED.content_json, data_snapshot = EXCLUDED.data_snapshot,
+            generated_at = now(), generated_by = EXCLUDED.generated_by
+      RETURNING *`,
+      [session.tenantId, today, content_json, kpis, session.userId]);
+    sendJson(response, 200, { cached: false, ...result.rows[0] });
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /api/bi/sales/kpis
+if (request.method === "GET" && url.pathname === "/api/bi/sales/kpis") {
+  try {
+    const session = await requireModuleAccess(request, "intelligence");
+    if (!session.tenantId) { sendJson(response, 200, {}); return; }
+    checkDeptAccess(session, "sales");
+    // [patch: kpi-crossjoin-fix]
+    const result = await query(`
+      SELECT * FROM
+        (SELECT COALESCE(SUM(satir_tutar),0)          AS revenue_30d,
+                COALESCE(COUNT(DISTINCT fatura_no),0) AS invoice_count_30d,
+                COALESCE(AVG(satir_tutar),0)           AS avg_line_value_30d
+         FROM bi_satis_faturalari
+         WHERE tenant_id = $1
+           AND fatura_tarihi >= now() - interval '30 days') cur,
+        (SELECT COALESCE(SUM(satir_tutar),0)          AS revenue_prev_30d,
+                COALESCE(COUNT(DISTINCT fatura_no),0) AS invoice_count_prev_30d
+         FROM bi_satis_faturalari
+         WHERE tenant_id = $1
+           AND fatura_tarihi >= now() - interval '60 days'
+           AND fatura_tarihi  < now() - interval '30 days') prev`, [session.tenantId, session.tenantId]);
+
+    const top_customers = await query(`
+      SELECT musteri_kodu, musteri_adi, SUM(satir_tutar) AS total
+      FROM bi_satis_faturalari
+      WHERE tenant_id = $1 AND fatura_tarihi >= now() - interval '90 days'
+      GROUP BY musteri_kodu, musteri_adi ORDER BY total DESC LIMIT 10`, [session.tenantId]);
+
+    const top_brands = await query(`
+      SELECT marka, SUM(miktar) AS adet, SUM(satir_tutar) AS tutar
+      FROM bi_satis_faturalari
+      WHERE tenant_id = $1 AND fatura_tarihi >= now() - interval '30 days'
+      GROUP BY marka ORDER BY tutar DESC LIMIT 10`, [session.tenantId]);
+
+    sendJson(response, 200, {
+      kpis: result.rows[0],
+      top_customers: top_customers.rows,
+      top_brands: top_brands.rows
+    });
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /api/bi/sales/trend — 13-month revenue trend
+if (request.method === "GET" && url.pathname === "/api/bi/sales/trend") {
+  try {
+    const session = await requireModuleAccess(request, "intelligence");
+    if (!session.tenantId) { sendJson(response, 200, []); return; }
+    checkDeptAccess(session, "sales");
+    const result = await query(`
+      SELECT DATE_TRUNC('month', fatura_tarihi) AS ay,
+             SUM(satir_tutar) AS ciro, SUM(miktar) AS adet,
+             COUNT(DISTINCT fatura_no) AS fatura_sayisi,
+             COUNT(DISTINCT musteri_kodu) AS aktif_musteri
+      FROM bi_satis_faturalari
+      WHERE tenant_id = $1 AND fatura_tarihi >= now() - interval '13 months'
+      GROUP BY ay ORDER BY ay`, [session.tenantId]);
+    sendJson(response, 200, result.rows);
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /api/bi/warehouse/kpis
+if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
+  try {
+    const session = await requireModuleAccess(request, "intelligence");
+    if (!session.tenantId) { sendJson(response, 200, {}); return; }
+    checkDeptAccess(session, "warehouse");
+    const latestDate = await query(
+      `SELECT MAX(export_date) AS d FROM bi_stok_durumu WHERE tenant_id = $1`, [session.tenantId]);
+    const date = latestDate.rows[0]?.d;
+    if (!date) { sendJson(response, 200, { no_data: true }); return; }
+
+    const result = await query(`
+      SELECT
+        COUNT(DISTINCT kalem_kodu)                                          AS sku_sayisi,
+        SUM(toplam_deger)                                                   AS stok_degeri,
+        COUNT(*) FILTER (WHERE eldeki_miktar <= min_stok AND min_stok > 0) AS kritik_stok_sayisi,
+        COUNT(*) FILTER (WHERE eldeki_miktar = 0)                          AS sifir_stok_sayisi
+      FROM bi_stok_durumu
+      WHERE tenant_id = $1 AND export_date = $2`, [session.tenantId, date]);
+
+    const dead_stock = await query(`
+      SELECT bsd.kalem_kodu, bsd.kalem_tanimi, bsd.marka, bsd.eldeki_miktar, bsd.toplam_deger
+      FROM bi_stok_durumu bsd
+      WHERE bsd.tenant_id = $1 AND bsd.export_date = $2 AND bsd.eldeki_miktar > 0
+        AND NOT EXISTS (
+          SELECT 1 FROM bi_stok_hareketleri bsh
+          WHERE bsh.tenant_id = $1 AND bsh.kalem_kodu = bsd.kalem_kodu
+            AND bsh.cikis_miktari > 0 AND bsh.belge_tarihi >= now() - interval '90 days')
+      ORDER BY bsd.toplam_deger DESC LIMIT 20`, [session.tenantId, date]);
+
+    sendJson(response, 200, {
+      as_of: date,
+      kpis: result.rows[0],
+      dead_stock: dead_stock.rows
+    });
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /api/bi/pricing/ccc — Cash Conversion Cycle
+if (request.method === "GET" && url.pathname === "/api/bi/pricing/ccc") {
+  try {
+    const session = await requireModuleAccess(request, "intelligence");
+    if (!session.tenantId) { sendJson(response, 200, {}); return; }
+    checkDeptAccess(session, "pricing");
+
+    const costOfCapital = session.features.cost_of_capital || 0.40;
+    const lookback = 90; // days
+
+    const [dis, dso, dpo] = await Promise.all([
+      // Days in Stock: avg(stock_value) / (daily COGS from exits)
+      query(`
+        WITH daily_cogs AS (
+          SELECT ABS(SUM(cikis_tutari)) / $2 AS daily_cogs
+          FROM bi_stok_hareketleri
+          WHERE tenant_id = $1 AND belge_tarihi >= now() - interval '90 days'
+            AND cikis_miktari > 0 AND ABS(birim_maliyet) > 1
+        ), avg_stock AS (
+          SELECT AVG(toplam_deger) AS avg_value FROM bi_stok_durumu
+          WHERE tenant_id = $1 AND export_date >= now() - interval '90 days'
+        )
+        SELECT COALESCE(avg_value / NULLIF(daily_cogs, 0), 0) AS dis
+        FROM avg_stock CROSS JOIN daily_cogs`,
+        [session.tenantId, lookback]),
+
+      // Days Sales Outstanding: avg(receivables) / daily_revenue
+      query(`
+        WITH daily_rev AS (
+          SELECT SUM(satir_tutar) / $2 AS daily_rev
+          FROM bi_satis_faturalari
+          WHERE tenant_id = $1 AND fatura_tarihi >= now() - interval '90 days'
+        ), avg_rec AS (
+          SELECT AVG(bakiye) AS avg_rec FROM bi_musteri_bakiye
+          WHERE tenant_id = $1 AND export_date >= now() - interval '90 days'
+        )
+        SELECT COALESCE(avg_rec / NULLIF(daily_rev, 0), 0) AS dso
+        FROM avg_rec CROSS JOIN daily_rev`,
+        [session.tenantId, lookback]),
+
+      // Days Payable Outstanding: avg(AP balance) / daily_COGS
+      query(`
+        WITH daily_cogs AS (
+          SELECT SUM(satir_kdv_haric) / $2 AS daily_cogs
+          FROM bi_tedarikci_faturalari
+          WHERE tenant_id = $1 AND fatura_tarihi >= now() - interval '90 days'
+        ), avg_payables AS (
+          SELECT AVG(satir_kdv_haric) AS avg_pay FROM bi_tedarikci_faturalari
+          WHERE tenant_id = $1 AND fatura_tarihi >= now() - interval '90 days'
+            AND odeme_tarihi IS NULL  -- unpaid = still in payables
+        )
+        SELECT COALESCE(avg_pay / NULLIF(daily_cogs, 0), 0) AS dpo
+        FROM avg_payables CROSS JOIN daily_cogs`,
+        [session.tenantId, lookback])
+    ]);
+
+    const dis_days = parseFloat(dis.rows[0]?.dis || 0);
+    const dso_days = parseFloat(dso.rows[0]?.dso || 0);
+    const dpo_days = parseFloat(dpo.rows[0]?.dpo || 0);
+    const ccc = dis_days + dso_days - dpo_days;
+
+    // Average purchase price for real margin calc
+    const avgCost = await query(`
+      SELECT AVG(birim_maliyet) AS avg_cost
+      FROM bi_stok_hareketleri
+      WHERE tenant_id = $1 AND belge_tarihi >= now() - interval '30 days'
+        AND birim_maliyet > 1`, [session.tenantId]);
+    const avg_cost = parseFloat(avgCost.rows[0]?.avg_cost || 0);
+    const financing_cost_per_unit = avg_cost * costOfCapital * (ccc / 365);
+
+    sendJson(response, 200, {
+      lookback_days: lookback,
+      dis: Math.round(dis_days * 10) / 10,
+      dso: Math.round(dso_days * 10) / 10,
+      dpo: Math.round(dpo_days * 10) / 10,
+      ccc: Math.round(ccc * 10) / 10,
+      cost_of_capital: costOfCapital,
+      avg_unit_cost: Math.round(avg_cost * 100) / 100,
+      financing_cost_per_unit: Math.round(financing_cost_per_unit * 100) / 100,
+      note: dpo_days < 1 ? "DPO incomplete — payment dates pending from IT (blocking)" : null
+    });
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /api/bi/pricing/kpis
+if (request.method === "GET" && url.pathname === "/api/bi/pricing/kpis") {
+  try {
+    const session = await requireModuleAccess(request, "intelligence");
+    if (!session.tenantId) { sendJson(response, 200, {}); return; }
+    checkDeptAccess(session, "pricing");
+    const result = await query(`
+      SELECT
+        AVG(sf.birim_fiyat - bsh.birim_maliyet) AS avg_brut_marj,
+        AVG(CASE WHEN bsh.birim_maliyet > 0
+            THEN (sf.birim_fiyat - bsh.birim_maliyet) / bsh.birim_maliyet * 100
+            END) AS avg_marj_pct
+      FROM bi_satis_faturalari sf
+      JOIN bi_stok_hareketleri bsh ON bsh.tenant_id = sf.tenant_id
+        AND bsh.kalem_kodu = sf.kalem_kodu
+        AND DATE_TRUNC('month', bsh.belge_tarihi) = DATE_TRUNC('month', sf.fatura_tarihi)
+        AND bsh.birim_maliyet > 1
+      WHERE sf.tenant_id = $1 AND sf.fatura_tarihi >= now() - interval '30 days'`, [session.tenantId]);
+    sendJson(response, 200, result.rows[0] || {});
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /api/bi/pricing/monitor — competitor prices (requires price_monitor feature)
+if (request.method === "GET" && url.pathname === "/api/bi/pricing/monitor") {
+  try {
+    const session = await requireModuleAccess(request, "intelligence");
+    if (!session.tenantId) { sendJson(response, 200, []); return; }
+    checkDeptAccess(session, "pricing");
+    if (!session.features.price_monitor)
+      throw Object.assign(new Error("Price monitor requires a plan upgrade."), { statusCode: 403 });
+    const result = await query(`
+      SELECT DISTINCT ON (ebat, rakip_adi) *
+      FROM bi_price_monitor WHERE tenant_id = $1
+      ORDER BY ebat, rakip_adi, scraped_at DESC`, [session.tenantId]);
+    sendJson(response, 200, result.rows);
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /api/bi/pricing/brand-incentives — marka teşvik yönetimi (YAZ + KIŞ)
+if (request.method === "GET" && url.pathname === "/api/bi/pricing/brand-incentives") {
+  try {
+    const session = await requireModuleAccess(request, "intelligence");
+    if (!session.tenantId) { sendJson(response, 200, { brands: [], incentives: [] }); return; }
+    checkDeptAccess(session, "pricing");
+    const yil = parseInt(url.searchParams.get("yil") || new Date().getFullYear(), 10);
+
+    const [summaryR, detailR, yearsR] = await Promise.all([
+      queryAsTenant(session.tenantId, `
+        SELECT
+          marka, tedarikci_adi, fatura_kuru,
+          COUNT(*)                                                     AS toplam_kayit,
+          COUNT(*) FILTER (WHERE sezon = 'YAZ')                       AS yaz_kayit,
+          COUNT(*) FILTER (WHERE sezon = 'KIŞ')                       AS kis_kayit,
+          COUNT(*) FILTER (WHERE sezon = 'DÖRT MEVSİM')               AS dort_mevsim_kayit,
+          ROUND(MAX(max_toplam_pct) FILTER (WHERE sezon = 'YAZ'), 1)  AS max_yaz_pct,
+          ROUND(MAX(max_toplam_pct) FILTER (WHERE sezon = 'KIŞ'), 1)  AS max_kis_pct,
+          ROUND(AVG(fatura_alti_pct), 1)                              AS ort_fatura_alti,
+          MIN(odeme_vadesi_gun)                                       AS min_vade_gun,
+          MAX(odeme_vadesi_gun)                                       AS maks_vade_gun,
+          MAX(erken_odeme_iskonto_pct)                                AS max_erken_odeme_pct,
+          now()                                                       AS son_guncelleme,
+          ARRAY_AGG(DISTINCT segment ORDER BY segment)                AS segmentler,
+          ARRAY_AGG(DISTINCT kanal ORDER BY kanal)                    AS kanallar
+        FROM bi_tedarikci_tesvik
+        WHERE tenant_id = $1 AND yil = $2
+        GROUP BY marka, tedarikci_adi, fatura_kuru
+        ORDER BY marka
+      `, [session.tenantId, yil]),
+      queryAsTenant(session.tenantId, `
+        SELECT id, marka, tedarikci_adi, yil, sezon, segment, kanal,
+               fatura_alti_pct, donem_primi_pct, sellout_primi_pct,
+               kesin_siparis_pct, buyume_bonus_pct,
+               buyume_hedef_min_pct, buyume_hedef_ust_pct,
+               max_toplam_pct, odeme_vadesi_gun,
+               erken_odeme_iskonto_pct, erken_odeme_gun,
+               gecikme_faizi_aylik_pct, fatura_kuru,
+               notlar
+        FROM bi_tedarikci_tesvik
+        WHERE tenant_id = $1 AND yil = $2
+        ORDER BY marka, sezon, segment, kanal
+      `, [session.tenantId, yil]),
+      queryAsTenant(session.tenantId, `
+        SELECT DISTINCT yil FROM bi_tedarikci_tesvik
+        WHERE tenant_id = $1 ORDER BY yil DESC LIMIT 5
+      `, [session.tenantId])
+    ]);
+
+    sendJson(response, 200, {
+      yil,
+      brands: summaryR.rows,
+      incentives: detailR.rows,
+      available_years: yearsR.rows.map(r => r.yil)
+    });
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /api/bi/warehouse/movements
+if (request.method === "GET" && url.pathname === "/api/bi/warehouse/movements") {
+  try {
+    const session = await requireModuleAccess(request, "intelligence");
+    if (!session.tenantId) { sendJson(response, 200, {}); return; }
+    checkDeptAccess(session, "warehouse");
+    const result = await query(`
+      SELECT belge_turu,
+             COUNT(*) AS hareket_sayisi,
+             SUM(giris_miktari) AS toplam_giris,
+             SUM(cikis_miktari) AS toplam_cikis,
+             SUM(giris_tutari - cikis_tutari) AS net_tutar
+      FROM bi_stok_hareketleri
+      WHERE tenant_id = $1 AND belge_tarihi >= now() - interval '30 days'
+      GROUP BY belge_turu ORDER BY hareket_sayisi DESC`, [session.tenantId]);
+    sendJson(response, 200, result.rows);
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /api/bi/it/kpis
+if (request.method === "GET" && url.pathname === "/api/bi/it/kpis") {
+  try {
+    const session = await requireModuleAccess(request, "intelligence");
+    if (!session.tenantId) { sendJson(response, 200, {}); return; }
+    checkDeptAccess(session, "it");
+    const result = await query(`
+      SELECT query_type, MAX(export_date) AS son_veri_tarihi,
+             MAX(received_at) AS son_guncelleme,
+             EXTRACT(EPOCH FROM (now() - MAX(received_at))) / 3600 AS saat_once,
+             SUM(row_count_kept) FILTER (WHERE received_at >= now() - interval '24 hours') AS bugunki_satirlar,
+             COUNT(*) FILTER (WHERE status = 'error' AND received_at >= now() - interval '7 days') AS haftalik_hata
+      FROM bi_ingestion_log WHERE tenant_id = $1
+      GROUP BY query_type ORDER BY query_type`, [session.tenantId]);
+    sendJson(response, 200, result.rows);
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// POST /api/bi/department/:dept/chat — AI avatar chat (streaming)
+const biChatMatch = url.pathname.match(/^\/api\/bi\/department\/(sales|pricing|warehouse|it)\/chat$/);
+if (request.method === "POST" && biChatMatch) {
+  try {
+    const session = await requireModuleAccess(request, "intelligence");
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const dept = biChatMatch[1];
+    checkDeptAccess(session, dept);
+    const { message } = await readJson(request);
+    if (!message?.trim()) throw Object.assign(new Error("message is required."), { statusCode: 400 });
+
+    // Load existing conversation
+    const convResult = await query(
+      `SELECT messages_json FROM bi_conversations
+       WHERE tenant_id = $1 AND user_id = $2 AND department = $3`,
+      [session.tenantId, session.userId, dept]);
+    const history = convResult.rows[0]?.messages_json || [];
+
+    // Build context from recent KPIs
+    const kpiContext = await getBiDeptContext(session.tenantId, dept);
+    const systemPrompt = buildDeptSystemPrompt(dept, kpiContext, session);
+
+    const messages = [
+      ...history.map(m => ({ role: m.role, content: m.content })),
+      { role: "user", content: message }
+    ];
+
+    // Stream response
+    response.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive"
+    });
+
+    let fullResponse = "";
+    const stream = await anthropic.messages.stream({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages
+    });
+
+    for await (const chunk of stream) {
+      if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
+        fullResponse += chunk.delta.text;
+        response.write(`data: ${JSON.stringify({ text: chunk.delta.text })}\n\n`);
+      }
+    }
+    response.write("data: [DONE]\n\n");
+    response.end();
+
+    // Persist conversation (fire-and-forget)
+    const updatedHistory = [
+      ...history,
+      { role: "user", content: message, ts: new Date().toISOString() },
+      { role: "assistant", content: fullResponse, ts: new Date().toISOString() }
+    ].slice(-40); // keep last 20 turns (40 messages)
+
+    query(`
+      INSERT INTO bi_conversations (tenant_id, user_id, department, messages_json, message_count)
+      VALUES ($1, $2, $3, $4, $5)
+      ON CONFLICT (tenant_id, user_id, department) DO UPDATE
+        SET messages_json = $4, message_count = $5, updated_at = now()`,
+      [session.tenantId, session.userId, dept,
+       JSON.stringify(updatedHistory), updatedHistory.length]).catch(console.error);
+
+  } catch (error) {
+    if (!response.headersSent)
+      sendJson(response, error.statusCode || 500, { error: error.message });
+  }
+  return;
+}
+
+// POST /api/bi/ingest — internal webhook from email ingestion pipeline
+if (request.method === "POST" && url.pathname === "/api/bi/ingest") {
+  try {
+    const ingestToken = process.env.BI_INGEST_TOKEN;
+    const provided = request.headers["x-ingest-token"];
+    if (!ingestToken || provided !== ingestToken)
+      throw Object.assign(new Error("Invalid ingest token."), { statusCode: 401 });
+
+    await ensurePlatformSchema();
+    const body = await readJson(request);
+    const { tenant_slug, query_type, export_date, rows, file_hash, ingest_version } = body;
+
+    if (!tenant_slug || !query_type || !rows?.length)
+      throw Object.assign(new Error("tenant_slug, query_type, rows are required."), { statusCode: 400 });
+
+    // Look up tenant
+    const tenantResult = await query(
+      `SELECT id FROM platform_tenants WHERE slug = $1 AND status = 'active'`, [tenant_slug]);
+    if (!tenantResult.rowCount)
+      throw Object.assign(new Error(`Tenant not found: ${tenant_slug}`), { statusCode: 404 });
+    const tenantId = tenantResult.rows[0].id;
+
+    // Dedup check
+    if (file_hash) {
+      const dupCheck = await query(
+        `SELECT id FROM bi_ingestion_log WHERE tenant_id = $1 AND file_hash = $2 AND status != 'error'`,
+        [tenantId, file_hash]);
+      if (dupCheck.rowCount) {
+        sendJson(response, 200, { status: "duplicate", skipped: true });
+        return;
+      }
+    }
+
+    // Route to correct table
+    const tableMap = {
+      stok_durumu:          "bi_stok_durumu",
+      satis_faturalari:     "bi_satis_faturalari",
+      musteri_bakiye:       "bi_musteri_bakiye",
+      stok_hareketleri:     "bi_stok_hareketleri",
+      tedarikci_faturalari: "bi_tedarikci_faturalari",
+      kacan_satislar:       "bi_kacan_satislar",
+      odeme_gecmisi:        "bi_odeme_gecmisi"
+    };
+    const tableName = tableMap[query_type];
+    if (!tableName)
+      throw Object.assign(new Error(`Unknown query_type: ${query_type}`), { statusCode: 400 });
+
+    // Bulk insert rows (using parameterized unnest for safety)
+    let insertedCount = 0;
+    for (const row of rows) {
+      const cols = Object.keys(row).filter(k => k !== "id");
+      const allCols = ["tenant_id", "export_date", ...cols];
+      const vals = [tenantId, export_date, ...cols.map(c => row[c])];
+      const placeholders = allCols.map((_, i) => `$${i + 1}`).join(", ");
+      await query(
+        `INSERT INTO ${tableName} (${allCols.join(", ")}) VALUES (${placeholders}) ON CONFLICT DO NOTHING`,
+        vals).catch(() => {}); // skip duplicate rows silently
+      insertedCount++;
+    }
+
+    // Log ingestion
+    await query(`
+      INSERT INTO bi_ingestion_log (tenant_id, query_type, export_date, row_count_raw, row_count_kept,
+                                    status, file_hash, ingest_version, processed_at)
+      VALUES ($1, $2, $3, $4, $5, 'ok', $6, $7, now())`,
+      [tenantId, query_type, export_date, rows.length, insertedCount,
+       file_hash || null, ingest_version || "1"]);
+
+    // Invalidate morning briefing cache for today
+    await query(
+      `DELETE FROM bi_morning_briefings WHERE tenant_id = $1 AND briefing_date = CURRENT_DATE`,
+      [tenantId]);
+
+    sendJson(response, 201, { status: "ok", rows_inserted: insertedCount });
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// ─── BI helper functions ──────────────────────────────────────────────────────
+
+function checkDeptAccess(session, dept) {
+  if (session.tenantRole === "platform_owner") return;
+  const allowed = session.permissions?.departments;
+  if (allowed && !allowed.includes(dept))
+    throw Object.assign(new Error(`Access to ${dept} department not authorized.`), { statusCode: 403 });
+}
+
+async function gatherBiKpiSnapshot(tenantId) {
+  const [salesR, stockR, ingestionR] = await Promise.all([
+    query(`SELECT COALESCE(SUM(satir_tutar), 0) AS ciro_30d, COUNT(DISTINCT fatura_no) AS fatura_30d
+           FROM bi_satis_faturalari WHERE tenant_id = $1 AND fatura_tarihi >= now() - interval '30 days'`,
+           [tenantId]),
+    query(`SELECT COALESCE(SUM(toplam_deger), 0) AS stok_degeri,
+                  COUNT(*) FILTER (WHERE eldeki_miktar <= min_stok AND min_stok > 0) AS kritik_stok
+           FROM bi_stok_durumu WHERE tenant_id = $1 AND export_date = (
+             SELECT MAX(export_date) FROM bi_stok_durumu WHERE tenant_id = $1)`,
+           [tenantId]),
+    query(`SELECT query_type, MAX(export_date) AS son_tarih FROM bi_ingestion_log
+           WHERE tenant_id = $1 GROUP BY query_type`, [tenantId])
+  ]);
+  return {
+    ciro_30d:      salesR.rows[0]?.ciro_30d || 0,
+    fatura_30d:    salesR.rows[0]?.fatura_30d || 0,
+    stok_degeri:   stockR.rows[0]?.stok_degeri || 0,
+    kritik_stok:   stockR.rows[0]?.kritik_stok || 0,
+    veri_tarihleri: ingestionR.rows
+  };
+}
+
+function buildMorningBriefingPrompt(kpis, session) {
+  return `Sen Derive Intelligence platformunun yapay zeka asistanısın.
+Aşağıdaki KPI verilerini kullanarak kısa ve etkili bir sabah brifingı yaz.
+
+Veriler (son 30 gün):
+- Ciro: ${Number(kpis.ciro_30d).toLocaleString("tr-TR")} TL
+- Fatura sayısı: ${kpis.fatura_30d}
+- Stok değeri: ${Number(kpis.stok_degeri).toLocaleString("tr-TR")} TL
+- Kritik stok uyarısı: ${kpis.kritik_stok} kalem
+
+JSON formatında yanıt ver:
+{
+  "summary": "2-3 cümlelik genel özet",
+  "sales_highlight": "en önemli satış gözlemi",
+  "stock_alert": "en acil stok konusu",
+  "pricing_note": "fiyatlandırma veya marj notu",
+  "it_status": "veri kalitesi durumu"
+}
+
+Sadece JSON döndür, başka bir şey yazma.`;
+}
+
+async function getBiDeptContext(tenantId, dept) {
+  const queries = {
+    sales: `SELECT 'Son 30 gün ciro: ' || COALESCE(SUM(satir_tutar)::text, 'Veri yok') || ' TL, ' ||
+                   COUNT(DISTINCT fatura_no) || ' fatura, ' ||
+                   COUNT(DISTINCT musteri_kodu) || ' müşteri' AS ozet
+            FROM bi_satis_faturalari WHERE tenant_id = $1 AND fatura_tarihi >= now() - interval '30 days'`,
+    pricing: `SELECT 'Son 90 gün stok değeri: ' || COALESCE(SUM(toplam_deger)::text, 'Veri yok') || ' TL' AS ozet
+              FROM bi_stok_durumu WHERE tenant_id = $1 AND export_date = (SELECT MAX(export_date) FROM bi_stok_durumu WHERE tenant_id = $1)`,
+    warehouse: `SELECT 'Toplam SKU: ' || COUNT(DISTINCT kalem_kodu) || ', Stok değeri: ' || COALESCE(SUM(toplam_deger)::text, 'Veri yok') || ' TL' AS ozet
+                FROM bi_stok_durumu WHERE tenant_id = $1 AND export_date = (SELECT MAX(export_date) FROM bi_stok_durumu WHERE tenant_id = $1)`,
+    it: `SELECT 'Aktif sorgu türleri: ' || COUNT(DISTINCT query_type) || ', Son güncelleme: ' || MAX(received_at)::text AS ozet
+         FROM bi_ingestion_log WHERE tenant_id = $1 AND received_at >= now() - interval '7 days'`
+  };
+  const result = await query(queries[dept] || queries.it, [tenantId]);
+  return result.rows[0]?.ozet || "Henüz veri yok.";
+}
+
+function buildDeptSystemPrompt(dept, context, session) {
+  const avatars = {
+    sales:     { name: "Satış Müdürü", title: "Satış Direktörü" },
+    pricing:   { name: "Fiyat Müdürü", title: "Fiyatlandırma Direktörü" },
+    warehouse: { name: "Depo Müdürü",  title: "Stok & Lojistik Direktörü" },
+    it:        { name: "Sistem Müdürü", title: "Veri & Sistem Direktörü" }
+  };
+  const avatar = avatars[dept];
+  return `Sen ${session.tenantName || "şirketin"} ${avatar.title} rolünde çalışan yapay zeka yöneticisisin. Adın ${avatar.name}.
+Kullanıcıyla Türkçe konuş. Kısa, net ve eyleme yönelik yanıtlar ver. Gereksiz teknik detaydan kaçın.
+
+Mevcut veri özeti: ${context}
+
+Eğer sorulan konuda veri yoksa, bunu dürüstçe belirt ve ne zaman veya nasıl sağlanabileceğini açıkla.`;
+}
+
+// =============================================================================
+// İSKONTO VE VADE ONAY İŞ AKIŞI — Approval Workflow Routes
+// =============================================================================
+
+// ─── Helper: get module role for current user ─────────────────────────────────
+async function getModuleRole(session) {
+  if (session.moduleRole) return session.moduleRole;
+  if (normalizeRole(session.role) === "platform_owner") return "admin";
+  const r = await query(
+    `SELECT module_role, permissions_json FROM tenant_user_modules
+     WHERE tenant_id = $1 AND user_id = $2 AND module_id = 'intelligence' AND active = true`,
+    [session.tenantId, session.userId]
+  );
+  return r.rows[0]?.module_role || "viewer";
+}
+
+// ─── Helper: build AI recommendation for an approval request ─────────────────
+async function generateApprovalRecommendation(tenantId, req) {
+  // 1. Real margin at requested price (use cost from bi_tedarikci_faturalari)
+  const costRow = await queryAsTenant(tenantId, `
+    SELECT AVG(birim_fiyat) AS avg_cost
+    FROM bi_tedarikci_faturalari
+    WHERE tenant_id = $1 AND stok_kodu = $2
+      AND export_date >= CURRENT_DATE - INTERVAL '90 days'
+  `, [tenantId, req.item_code]);
+  const avgCost = parseFloat(costRow.rows[0]?.avg_cost || 0);
+
+  // 2. Competitor price from price monitor
+  const compRow = await queryAsTenant(tenantId, `
+    SELECT competitor_price, competitor_name
+    FROM bi_price_monitor
+    WHERE tenant_id = $1 AND item_code = $2
+    ORDER BY scraped_at DESC LIMIT 1
+  `, [tenantId, req.item_code]);
+  const competitorPrice = compRow.rows[0]?.competitor_price || null;
+  const competitorName = compRow.rows[0]?.competitor_name || null;
+
+  // 3. Customer payment behavior
+  const custRow = await queryAsTenant(tenantId, `
+    SELECT
+      AVG(EXTRACT(DAY FROM (odeme_tarihi - vade_tarihi))) AS avg_delay_days,
+      SUM(tutar) AS total_12m
+    FROM bi_odeme_gecmisi
+    WHERE tenant_id = $1 AND musteri_kodu = $2
+      AND export_date >= CURRENT_DATE - INTERVAL '365 days'
+  `, [tenantId, req.customer_code]);
+  const avgPaymentDelay = parseFloat(custRow.rows[0]?.avg_delay_days || 0);
+  const total12m = parseFloat(custRow.rows[0]?.total_12m || 0);
+
+  // 4. Customer overdue balance
+  const overdueRow = await queryAsTenant(tenantId, `
+    SELECT COALESCE(SUM(bakiye),0) AS overdue
+    FROM bi_musteri_bakiye
+    WHERE tenant_id = $1 AND musteri_kodu = $2 AND vade_tarihi < CURRENT_DATE
+  `, [tenantId, req.customer_code]);
+  const overdueAmount = parseFloat(overdueRow.rows[0]?.overdue || 0);
+
+  // 5. Margin calculations
+  const COST_OF_CAPITAL = 0.40;
+  const termsDays = req.payment_terms_days || 0;
+  const financingCost = avgCost > 0
+    ? avgCost * COST_OF_CAPITAL * termsDays / 365
+    : 0;
+  const listMarginPct = avgCost > 0
+    ? ((req.list_price - avgCost) / req.list_price) * 100
+    : null;
+  const realMarginPct = avgCost > 0
+    ? ((req.requested_price - avgCost - financingCost) / req.requested_price) * 100
+    : null;
+
+  // 6. Quote history for this customer (pattern learning)
+  const quoteHistRow = await queryAsTenant(tenantId, `
+    SELECT
+      COUNT(*)                                                             AS total_quotes,
+      COUNT(*) FILTER (WHERE status = 'approved')                        AS approved,
+      COUNT(*) FILTER (WHERE status = 'rejected')                        AS rejected,
+      COUNT(*) FILTER (WHERE outcome_deal_closed = true)                 AS deals_closed,
+      COUNT(*) FILTER (WHERE status IN ('approved','rejected','countered')) AS decided,
+      ROUND(AVG(requested_discount_pct)::numeric, 1)                     AS avg_disc_requested,
+      ROUND(AVG(requested_discount_pct) FILTER (WHERE status='approved')::numeric, 1) AS avg_disc_approved,
+      ROUND(AVG(payment_terms_days) FILTER (WHERE status='approved')::numeric, 0)     AS avg_terms_approved,
+      MAX(decided_at)                                                     AS last_decision_at
+    FROM bi_approval_requests
+    WHERE tenant_id = $1 AND customer_code = $2
+  `, [tenantId, req.customer_code]);
+  const qh = quoteHistRow.rows[0] || {};
+  const closeRate = qh.decided > 0 ? ((qh.deals_closed / qh.decided) * 100).toFixed(0) : null;
+
+  // 7. Build AI prompt
+  const prompt = `Bir saha temsilcisi aşağıdaki iskonto/vade teklifini onayına sundu.
+Kararını Türkçe olarak ver. Yanıt JSON formatında olmalı.
+
+MÜŞTERİ: ${req.customer_name} (${req.customer_code})
+ÜRÜN: ${req.item_name} (${req.item_code})
+MİKTAR: ${req.quantity}
+LİSTE FİYAT: ${req.list_price} TRY
+İSTENEN FİYAT: ${req.requested_price} TRY
+İSKONTO: %${req.requested_discount_pct || ((1 - req.requested_price/req.list_price)*100).toFixed(1)}
+VADE: ${req.payment_terms_label} (${termsDays} gün)
+TEMSİLCİ NOTU: ${req.rep_note || '-'}
+
+MALİYET ANALİZİ:
+- Ortalama alış maliyeti: ${avgCost > 0 ? avgCost.toFixed(2) + ' TRY' : 'bilinmiyor'}
+- Liste fiyatı marjı: ${listMarginPct !== null ? '%' + listMarginPct.toFixed(1) : 'bilinmiyor'}
+- İstenen fiyatta gerçek marj (vade maliyeti dahil): ${realMarginPct !== null ? '%' + realMarginPct.toFixed(1) : 'bilinmiyor'}
+- Rakip fiyat: ${competitorPrice ? competitorPrice + ' TRY (' + competitorName + ')' : 'bilinmiyor'}
+
+MÜŞTERİ GEÇMİŞİ:
+- Son 12 ay ciro: ${total12m > 0 ? total12m.toFixed(0) + ' TRY' : 'veri yok'}
+- Ortalama ödeme gecikmesi: ${avgPaymentDelay > 0 ? avgPaymentDelay.toFixed(0) + ' gün' : 'veri yok'}
+- Güncel vadesi geçmiş bakiye: ${overdueAmount > 0 ? overdueAmount.toFixed(0) + ' TRY' : '0 TRY'}
+
+TEKLİF GEÇMİŞİ (bu müşteri için önceki talepler):
+- Toplam teklif sayısı: ${qh.total_quotes || 0}
+- Onaylanan: ${qh.approved || 0} / Reddedilen: ${qh.rejected || 0}
+- Gerçekleşen satış oranı: ${closeRate !== null ? '%' + closeRate : 'veri yok'}
+- Ortalama talep edilen iskonto: ${qh.avg_disc_requested ? '%' + qh.avg_disc_requested : 'veri yok'}
+- Onaylanan tekliflerde ortalama iskonto: ${qh.avg_disc_approved ? '%' + qh.avg_disc_approved : 'veri yok'}
+- Onaylanan tekliflerde ortalama vade: ${qh.avg_terms_approved ? qh.avg_terms_approved + ' gün' : 'veri yok'}
+
+JSON formatında yanıt ver (başka hiçbir şey yazma):
+{
+  "recommendation": "approve" | "counter" | "reject",
+  "reasoning": "2-3 cümle Türkçe gerekçe",
+  "suggested_price": null veya sayı (counter durumunda),
+  "suggested_terms_days": null veya sayı (counter durumunda),
+  "risk_level": "low" | "medium" | "high"
+}`;
+
+  let aiRec = {
+    recommendation: "approve",
+    reasoning: "Yeterli veri olmadığından otomatik öneri üretilemedi. Manuel değerlendirme gerekli.",
+    suggested_price: null,
+    suggested_terms_days: null,
+    risk_level: "medium"
+  };
+
+  try {
+    const Anthropic = (await import("@anthropic-ai/sdk")).default;
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const msg = await client.messages.create({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 400,
+      messages: [{ role: "user", content: prompt }]
+    });
+    const text = msg.content[0]?.text?.trim() || "";
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) aiRec = { ...aiRec, ...JSON.parse(jsonMatch[0]) };
+  } catch (_) {}
+
+  return {
+    ...aiRec,
+    real_margin_pct: realMarginPct !== null ? parseFloat(realMarginPct.toFixed(2)) : null,
+    list_margin_pct: listMarginPct !== null ? parseFloat(listMarginPct.toFixed(2)) : null,
+    avg_cost: avgCost > 0 ? avgCost : null,
+    competitor_price: competitorPrice,
+    competitor_name: competitorName,
+    customer_avg_payment_delay: avgPaymentDelay > 0 ? Math.round(avgPaymentDelay) : null,
+    customer_total_revenue_12m: total12m > 0 ? Math.round(total12m) : null,
+    customer_overdue_amount: overdueAmount
+  };
+}
+
+// ─── POST /api/bi/approvals — Submit new request (field_rep) ─────────────────
+async function handleApprovalSubmit(request) {
+  const session = await requireModuleAccess(request, "intelligence");
+  const moduleRole = await getModuleRole(session);
+  // managers and admins can also test-submit; field_rep is the primary submitter
+  const body = await request.json();
+  const {
+    customer_code, customer_name, item_code, item_name, quantity,
+    list_price, requested_price, payment_terms_label, payment_terms_days, rep_note
+  } = body;
+
+  if (!customer_code || !item_code || !requested_price || !list_price) {
+    return jsonResponse({ error: "Zorunlu alanlar eksik." }, 400);
+  }
+
+  const r = await queryAsTenant(session.tenantId, `
+    INSERT INTO bi_approval_requests
+      (tenant_id, requested_by, requested_by_name,
+       customer_code, customer_name, item_code, item_name, quantity,
+       list_price, requested_price, payment_terms_label, payment_terms_days, rep_note)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+    RETURNING *
+  `, [
+    session.tenantId, session.userId, session.name || session.email,
+    customer_code, customer_name, item_code, item_name, quantity || 1,
+    list_price, requested_price, payment_terms_label || 'Peşin', payment_terms_days || 0,
+    rep_note || null
+  ]);
+
+  const newReq = r.rows[0];
+
+  // Generate AI recommendation asynchronously (don't block response)
+  generateApprovalRecommendation(session.tenantId, newReq).then(async (rec) => {
+    await queryAsTenant(session.tenantId, `
+      UPDATE bi_approval_requests
+      SET ai_recommendation = $1, ai_recommendation_at = now()
+      WHERE id = $2 AND tenant_id = $3
+    `, [JSON.stringify(rec), newReq.id, session.tenantId]);
+  }).catch(() => {});
+
+  return jsonResponse({ success: true, request: newReq });
+}
+
+// ─── GET /api/bi/approvals — List requests ────────────────────────────────────
+async function handleApprovalList(request) {
+  const session = await requireModuleAccess(request, "intelligence");
+  const moduleRole = await getModuleRole(session);
+  const url = new URL(request.url, "http://x");
+  const status = url.searchParams.get("status") || null;
+  const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 200);
+
+  // Auto-expire before listing
+  await queryAsTenant(session.tenantId, `
+    UPDATE bi_approval_requests SET status = 'expired'
+    WHERE tenant_id = $1 AND status = 'pending' AND expires_at < now()
+  `, [session.tenantId]);
+
+  // field_rep sees only own requests; manager/admin sees all
+  const scopeClause = moduleRole === "field_rep"
+    ? "AND r.requested_by = $3"
+    : "";
+  const params = moduleRole === "field_rep"
+    ? [session.tenantId, status, session.userId]
+    : [session.tenantId, status];
+
+  const r = await queryAsTenant(session.tenantId, `
+    SELECT
+      r.id, r.customer_code, r.customer_name, r.item_code, r.item_name,
+      r.quantity, r.list_price, r.requested_price, r.requested_discount_pct,
+      r.payment_terms_label, r.payment_terms_days,
+      r.rep_note, r.status, r.created_at, r.expires_at,
+      r.requested_by_name,
+      r.decided_by_name, r.decision_note, r.decided_at,
+      r.counter_price, r.counter_terms_days, r.counter_note, r.counter_accepted,
+      r.ai_recommendation,
+      r.outcome_deal_closed, r.outcome_paid_on_time
+    FROM bi_approval_requests r
+    WHERE r.tenant_id = $1
+      ${status ? "AND r.status = $2" : "AND ($2::text IS NULL OR r.status = $2)"}
+      ${scopeClause}
+    ORDER BY
+      CASE r.status WHEN 'pending' THEN 0 ELSE 1 END,
+      r.created_at DESC
+    LIMIT ${limit}
+  `, params);
+
+  return jsonResponse({ requests: r.rows });
+}
+
+// ─── GET /api/bi/approvals/:id — Detail ──────────────────────────────────────
+async function handleApprovalDetail(request, id) {
+  const session = await requireModuleAccess(request, "intelligence");
+  const moduleRole = await getModuleRole(session);
+  const r = await queryAsTenant(session.tenantId, `
+    SELECT * FROM bi_approval_requests
+    WHERE id = $1 AND tenant_id = $2
+      ${moduleRole === "field_rep" ? "AND requested_by = $3" : ""}
+  `, moduleRole === "field_rep"
+    ? [id, session.tenantId, session.userId]
+    : [id, session.tenantId]);
+
+  if (!r.rows.length) return jsonResponse({ error: "Bulunamadı." }, 404);
+  return jsonResponse(r.rows[0]);
+}
+
+// ─── PATCH /api/bi/approvals/:id/decide — Manager approves/rejects/counters ──
+async function handleApprovalDecide(request, id) {
+  const session = await requireModuleAccess(request, "intelligence");
+  const moduleRole = await getModuleRole(session);
+  if (moduleRole === "field_rep") return jsonResponse({ error: "Yetki yok." }, 403);
+
+  const body = await request.json();
+  const { decision, decision_note, counter_price, counter_terms_days, counter_note } = body;
+  if (!["approved","rejected","countered"].includes(decision)) {
+    return jsonResponse({ error: "Geçersiz karar." }, 400);
+  }
+
+  const r = await queryAsTenant(session.tenantId, `
+    UPDATE bi_approval_requests SET
+      status          = $1,
+      decided_by      = $2,
+      decided_by_name = $3,
+      decision_note   = $4,
+      decided_at      = now(),
+      counter_price        = $5,
+      counter_terms_days   = $6,
+      counter_note         = $7
+    WHERE id = $8 AND tenant_id = $9 AND status = 'pending'
+    RETURNING id, status
+  `, [
+    decision,
+    session.userId, session.name || session.email,
+    decision_note || null,
+    counter_price || null, counter_terms_days || null, counter_note || null,
+    id, session.tenantId
+  ]);
+
+  if (!r.rows.length) return jsonResponse({ error: "Talep bulunamadı veya zaten karara bağlanmış." }, 404);
+  return jsonResponse({ success: true, status: r.rows[0].status });
+}
+
+// ─── PATCH /api/bi/approvals/:id/respond — Rep responds to counter-offer ─────
+async function handleApprovalRespond(request, id) {
+  const session = await requireModuleAccess(request, "intelligence");
+  const body = await request.json();
+  const { accept } = body;
+  const r = await queryAsTenant(session.tenantId, `
+    UPDATE bi_approval_requests SET
+      counter_accepted     = $1,
+      counter_responded_at = now()
+    WHERE id = $2 AND tenant_id = $3 AND requested_by = $4 AND status = 'countered'
+    RETURNING id
+  `, [!!accept, id, session.tenantId, session.userId]);
+  if (!r.rows.length) return jsonResponse({ error: "Talep bulunamadı." }, 404);
+  return jsonResponse({ success: true });
+}
+
+// ─── PATCH /api/bi/approvals/:id/outcome — Record deal outcome ───────────────
+async function handleApprovalOutcome(request, id) {
+  const session = await requireModuleAccess(request, "intelligence");
+  const body = await request.json();
+  const { deal_closed, paid_on_time, note } = body;
+  const r = await queryAsTenant(session.tenantId, `
+    UPDATE bi_approval_requests SET
+      outcome_deal_closed   = $1,
+      outcome_paid_on_time  = $2,
+      outcome_note          = $3,
+      outcome_recorded_at   = now(),
+      outcome_recorded_by   = $4
+    WHERE id = $5 AND tenant_id = $6
+    RETURNING id
+  `, [deal_closed ?? null, paid_on_time ?? null, note || null, session.userId, id, session.tenantId]);
+  if (!r.rows.length) return jsonResponse({ error: "Talep bulunamadı." }, 404);
+  return jsonResponse({ success: true });
+}
+
+// ─── Approval routes registration (add to routeRequest switch/if block) ───────
+// Add these cases in the main request router where /api/bi/ routes are handled:
+//
+//   if (path === "/api/bi/approvals" && method === "POST")      return handleApprovalSubmit(request);
+//   if (path === "/api/bi/approvals" && method === "GET")       return handleApprovalList(request);
+//   const approvalMatch = path.match(/^\/api\/bi\/approvals\/([^/]+)\/?(decide|respond|outcome)?$/);
+//   if (approvalMatch) {
+//     const [, id, action] = approvalMatch;
+//     if (method === "GET")   return handleApprovalDetail(request, id);
+//     if (method === "PATCH" && action === "decide")   return handleApprovalDecide(request, id);
+//     if (method === "PATCH" && action === "respond")  return handleApprovalRespond(request, id);
+//     if (method === "PATCH" && action === "outcome")  return handleApprovalOutcome(request, id);
+//   }
+//   if (path === "/api/bi/customers/search" && method === "GET") return handleCustomerSearch(request);
+//   if (path === "/api/bi/items/search"     && method === "GET") return handleItemSearch(request);
+//   const custQuoteMatch = path.match(/^\/api\/bi\/customers\/([^/]+)\/quotes$/);
+//   if (custQuoteMatch && method === "GET") return handleCustomerQuotes(request, decodeURIComponent(custQuoteMatch[1]));
+
+// =============================================================================
+// CUSTOMER & ITEM SEARCH — Typeahead for field rep form
+// =============================================================================
+
+// ─── GET /api/bi/customers/search?q=xx ───────────────────────────────────────
+async function handleCustomerSearch(request) {
+  const session = await requireModuleAccess(request, "intelligence");
+  const url = new URL(request.url, "http://x");
+  const q = (url.searchParams.get("q") || "").trim();
+  if (q.length < 2) return jsonResponse({ customers: [] });
+
+  const r = await queryAsTenant(session.tenantId, `
+    SELECT
+      musteri_kodu                           AS code,
+      MAX(musteri_adi)                       AS name,
+      MAX(export_date)                       AS last_activity,
+      ROUND(SUM(tutar)::numeric, 0)          AS total_12m,
+      COUNT(*)                               AS invoice_count
+    FROM bi_satis_faturalari
+    WHERE tenant_id = $1
+      AND export_date >= CURRENT_DATE - INTERVAL '365 days'
+      AND (
+        musteri_kodu ILIKE $2
+        OR musteri_adi ILIKE $2
+        OR unaccent(musteri_adi) ILIKE unaccent($2)
+      )
+    GROUP BY musteri_kodu
+    ORDER BY SUM(tutar) DESC NULLS LAST
+    LIMIT 12
+  `, [session.tenantId, `%${q}%`]);
+
+  return jsonResponse({ customers: r.rows });
+}
+
+// ─── GET /api/bi/items/search?q=xx ───────────────────────────────────────────
+async function handleItemSearch(request) {
+  const session = await requireModuleAccess(request, "intelligence");
+  const url = new URL(request.url, "http://x");
+  const q = (url.searchParams.get("q") || "").trim();
+  if (q.length < 2) return jsonResponse({ items: [] });
+
+  // Search sales invoices for item codes/names + compute last avg selling price
+  const r = await queryAsTenant(session.tenantId, `
+    SELECT
+      stok_kodu                                          AS code,
+      MAX(kalem_tanimi)                                  AS name,
+      ROUND(AVG(birim_fiyat)::numeric, 2)               AS avg_sell_price,
+      ROUND(MAX(birim_fiyat)::numeric, 2)               AS max_sell_price,
+      MAX(export_date)                                   AS last_seen,
+      SUM(miktar)                                        AS total_qty_sold
+    FROM bi_satis_faturalari
+    WHERE tenant_id = $1
+      AND export_date >= CURRENT_DATE - INTERVAL '90 days'
+      AND birim_fiyat > 0
+      AND (
+        stok_kodu ILIKE $2
+        OR kalem_tanimi ILIKE $2
+        OR unaccent(kalem_tanimi) ILIKE unaccent($2)
+      )
+    GROUP BY stok_kodu
+    ORDER BY SUM(miktar) DESC NULLS LAST
+    LIMIT 12
+  `, [session.tenantId, `%${q}%`]).catch(async () => {
+    // unaccent extension may not be installed — fall back without it
+    return queryAsTenant(session.tenantId, `
+      SELECT stok_kodu AS code, MAX(kalem_tanimi) AS name,
+        ROUND(AVG(birim_fiyat)::numeric,2) AS avg_sell_price,
+        ROUND(MAX(birim_fiyat)::numeric,2) AS max_sell_price,
+        MAX(export_date) AS last_seen, SUM(miktar) AS total_qty_sold
+      FROM bi_satis_faturalari
+      WHERE tenant_id = $1 AND export_date >= CURRENT_DATE - INTERVAL '90 days'
+        AND birim_fiyat > 0 AND (stok_kodu ILIKE $2 OR kalem_tanimi ILIKE $2)
+      GROUP BY stok_kodu ORDER BY SUM(miktar) DESC NULLS LAST LIMIT 12
+    `, [session.tenantId, `%${q}%`]);
+  });
+
+  return jsonResponse({ items: r.rows });
+}
+
+// ─── GET /api/bi/customers/:code/quotes ──────────────────────────────────────
+// Returns quote history + summary stats for a customer.
+// field_rep sees only own quotes; manager/admin sees all.
+async function handleCustomerQuotes(request, customerCode) {
+  const session = await requireModuleAccess(request, "intelligence");
+  const moduleRole = await getModuleRole(session);
+
+  const scopeFilter = moduleRole === "field_rep" ? "AND requested_by = $3" : "";
+  const params = moduleRole === "field_rep"
+    ? [session.tenantId, customerCode, session.userId]
+    : [session.tenantId, customerCode];
+
+  const r = await queryAsTenant(session.tenantId, `
+    SELECT
+      id, item_code, item_name, quantity,
+      list_price, requested_price, requested_discount_pct,
+      payment_terms_label, payment_terms_days,
+      status, decided_at, decision_note,
+      counter_price, counter_terms_days,
+      outcome_deal_closed, outcome_paid_on_time,
+      (ai_recommendation->>'recommendation')  AS ai_rec,
+      (ai_recommendation->>'real_margin_pct') AS ai_margin,
+      requested_by_name, created_at
+    FROM bi_approval_requests
+    WHERE tenant_id = $1 AND customer_code = $2
+    ${scopeFilter}
+    ORDER BY created_at DESC
+    LIMIT 25
+  `, params);
+
+  const quotes = r.rows;
+  const decided = quotes.filter(q => ["approved","rejected","countered"].includes(q.status));
+  const closed  = quotes.filter(q => q.outcome_deal_closed === true);
+  const avgDisc = quotes.length
+    ? (quotes.reduce((s, q) => s + parseFloat(q.requested_discount_pct || 0), 0) / quotes.length).toFixed(1)
+    : null;
+  const avgApprovedDisc = quotes.filter(q => q.status === "approved").length
+    ? (quotes.filter(q => q.status === "approved")
+         .reduce((s, q) => s + parseFloat(q.requested_discount_pct || 0), 0)
+       / quotes.filter(q => q.status === "approved").length).toFixed(1)
+    : null;
+
+  return jsonResponse({
+    quotes,
+    summary: {
+      total_quotes:        quotes.length,
+      approved_count:      quotes.filter(q => q.status === "approved").length,
+      rejected_count:      quotes.filter(q => q.status === "rejected").length,
+      countered_count:     quotes.filter(q => q.status === "countered").length,
+      deals_closed:        closed.length,
+      close_rate_pct:      decided.length ? ((closed.length / decided.length) * 100).toFixed(0) : null,
+      avg_requested_disc:  avgDisc,
+      avg_approved_disc:   avgApprovedDisc
+    }
+  });
+}
+
+// ─── END DERIVE PLATFORM ADDITIONS ───────────────────────────────────────────

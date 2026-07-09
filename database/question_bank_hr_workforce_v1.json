@@ -1,0 +1,1107 @@
+{
+  "hr_workforce_assessment_v1": [
+    {
+      "question_id": "HR-001",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Workforce Overview",
+      "question_text": "Which workforce areas are hardest to staff?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Technicians",
+        "Dispatchers",
+        "Warehouse staff",
+        "Sales",
+        "Finance/admin",
+        "Branch managers",
+        "Drivers/logistics",
+        "Customer service",
+        "IT/system support",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "workforce",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "staffing_shortage",
+        "workforce_planning_gap"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "hard_to_staff_roles"
+      ],
+      "ai_analysis_purpose": "Identify hard-to-staff workforce areas.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "workforce_planning"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "HR-002",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Staffing & Capacity",
+      "question_text": "How difficult is it to recruit qualified employees for critical roles?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "workforce",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "staffing_shortage",
+        "skill_gap"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "hiring_difficulty_score"
+      ],
+      "ai_analysis_purpose": "Measure hiring difficulty.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "hiring_pipeline_improvement"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "HR-003",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Retention & Engagement",
+      "question_text": "Which roles have the highest turnover or retention risk?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Technicians",
+        "Dispatchers",
+        "Warehouse staff",
+        "Sales",
+        "Finance/admin",
+        "Branch managers",
+        "Drivers/logistics",
+        "Customer service",
+        "IT/system support",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "workforce",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "employee_turnover_risk",
+        "knowledge_dependency"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "retention_risk_area"
+      ],
+      "ai_analysis_purpose": "Identify retention-risk roles.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "retention_program"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "HR-004",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Staffing & Capacity",
+      "question_text": "How well does staffing capacity match current workload?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "workforce",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "staffing_shortage",
+        "workload_imbalance",
+        "capacity_constraint"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "staffing_capacity_score",
+        "staffing_capacity_gap"
+      ],
+      "ai_analysis_purpose": "Measure workforce capacity and desired gap.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "capacity_planning"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "current_state_value": true,
+      "desired_state_value": true,
+      "gap_calculation_enabled": true
+    },
+    {
+      "question_id": "HR-005",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Staffing & Capacity",
+      "question_text": "How often do staffing shortages affect service delivery or internal operations?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "workforce",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "staffing_shortage",
+        "service_quality_issue"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "staffing_shortage_impact_frequency"
+      ],
+      "ai_analysis_purpose": "Measure operational impact of staffing shortage.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "staffing_risk_plan"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "HR-006",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Workload & Productivity",
+      "question_text": "Which teams experience the highest workload pressure?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Technicians",
+        "Dispatchers",
+        "Warehouse",
+        "Branch managers",
+        "Finance/admin",
+        "Sales",
+        "Customer service",
+        "IT/system support",
+        "Leadership",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "workforce",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "workload_imbalance",
+        "resource_shortage"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "time_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "workload_pressure_area"
+      ],
+      "ai_analysis_purpose": "Identify workload pressure points.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "workload_balancing"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "HR-007",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Training & Skills",
+      "question_text": "How standardized is onboarding and training across roles?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "workforce",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "training_gap",
+        "lack_of_standardization"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "training_standardization_score"
+      ],
+      "ai_analysis_purpose": "Assess onboarding/training standardization.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "role_based_training"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "HR-008",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Training & Skills",
+      "question_text": "Which skill gaps most affect performance?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Technical skills",
+        "Customer communication",
+        "System/software usage",
+        "Reporting/documentation",
+        "Safety/compliance",
+        "Leadership",
+        "Process knowledge",
+        "Sales skills",
+        "Financial understanding",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "workforce",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "skill_gap",
+        "training_gap"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "training_gap_score"
+      ],
+      "ai_analysis_purpose": "Identify performance-impacting skill gaps.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "skills_matrix"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "HR-009",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Training & Skills",
+      "question_text": "How often do employees need help because processes or systems are unclear?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "workforce",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "training_gap",
+        "role_clarity_gap",
+        "poor_usability"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "time_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "process_system_help_frequency"
+      ],
+      "ai_analysis_purpose": "Measure clarity-related support needs.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "process_documentation"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "HR-010",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Change Readiness",
+      "question_text": "How ready are employees for process, technology, or AI-enabled change?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "change_management",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "change_resistance",
+        "training_gap"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "change_readiness_score"
+      ],
+      "ai_analysis_purpose": "Assess workforce change readiness.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "change_management_program"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "HR-011",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Change Readiness",
+      "question_text": "Which factors create resistance to change?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Lack of training",
+        "Fear of extra work",
+        "Poor communication",
+        "Low trust",
+        "Past failed projects",
+        "System usability concerns",
+        "Unclear benefits",
+        "Workload pressure",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "change_management",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "change_resistance",
+        "communication_breakdown",
+        "training_gap"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "change_resistance_drivers"
+      ],
+      "ai_analysis_purpose": "Identify change resistance drivers.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "change_enablement"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "HR-012",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Knowledge Dependency",
+      "question_text": "Which processes depend heavily on one person’s knowledge?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Dispatch",
+        "Service coordination",
+        "Inventory",
+        "Billing",
+        "Reporting",
+        "Customer relationships",
+        "Supplier relationships",
+        "Technical troubleshooting",
+        "System administration",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "workforce",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "knowledge_dependency",
+        "business_continuity_risk"
+      ],
+      "impact_dimensions": [
+        "risk_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "knowledge_dependency_area"
+      ],
+      "ai_analysis_purpose": "Identify key-person dependency areas.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "cross_training"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "HR-013",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Knowledge Dependency",
+      "question_text": "How often does key person dependency create risk or delay?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "workforce",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "knowledge_dependency",
+        "business_continuity_risk"
+      ],
+      "impact_dimensions": [
+        "risk_impact",
+        "time_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "knowledge_dependency_score"
+      ],
+      "ai_analysis_purpose": "Measure key-person dependency frequency.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "succession_cross_training"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "HR-014",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Workforce Overview",
+      "question_text": "How clearly are roles and responsibilities defined?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "governance",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "role_clarity_gap",
+        "unclear_ownership"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "role_clarity_score"
+      ],
+      "ai_analysis_purpose": "Assess role clarity.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "role_definition_matrix"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "HR-015",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Improvement Opportunities",
+      "question_text": "Which workforce improvements would create the most value?",
+      "response_type": "ranking",
+      "options": [
+        "Better hiring pipeline",
+        "Better onboarding",
+        "Role-based training",
+        "Cross-training",
+        "Process documentation",
+        "System training",
+        "Leadership development",
+        "Workload balancing",
+        "Retention program",
+        "Change management program"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "workforce",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "training_gap",
+        "staffing_shortage",
+        "workload_imbalance"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "workforce_improvement_priority"
+      ],
+      "ai_analysis_purpose": "Rank workforce improvement priorities.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "workforce_roadmap"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "HR-016",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Workload & Productivity",
+      "question_text": "What percentage of employee time is lost to unclear processes, rework, or manual coordination?",
+      "response_type": "percentage",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "workforce",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "productivity_loss",
+        "manual_process",
+        "rework"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "productivity_loss_estimate"
+      ],
+      "ai_analysis_purpose": "Estimate productivity loss from workforce friction.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "productivity_improvement"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "HR-017",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Retention & Engagement",
+      "question_text": "How often do workload or system frustrations contribute to retention risk?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "workforce",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "employee_turnover_risk",
+        "workload_imbalance",
+        "poor_usability"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "retention_risk_score"
+      ],
+      "ai_analysis_purpose": "Measure frustration-driven retention risk.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "retention_risk_reduction"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "HR-018",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Staffing & Capacity",
+      "question_text": "How many critical roles currently lack backup coverage?",
+      "response_type": "numeric",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "risk_management",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "knowledge_dependency",
+        "business_continuity_risk",
+        "staffing_shortage"
+      ],
+      "impact_dimensions": [
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "critical_role_backup_gap"
+      ],
+      "ai_analysis_purpose": "Quantify backup coverage risk.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [],
+      "recommendation_triggers": [
+        "backup_coverage_plan"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "HR-019",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Training & Skills",
+      "question_text": "How much time does onboarding usually take before a new hire is productive?",
+      "response_type": "time_duration",
+      "options": [
+        "Less than 1 week",
+        "1-2 weeks",
+        "3-4 weeks",
+        "1-3 months",
+        "More than 3 months"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "workforce",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "training_gap",
+        "productivity_loss"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "time_to_productivity"
+      ],
+      "ai_analysis_purpose": "Capture onboarding time-to-productivity.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [],
+      "recommendation_triggers": [
+        "onboarding_standardization"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "HR-020",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Change Readiness",
+      "question_text": "How often do improvement initiatives fail to stick after launch?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "change_management",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "change_resistance",
+        "poor_adoption"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "change_sustainability_score"
+      ],
+      "ai_analysis_purpose": "Measure sustainability of change initiatives.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "adoption_governance"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "HR-021",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Improvement Opportunities",
+      "question_text": "Describe a recent workforce issue that affected service, productivity, or customer experience.",
+      "response_type": "open_text",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "workforce",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "staffing_shortage",
+        "training_gap",
+        "workload_imbalance",
+        "service_quality_issue"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "workforce_issue_evidence"
+      ],
+      "ai_analysis_purpose": "Collect workforce issue evidence.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What happened?",
+        "Who was involved?",
+        "How often does this happen?",
+        "What was the impact?",
+        "What should change?"
+      ],
+      "recommendation_triggers": [
+        "workforce_issue_resolution"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "HR-022",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Improvement Opportunities",
+      "question_text": "If you could improve one workforce process in the next 30 days, what would it be?",
+      "response_type": "open_text",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "workforce",
+      "assessment_category": "people",
+      "problem_types_detectable": [
+        "training_gap",
+        "role_clarity_gap",
+        "workload_imbalance"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "time_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "workforce_improvement_priority"
+      ],
+      "ai_analysis_purpose": "Generate HR quick-win ideas.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What happened?",
+        "Who was involved?",
+        "How often does this happen?",
+        "What was the impact?",
+        "What should change?"
+      ],
+      "recommendation_triggers": [
+        "workforce_quick_win"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "HR-023",
+      "stakeholder_group_id": "support_functions",
+      "stakeholder_role_id": "hr_manager",
+      "section": "Retention & Engagement",
+      "question_text": "How often does employee turnover result in lost operational knowledge, customer relationships, or service capability?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "workforce",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "employee_turnover_risk",
+        "knowledge_dependency",
+        "business_continuity_risk",
+        "customer_relationship_risk",
+        "service_capability_loss",
+        "training_gap"
+      ],
+      "impact_dimensions": [
+        "employee_impact",
+        "customer_impact",
+        "operational_impact",
+        "revenue_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Workforce",
+        "Customer Experience",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "turnover_knowledge_loss_frequency",
+        "workforce_continuity_risk_score",
+        "retention_business_impact_score"
+      ],
+      "ai_analysis_purpose": "Measure whether employee turnover creates measurable business risk by removing critical knowledge, customer relationships, or service capability.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which roles create the greatest risk when employees leave?",
+        "What knowledge or relationships are usually lost?",
+        "How long does recovery usually take?",
+        "What could reduce the impact of turnover?"
+      ],
+      "recommendation_triggers": [
+        "retention_program",
+        "knowledge_capture",
+        "cross_training",
+        "succession_planning",
+        "workforce_continuity_plan"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    }
+  ]
+}

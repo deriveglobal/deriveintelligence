@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Derive — Organizational Intelligence Platform</title>
+  <meta name="description" content="Transform stakeholder input into structured intelligence. Findings, risks, opportunities, and a clear path forward. In days, not months.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&display=swap">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/tabler-icons/2.44.0/iconfont/tabler-icons.min.css">
+  <style>
+    :root {
+      --hp-bg: #0A0A08;
+      --hp-surface: #111110;
+      --hp-raised: #161614;
+      --hp-text: #F0EDE6;
+      --hp-soft: #B8B5AE;
+      --hp-muted: rgba(240,237,230,0.4);
+      --hp-faint: rgba(240,237,230,0.18);
+      --hp-border: rgba(255,255,255,0.07);
+      --hp-border-md: rgba(255,255,255,0.12);
+      --hp-gold: #C8A96E;
+      --hp-gold-muted: rgba(200,169,110,0.1);
+      --hp-gold-border: rgba(200,169,110,0.2);
+      --hp-risk: #E07B5A;
+      --hp-opp: #6BB88A;
+      --hp-info: #6B9FD4;
+    }
+
+    * { box-sizing: border-box; }
+
+    html {
+      scroll-behavior: smooth;
+      background: var(--hp-bg);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    body {
+      margin: 0;
+      background: var(--hp-bg);
+      color: var(--hp-text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    body.panel-open { overflow: hidden; }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    button,
+    input,
+    select,
+    textarea {
+      font: inherit;
+    }
+
+    button { -webkit-tap-highlight-color: transparent; }
+
+    .hp-nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 20;
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 24px;
+      padding: 18px 32px;
+      border-bottom: 0.5px solid transparent;
+      transition: background 0.18s ease, border-color 0.18s ease;
+    }
+
+    .hp-nav.scrolled {
+      background: rgba(10,10,8,0.92);
+      border-color: var(--hp-border);
+      backdrop-filter: blur(18px);
+    }
+
+    .wordmark {
+      font-size: 15px;
+      letter-spacing: -0.03em;
+      font-weight: 500;
+      color: var(--hp-text);
+    }
+
+    .wordmark span {
+      color: var(--hp-faint);
+      font-weight: 300;
+    }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 26px;
+      color: var(--hp-muted);
+      font-size: 13px;
+    }
+
+    .nav-links a:hover { color: var(--hp-text); }
+
+    .nav-actions {
+      justify-self: end;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 38px;
+      padding: 9px 16px;
+      border-radius: 8px;
+      border: 0.5px solid transparent;
+      cursor: pointer;
+      transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+      white-space: nowrap;
+    }
+
+    .btn:active { transform: scale(0.98); }
+
+    .btn-gold {
+      background: var(--hp-gold);
+      color: #1A1508;
+      font-weight: 500;
+    }
+
+    .btn-gold:hover { opacity: 0.9; }
+
+    .btn-ghost {
+      background: transparent;
+      border-color: var(--hp-border-md);
+      color: var(--hp-soft);
+    }
+
+    .btn-ghost:hover {
+      background: rgba(255,255,255,0.04);
+      color: var(--hp-text);
+    }
+
+    .section {
+      padding: 112px 32px;
+    }
+
+    .container {
+      max-width: 1160px;
+      margin: 0 auto;
+    }
+
+    .hero {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 120px 32px 56px;
+      text-align: center;
+    }
+
+    .hero-inner {
+      max-width: 820px;
+      margin: 0 auto;
+    }
+
+    .eyebrow-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--hp-gold);
+      border: 0.5px solid var(--hp-gold-border);
+      background: var(--hp-gold-muted);
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 12px;
+      margin-bottom: 28px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      font-weight: 500;
+      letter-spacing: -0.045em;
+      line-height: 1.04;
+    }
+
+    h1 {
+      font-size: clamp(38px, 6vw, 52px);
+    }
+
+    h1 em {
+      display: block;
+      color: var(--hp-muted);
+      font-weight: 300;
+      font-style: italic;
+    }
+
+    .hero-sub {
+      max-width: 720px;
+      margin: 26px auto 0;
+      color: var(--hp-soft);
+      font-size: 17px;
+      font-weight: 300;
+      line-height: 1.7;
+    }
+
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      margin-top: 34px;
+    }
+
+    .proof-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0;
+      margin-top: 64px;
+      padding-top: 26px;
+      border-top: 0.5px solid var(--hp-border);
+    }
+
+    .proof-row strong {
+      display: block;
+      font-size: 24px;
+      font-weight: 500;
+      letter-spacing: -0.04em;
+      color: var(--hp-text);
+    }
+
+    .proof-row span {
+      color: var(--hp-muted);
+      font-size: 12px;
+    }
+
+    .surface-section {
+      background: var(--hp-surface);
+      border-top: 0.5px solid var(--hp-border);
+      border-bottom: 0.5px solid var(--hp-border);
+    }
+
+    .section-head {
+      max-width: 760px;
+      margin-bottom: 44px;
+    }
+
+    .section-head.center {
+      text-align: center;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .eyebrow {
+      display: block;
+      color: var(--hp-gold);
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-weight: 500;
+      margin-bottom: 12px;
+    }
+
+    h2 {
+      font-size: clamp(30px, 4vw, 42px);
+      color: var(--hp-text);
+    }
+
+    .section-sub {
+      margin-top: 16px;
+      color: var(--hp-soft);
+      font-size: 16px;
+      font-weight: 300;
+      line-height: 1.7;
+    }
+
+    .toggle {
+      display: inline-flex;
+      gap: 2px;
+      padding: 4px;
+      border: 0.5px solid var(--hp-border);
+      border-radius: 10px;
+      background: var(--hp-raised);
+      margin-bottom: 24px;
+    }
+
+    .toggle button {
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--hp-muted);
+      padding: 8px 14px;
+      cursor: pointer;
+    }
+
+    .toggle button.active {
+      background: rgba(255,255,255,0.07);
+      color: var(--hp-text);
+    }
+
+    .gap-stage {
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+
+    .gap-stage.fade {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+
+    .contrast-grid,
+    .output-grid,
+    .industry-grid,
+    .role-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .quote-card,
+    .output-card,
+    .industry-card,
+    .role-card,
+    .compare-card {
+      background: var(--hp-raised);
+      border: 0.5px solid var(--hp-border);
+      border-radius: 12px;
+      padding: 22px;
+    }
+
+    .quote-card p,
+    .output-card p,
+    .industry-card p,
+    .role-card p,
+    .compare-card li {
+      color: var(--hp-soft);
+      margin: 0;
+    }
+
+    .quote-card small,
+    .output-label,
+    .industry-card small {
+      color: var(--hp-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 10px;
+      font-weight: 500;
+    }
+
+    .finding-sample {
+      margin-top: 14px;
+      border-left: 3px solid var(--hp-risk);
+    }
+
+    .workflow {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      position: relative;
+    }
+
+    .workflow::before {
+      content: "";
+      position: absolute;
+      top: 31px;
+      left: 16%;
+      right: 16%;
+      border-top: 0.5px dashed var(--hp-border-md);
+      z-index: 0;
+    }
+
+    .step {
+      position: relative;
+      z-index: 1;
+      background: var(--hp-bg);
+      border: 0.5px solid var(--hp-border);
+      border-radius: 12px;
+      padding: 24px;
+    }
+
+    .step i,
+    .role-card i,
+    .industry-card i {
+      width: 34px;
+      height: 34px;
+      display: inline-grid;
+      place-items: center;
+      border-radius: 9px;
+      color: var(--hp-gold);
+      background: var(--hp-gold-muted);
+      margin-bottom: 18px;
+      font-size: 18px;
+    }
+
+    .step h3,
+    .role-card h3,
+    .industry-card h3,
+    .output-card h3 {
+      font-size: 18px;
+      margin-bottom: 10px;
+      letter-spacing: -0.025em;
+    }
+
+    .role-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .role-card {
+      cursor: pointer;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .role-card:hover,
+    .role-card.active {
+      border-color: var(--hp-gold-border);
+      background: var(--hp-gold-muted);
+    }
+
+    .role-note {
+      margin-top: 20px;
+      color: var(--hp-muted);
+      text-align: center;
+    }
+
+    .output-card.risk { border-left: 3px solid var(--hp-risk); }
+    .output-card.opp { border-left: 3px solid var(--hp-opp); }
+    .output-card.info { border-left: 3px solid var(--hp-info); }
+    .output-card.gold { border-left: 3px solid var(--hp-gold); }
+
+    .tag {
+      display: inline-flex;
+      margin-top: 16px;
+      color: var(--hp-gold);
+      background: var(--hp-gold-muted);
+      border: 0.5px solid var(--hp-gold-border);
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 11px;
+    }
+
+    .progress {
+      height: 5px;
+      background: rgba(255,255,255,0.07);
+      border-radius: 99px;
+      overflow: hidden;
+      margin: 14px 0;
+    }
+
+    .progress i {
+      display: block;
+      width: 62%;
+      height: 100%;
+      background: var(--hp-gold);
+    }
+
+    .compare-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+    }
+
+    .compare-card.featured {
+      border-color: var(--hp-gold-border);
+      background: var(--hp-gold-muted);
+    }
+
+    .compare-card ul {
+      list-style: none;
+      padding: 0;
+      margin: 16px 0 0;
+    }
+
+    .compare-card li {
+      padding: 8px 0;
+      border-top: 0.5px solid var(--hp-border);
+    }
+
+    .gold-sub {
+      color: var(--hp-gold);
+      font-size: 20px;
+      font-weight: 300;
+      margin-top: 16px;
+    }
+
+    .industry-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .final-cta {
+      text-align: center;
+      border-top: 0.5px solid var(--hp-border);
+    }
+
+    .final-cta h2 {
+      max-width: 720px;
+      margin: 0 auto;
+      font-size: clamp(30px, 4vw, 36px);
+    }
+
+    .final-cta p {
+      max-width: 600px;
+      margin: 18px auto 28px;
+      color: var(--hp-soft);
+      font-size: 16px;
+      font-weight: 300;
+    }
+
+    footer {
+      border-top: 0.5px solid var(--hp-border);
+      padding: 34px 32px;
+      color: var(--hp-muted);
+    }
+
+    .footer-inner {
+      max-width: 1160px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+    }
+
+    .footer-links {
+      display: flex;
+      gap: 18px;
+    }
+
+    .overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: rgba(0,0,0,0.7);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s ease;
+    }
+
+    .overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .modal {
+      position: fixed;
+      z-index: 60;
+      top: 50%;
+      left: 50%;
+      width: min(400px, calc(100vw - 32px));
+      transform: translate(-50%, -48%);
+      background: var(--hp-surface);
+      border: 0.5px solid var(--hp-border-md);
+      border-radius: 12px;
+      padding: 24px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+    }
+
+    .modal.active {
+      opacity: 1;
+      pointer-events: auto;
+      transform: translate(-50%, -50%);
+    }
+
+    .panel-drawer {
+      position: fixed;
+      z-index: 60;
+      top: 0;
+      right: 0;
+      width: min(480px, 100vw);
+      height: 100vh;
+      background: var(--hp-surface);
+      border-left: 0.5px solid var(--hp-border-md);
+      padding: 28px;
+      transform: translateX(100%);
+      transition: transform 0.22s ease;
+      overflow-y: auto;
+    }
+
+    .panel-drawer.active {
+      transform: translateX(0);
+    }
+
+    .modal-head,
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 20px;
+    }
+
+    .close-btn {
+      width: 30px;
+      height: 30px;
+      border: 0;
+      border-radius: 8px;
+      background: rgba(255,255,255,0.05);
+      color: var(--hp-soft);
+      cursor: pointer;
+    }
+
+    .form-stack {
+      display: grid;
+      gap: 14px;
+    }
+
+    label {
+      display: grid;
+      gap: 6px;
+      color: var(--hp-muted);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+
+    input,
+    select,
+    textarea {
+      width: 100%;
+      color: var(--hp-text);
+      background: var(--hp-raised);
+      border: 0.5px solid var(--hp-border-md);
+      border-radius: 8px;
+      padding: 10px 12px;
+      outline: none;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: var(--hp-gold);
+      box-shadow: 0 0 0 2px var(--hp-gold-muted);
+    }
+
+    .form-error {
+      display: none;
+      color: var(--hp-risk);
+      font-size: 12px;
+    }
+
+    .form-error.active { display: block; }
+
+    .thanks {
+      display: none;
+      text-align: center;
+      padding: 48px 0;
+    }
+
+    .thanks.active { display: block; }
+
+    .thanks i {
+      color: var(--hp-gold);
+      font-size: 42px;
+    }
+
+    @media (max-width: 768px) {
+      .hp-nav {
+        grid-template-columns: 1fr auto;
+        padding: 14px 18px;
+      }
+
+      .nav-links { display: none; }
+      .nav-actions .btn-ghost { display: none; }
+      .section { padding: 76px 20px; }
+      .hero { padding: 110px 20px 44px; }
+      .hero-actions { flex-direction: column; }
+      .hero-actions .btn { width: 100%; }
+      .proof-row { grid-template-columns: repeat(2, 1fr); gap: 18px; }
+      .contrast-grid,
+      .output-grid,
+      .compare-grid,
+      .industry-grid,
+      .workflow {
+        grid-template-columns: 1fr;
+      }
+      .workflow::before { display: none; }
+      .role-grid { grid-template-columns: repeat(2, 1fr); }
+      .footer-inner { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <nav class="hp-nav" id="topNav">
+    <a href="/" class="wordmark">Derive <span>intelligence</span></a>
+    <div class="nav-links">
+      <a href="#product">Product</a>
+      <a href="#workflow">How it works</a>
+      <a href="#industries">Industries</a>
+      <a href="#pricing">Pricing</a>
+    </div>
+    <div class="nav-actions">
+      <button class="btn btn-ghost" data-open-login>Sign in</button>
+      <button class="btn btn-gold" data-open-demo>Request demo</button>
+    </div>
+  </nav>
+
+  <main>
+    <section class="hero" id="product">
+      <div class="hero-inner">
+        <div class="eyebrow-pill"><i class="ti ti-brain"></i> Organizational Intelligence Platform</div>
+        <h1>Your team speaks the same language.<em>So why does no one understand each other?</em></h1>
+        <p class="hero-sub">Derive transforms what your stakeholders actually think into structured intelligence — findings, risks, opportunities, and a clear path forward. In days, not months.</p>
+        <div class="hero-actions">
+          <button class="btn btn-gold" data-open-demo>Request a demonstration</button>
+          <a class="btn btn-ghost" href="#workflow">See how it works →</a>
+        </div>
+        <div class="proof-row">
+          <div><strong>14</strong><span>Stakeholders heard</span></div>
+          <div><strong>7</strong><span>Findings surfaced</span></div>
+          <div><strong>£620k</strong><span>Value identified</span></div>
+          <div><strong>4 days</strong><span>From start to insight</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section surface-section" id="gap">
+      <div class="container">
+        <div class="section-head">
+          <span class="eyebrow">The intelligence gap</span>
+          <h2>The gap between belief and reality is where problems live</h2>
+          <p class="section-sub">Every organization has one. Derive finds it — and shows you exactly what it is costing you.</p>
+        </div>
+        <div class="toggle" role="group" aria-label="Intelligence gap view">
+          <button class="active" data-gap-state="belief">What leadership believes</button>
+          <button data-gap-state="reality">What Derive found</button>
+        </div>
+        <div class="gap-stage" id="gapStage"></div>
+      </div>
+    </section>
+
+    <section class="section" id="workflow">
+      <div class="container">
+        <div class="section-head center">
+          <h2>From conversation to clarity. In days.</h2>
+        </div>
+        <div class="workflow">
+          <article class="step"><i class="ti ti-users"></i><h3>Assess</h3><p>Stakeholders contribute privately through structured assessment questions calibrated to their role. No meetings. No politics. Just honest input.</p></article>
+          <article class="step"><i class="ti ti-brain"></i><h3>Analyze</h3><p>Derive's intelligence engine surfaces findings, detects contradictions, identifies KPI gaps, and generates evidence-backed recommendations.</p></article>
+          <article class="step"><i class="ti ti-road"></i><h3>Act</h3><p>Your consultant delivers a prioritized roadmap with owners, timelines, and estimated value. Your organization finally knows what to do next.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section surface-section">
+      <div class="container">
+        <div class="section-head center">
+          <h2>One platform. Five experiences.</h2>
+          <p class="section-sub">Each person gets exactly what they need — and nothing they don't.</p>
+        </div>
+        <div class="role-grid">
+          <article class="role-card active"><i class="ti ti-crown"></i><h3>Company owner</h3><p>Sees decisions, risks, value, and progress.</p></article>
+          <article class="role-card"><i class="ti ti-compass"></i><h3>Consultant</h3><p>Reviews findings and delivers intelligence.</p></article>
+          <article class="role-card"><i class="ti ti-list-check"></i><h3>Assessment manager</h3><p>Coordinates participation and follow-up.</p></article>
+          <article class="role-card"><i class="ti ti-message"></i><h3>Participant</h3><p>Answers privately from direct experience.</p></article>
+        </div>
+        <p class="role-note">The platform owner manages the entire SaaS — frameworks, tenants, consultants, and system health — backstage.</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <div class="section-head center">
+          <h2>What intelligence looks like.</h2>
+          <p class="section-sub">Not reports. Not dashboards. Decisions.</p>
+        </div>
+        <div class="output-grid">
+          <article class="output-card risk"><span class="output-label">Critical risk</span><h3>Fleet maintenance scheduling is creating avoidable downtime</h3><p>9 of 14 stakeholders report unplanned vehicle unavailability. Contradiction detected between Operations Director and Fleet Manager.</p><span class="tag">Critical risk</span></article>
+          <article class="output-card opp"><span class="output-label">Priority action · 01</span><h3>Implement predictive maintenance triggers</h3><p>Owner: Operations lead · Timeline: 30 days · Est. value: £80–120k</p><span class="tag">Quick win</span></article>
+          <article class="output-card info"><span class="output-label">Roadmap · Phase 1 (0–90 days)</span><h3>First operating moves</h3><p>• Predictive maintenance system<br>• Routing redesign for zones 2, 4, 6<br>• Monthly CSAT review process</p><span class="tag">3 initiatives</span></article>
+          <article class="output-card gold"><span class="output-label">Progress since last assessment</span><h3>44% → 62%</h3><div class="progress"><i></i></div><p>+18 points operational maturity<br>£340k value realized</p><span class="tag">18 months on</span></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section surface-section" id="pricing">
+      <div class="container">
+        <div class="section-head center">
+          <h2>Traditional consulting delivers a report. Derive delivers a decision.</h2>
+          <p class="gold-sub">Your organization needed this clarity last quarter.</p>
+        </div>
+        <div class="compare-grid">
+          <article class="compare-card"><h3>Traditional consulting</h3><ul><li>Months of analysis</li><li>£hundreds of thousands</li><li>Recommendations you can't act on</li><li>One consultant's perspective</li></ul></article>
+          <article class="compare-card featured"><h3>Derive</h3><ul><li>Days from start to intelligence</li><li>Fraction of the cost</li><li>Actionable roadmap with owners</li><li>Every stakeholder's voice</li></ul></article>
+          <article class="compare-card"><h3>Internal surveys</h3><ul><li>Generic questions</li><li>No analysis</li><li>No findings</li><li>Data that goes nowhere</li></ul></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="industries">
+      <div class="container">
+        <div class="section-head center">
+          <h2>Built for organizations that run on operational complexity.</h2>
+        </div>
+        <div class="industry-grid">
+          <article class="industry-card"><i class="ti ti-truck"></i><h3>Fleet & Logistics</h3><p>Field service, vehicle operations, dispatch coordination</p><small>Available</small></article>
+          <article class="industry-card"><i class="ti ti-building-factory"></i><h3>Manufacturing</h3><p>Production, quality, supply chain, maintenance</p><small>Coming soon</small></article>
+          <article class="industry-card"><i class="ti ti-briefcase"></i><h3>Professional Services</h3><p>Consulting, legal, accounting, advisory</p><small>Coming soon</small></article>
+          <article class="industry-card"><i class="ti ti-heartbeat"></i><h3>Healthcare Operations</h3><p>Clinical, administrative, patient services coordination</p><small>Coming soon</small></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section final-cta">
+      <h2>See what Derive finds in your organization.</h2>
+      <p>Request a demonstration. We'll show you a real assessment run on a business like yours.</p>
+      <button class="btn btn-gold" data-open-demo>Request a demonstration</button>
+      <p style="font-size:12px;color:var(--hp-muted);margin-top:18px;">No commitment. No software to install. A 30-minute conversation and a live demonstration.</p>
+    </section>
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+      <div><div class="wordmark">Derive <span>intelligence</span></div><p>Organizational Intelligence Platform</p><p>© 2026 Derive. All rights reserved.</p></div>
+      <div class="footer-links"><a href="#">Privacy</a><a href="#">Terms</a><a href="mailto:contact@deriveglobal.com">Contact</a></div>
+    </div>
+  </footer>
+
+  <div class="overlay" id="overlay"></div>
+
+  <section class="modal" id="loginModal" aria-hidden="true">
+    <div class="modal-head"><div><h3>Sign in to Derive</h3><p>Enter your credentials to access your workspace.</p></div><button class="close-btn" data-close>×</button></div>
+    <form class="form-stack" id="loginForm">
+      <label>Email <input name="email" type="email" autocomplete="email" required></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <p class="form-error" id="loginError"></p>
+      <button class="btn btn-gold" type="submit">Sign in</button>
+    </form>
+  </section>
+
+  <aside class="panel-drawer" id="demoPanel" aria-hidden="true">
+    <div class="panel-head"><div><h3>Request a demonstration</h3><p>We'll be in touch within one business day to arrange a live demonstration tailored to your industry.</p></div><button class="close-btn" data-close>×</button></div>
+    <form class="form-stack" id="demoForm">
+      <label>Full name <input name="full_name" required></label>
+      <label>Work email <input name="email" type="email" required></label>
+      <label>Company name <input name="company_name" required></label>
+      <label>Company size <select name="company_size" required><option value="">Select size</option><option>Under 50</option><option>50–100</option><option>101–250</option><option>251–500</option><option>500+</option></select></label>
+      <label>Industry <input name="industry"></label>
+      <label>Message <textarea name="message" rows="5" placeholder="Tell us about your organization and what you're trying to understand..."></textarea></label>
+      <p class="form-error" id="demoError"></p>
+      <button class="btn btn-gold" id="demoSubmit" type="submit">Request demonstration</button>
+    </form>
+    <div class="thanks" id="demoThanks"><i class="ti ti-circle-check"></i><h3>Request received.</h3><p id="thanksCopy"></p><p>In the meantime, if you have questions email us at <a href="mailto:contact@deriveglobal.com">contact@deriveglobal.com</a>.</p></div>
+  </aside>
+
+  <script>
+    const nav = document.querySelector('#topNav');
+    const overlay = document.querySelector('#overlay');
+    const loginModal = document.querySelector('#loginModal');
+    const demoPanel = document.querySelector('#demoPanel');
+    const gapStage = document.querySelector('#gapStage');
+
+    fetch('/api/auth/me', { credentials: 'include' })
+      .then((res) => {
+        if (res.ok) window.location.href = '/app';
+      })
+      .catch(() => {});
+
+    window.addEventListener('scroll', () => {
+      nav.classList.toggle('scrolled', window.scrollY > 60);
+    });
+
+    document.querySelectorAll('a[href^="#"]').forEach((link) => {
+      link.addEventListener('click', (event) => {
+        const target = document.querySelector(link.getAttribute('href'));
+        if (!target) return;
+        event.preventDefault();
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    });
+
+    const gapContent = {
+      belief: `
+        <div class="contrast-grid">
+          <article class="quote-card"><small>Operations Director</small><p>"Maintenance scheduling is under control. The issue is driver discipline and communication."</p></article>
+          <article class="quote-card"><small>Fleet Manager</small><p>"Drivers are doing their best. The real issue is that we never get enough notice from operations."</p></article>
+        </div>
+      `,
+      reality: `
+        <div class="contrast-grid">
+          <article class="quote-card"><small>9 of 14 stakeholders reported</small><p>"Vehicles are unavailable more often than leadership realizes, and the workarounds are becoming normal."</p></article>
+          <article class="quote-card"><small>Contradiction detected</small><p>Leadership sees a discipline issue. Frontline teams report a scheduling and visibility failure.</p></article>
+        </div>
+        <article class="quote-card finding-sample"><small>Critical risk</small><h3>Fleet maintenance scheduling is creating avoidable downtime and concealed operational risk</h3></article>
+      `
+    };
+
+    function renderGap(state) {
+      gapStage.classList.add('fade');
+      setTimeout(() => {
+        gapStage.innerHTML = gapContent[state];
+        gapStage.classList.remove('fade');
+      }, 180);
+    }
+
+    document.querySelectorAll('[data-gap-state]').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('[data-gap-state]').forEach((item) => item.classList.remove('active'));
+        button.classList.add('active');
+        renderGap(button.dataset.gapState);
+      });
+    });
+    renderGap('belief');
+
+    document.querySelectorAll('.role-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        document.querySelectorAll('.role-card').forEach((item) => item.classList.remove('active'));
+        card.classList.add('active');
+      });
+    });
+
+    function openLayer(layer) {
+      overlay.classList.add('active');
+      layer.classList.add('active');
+      layer.setAttribute('aria-hidden', 'false');
+      document.body.classList.add('panel-open');
+    }
+
+    function closeLayers() {
+      overlay.classList.remove('active');
+      loginModal.classList.remove('active');
+      demoPanel.classList.remove('active');
+      loginModal.setAttribute('aria-hidden', 'true');
+      demoPanel.setAttribute('aria-hidden', 'true');
+      document.body.classList.remove('panel-open');
+    }
+
+    document.querySelectorAll('[data-open-login]').forEach((button) => button.addEventListener('click', () => openLayer(loginModal)));
+    document.querySelectorAll('[data-open-demo]').forEach((button) => button.addEventListener('click', () => openLayer(demoPanel)));
+    document.querySelectorAll('[data-close]').forEach((button) => button.addEventListener('click', closeLayers));
+    overlay.addEventListener('click', closeLayers);
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') closeLayers();
+    });
+
+    document.querySelector('#loginForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const error = document.querySelector('#loginError');
+      error.classList.remove('active');
+      const data = Object.fromEntries(new FormData(event.currentTarget));
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(data)
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload.error || 'Sign in failed.');
+        if (payload.sessionToken) {
+          localStorage.setItem('platformSessionToken', payload.sessionToken);
+          localStorage.setItem('krbCurrentUserEmail', payload.user?.email || data.email);
+          localStorage.setItem('currentPlatformUser', JSON.stringify(payload.user || {}));
+          localStorage.setItem('krbSession', JSON.stringify({
+            email: payload.user?.email || data.email,
+            role: payload.user?.role || 'participant',
+            user: payload.user,
+            expiresAt: new Date(payload.expiresAt || Date.now() + 12096e5).getTime()
+          }));
+        }
+        window.location.href = '/app';
+      } catch (err) {
+        error.textContent = err.message;
+        error.classList.add('active');
+      }
+    });
+
+    document.querySelector('#demoForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const error = document.querySelector('#demoError');
+      const button = document.querySelector('#demoSubmit');
+      error.classList.remove('active');
+      const data = Object.fromEntries(new FormData(form));
+      if (!data.full_name || !data.email || !data.company_name || !data.company_size) {
+        error.textContent = 'Please complete the required fields.';
+        error.classList.add('active');
+        return;
+      }
+      button.disabled = true;
+      button.textContent = 'Sending...';
+      try {
+        const res = await fetch('/api/demo-request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(payload.error || 'Unable to submit request.');
+        form.style.display = 'none';
+        document.querySelector('#thanksCopy').textContent = `We'll be in touch at ${data.email} within one business day.`;
+        document.querySelector('#demoThanks').classList.add('active');
+      } catch (err) {
+        error.textContent = err.message;
+        error.classList.add('active');
+      } finally {
+        button.disabled = false;
+        button.textContent = 'Request demonstration';
+      }
+    });
+  </script>
+</body>
+</html>

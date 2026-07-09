@@ -1,0 +1,1040 @@
+{
+  "supplier_assessment_v1": [
+    {
+      "question_id": "SUP-001",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Supplier Profile",
+      "question_text": "What products or services do you provide?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Tires",
+        "Parts",
+        "Retread materials",
+        "Tools/equipment",
+        "Packaging",
+        "Logistics",
+        "Software/services",
+        "Maintenance support",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "procurement",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "supplier_dependency_risk"
+      ],
+      "impact_dimensions": [
+        "cost_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "supplier_service_scope"
+      ],
+      "ai_analysis_purpose": "Identify supplier scope.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "supplier_segmentation"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "SUP-002",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Supplier Profile",
+      "question_text": "How critical are your products or services to the company’s daily operations?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "procurement",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "supplier_dependency_risk"
+      ],
+      "impact_dimensions": [
+        "risk_impact",
+        "revenue_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "supplier_criticality_score"
+      ],
+      "ai_analysis_purpose": "Measure supplier criticality.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "supplier_risk_management"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SUP-003",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Order & Delivery Performance",
+      "question_text": "How predictable is order volume from the company?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "procurement",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "poor_forecast_visibility",
+        "manual_procurement_process"
+      ],
+      "impact_dimensions": [
+        "cost_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "supplier_forecast_predictability",
+        "supplier_forecast_gap"
+      ],
+      "ai_analysis_purpose": "Measure current and desired forecast predictability.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "forecast_sharing"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SUP-004",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Order & Delivery Performance",
+      "question_text": "How often are purchase orders complete and accurate when received?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Almost always"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Almost always": 5
+      },
+      "business_domain": "procurement",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "order_accuracy_problem",
+        "missing_data"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "supplier_order_accuracy"
+      ],
+      "ai_analysis_purpose": "Measure PO completeness and accuracy.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "digital_purchase_orders"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SUP-005",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Order & Delivery Performance",
+      "question_text": "How often do delivery timing expectations change after the order is placed?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "logistics",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "supplier_delivery_delay",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "supplier_delivery_change_frequency"
+      ],
+      "ai_analysis_purpose": "Detect delivery timing volatility.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "delivery_planning_improvement"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SUP-006",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Communication",
+      "question_text": "How reliable is communication about demand, priorities, or delivery changes?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "procurement",
+      "assessment_category": "communication",
+      "problem_types_detectable": [
+        "communication_breakdown",
+        "poor_forecast_visibility"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "supplier_communication_score"
+      ],
+      "ai_analysis_purpose": "Score supplier communication reliability.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "supplier_communication_protocol"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SUP-007",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Inventory Availability",
+      "question_text": "How often do stock availability issues on your side affect the company?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "inventory_management",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "inventory_availability_risk",
+        "supplier_delivery_delay"
+      ],
+      "impact_dimensions": [
+        "customer_impact",
+        "revenue_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "supplier_inventory_risk_score"
+      ],
+      "ai_analysis_purpose": "Measure supplier-side availability risk.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "supplier_inventory_visibility"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SUP-008",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Order & Delivery Performance",
+      "question_text": "How often do urgent orders or last-minute requests occur?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "procurement",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "manual_procurement_process",
+        "poor_forecast_visibility"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "supplier_urgent_order_frequency"
+      ],
+      "ai_analysis_purpose": "Measure procurement urgency pattern.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "demand_planning_process"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SUP-009",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Order & Delivery Performance",
+      "question_text": "Which supplier-side issues most affect delivery performance?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Forecast uncertainty",
+        "Last-minute orders",
+        "Product availability",
+        "Logistics delays",
+        "Order changes",
+        "Payment/commercial issues",
+        "Quality checks",
+        "Documentation issues",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "logistics",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "supplier_delivery_delay",
+        "supplier_quality_issue",
+        "payment_or_commercial_friction"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "supplier_delivery_performance_drivers"
+      ],
+      "ai_analysis_purpose": "Identify supplier-side delivery drivers.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "supplier_performance_review"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "SUP-010",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Communication",
+      "question_text": "Which company-side issues make supply harder?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Inaccurate forecasts",
+        "Urgent orders",
+        "Missing order details",
+        "Changing priorities",
+        "Slow approvals",
+        "Slow payment",
+        "Unclear specifications",
+        "Poor communication",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "procurement",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "poor_forecast_visibility",
+        "approval_delay",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "supplier_collaboration_friction"
+      ],
+      "ai_analysis_purpose": "Identify company-side supplier friction.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "procurement_process_improvement"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "SUP-011",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Quality & Returns",
+      "question_text": "How often do quality issues, returns, or disputes occur?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "procurement",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "supplier_quality_issue",
+        "order_accuracy_problem"
+      ],
+      "impact_dimensions": [
+        "cost_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "supplier_quality_score"
+      ],
+      "ai_analysis_purpose": "Measure quality issue frequency.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "supplier_quality_feedback_loop"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "current_state_value": true,
+      "desired_state_value": true,
+      "gap_calculation_enabled": true
+    },
+    {
+      "question_id": "SUP-012",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Forecasting & Planning",
+      "question_text": "How clearly can you see future demand or forecast needs?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "procurement",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "poor_forecast_visibility",
+        "inventory_availability_risk"
+      ],
+      "impact_dimensions": [
+        "cost_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "supplier_forecast_visibility_score"
+      ],
+      "ai_analysis_purpose": "Measure future demand visibility.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "forecast_collaboration"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SUP-013",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Forecasting & Planning",
+      "question_text": "How often does lack of forecast visibility create inventory or delivery risk?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "inventory_management",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "poor_forecast_visibility",
+        "inventory_availability_risk"
+      ],
+      "impact_dimensions": [
+        "cost_impact",
+        "risk_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "supplier_forecast_risk_frequency"
+      ],
+      "ai_analysis_purpose": "Measure forecast-driven inventory risk.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "inventory_planning_collaboration"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SUP-014",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Commercial Process",
+      "question_text": "How efficient is the ordering and procurement process?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5
+      },
+      "business_domain": "procurement",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "manual_procurement_process",
+        "approval_delay"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "supplier_procurement_efficiency_score"
+      ],
+      "ai_analysis_purpose": "Measure procurement process efficiency.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "procurement_workflow_automation"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SUP-015",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Commercial Process",
+      "question_text": "How often do payment or commercial issues create friction?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "finance",
+      "assessment_category": "financial",
+      "problem_types_detectable": [
+        "payment_or_commercial_friction",
+        "supplier_dependency_risk"
+      ],
+      "impact_dimensions": [
+        "cost_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "supplier_commercial_friction_frequency"
+      ],
+      "ai_analysis_purpose": "Detect supplier commercial friction.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "supplier_payment_visibility"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SUP-016",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Improvement Opportunities",
+      "question_text": "Which process improvements would make supplier collaboration better?",
+      "response_type": "ranking",
+      "options": [
+        "Better forecasts",
+        "Earlier order planning",
+        "Digital purchase orders",
+        "Clearer specifications",
+        "Delivery status visibility",
+        "Faster approvals",
+        "Better payment visibility",
+        "Supplier portal",
+        "Quality feedback loop",
+        "Inventory planning collaboration"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "procurement",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "manual_procurement_process",
+        "poor_forecast_visibility",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "supplier_improvement_priority"
+      ],
+      "ai_analysis_purpose": "Rank supplier collaboration improvements.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "supplier_collaboration_roadmap"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SUP-017",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Inventory Availability",
+      "question_text": "What percentage of orders are delivered on time and complete?",
+      "response_type": "percentage",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "logistics",
+      "assessment_category": "reporting",
+      "problem_types_detectable": [
+        "supplier_delivery_delay",
+        "order_accuracy_problem"
+      ],
+      "impact_dimensions": [
+        "customer_impact",
+        "revenue_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "supplier_on_time_delivery_score"
+      ],
+      "ai_analysis_purpose": "Estimate supplier OTIF performance.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "supplier_scorecard"
+      ],
+      "roadmap_relevance": "optimization",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SUP-018",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Order & Delivery Performance",
+      "question_text": "What is the usual lead time for critical items?",
+      "response_type": "time_duration",
+      "options": [
+        "Same day",
+        "1-3 days",
+        "4-7 days",
+        "1-2 weeks",
+        "More than 2 weeks"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "logistics",
+      "assessment_category": "reporting",
+      "problem_types_detectable": [
+        "supplier_lead_time_risk"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics"
+      ],
+      "kpi_outputs": [
+        "supplier_lead_time_reliability"
+      ],
+      "ai_analysis_purpose": "Capture critical item lead time.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What data or evidence supports your answer?"
+      ],
+      "recommendation_triggers": [
+        "lead_time_visibility"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    },
+    {
+      "question_id": "SUP-019",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Improvement Opportunities",
+      "question_text": "Describe a recent supply issue that affected delivery, availability, cost, or customer service.",
+      "response_type": "open_text",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "procurement",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "supplier_delivery_delay",
+        "supplier_quality_issue",
+        "inventory_availability_risk"
+      ],
+      "impact_dimensions": [
+        "cost_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "supplier_issue_evidence"
+      ],
+      "ai_analysis_purpose": "Collect supplier issue evidence.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What happened?",
+        "Who was involved?",
+        "How often does this happen?",
+        "What was the impact?",
+        "What should change?"
+      ],
+      "recommendation_triggers": [
+        "supplier_issue_resolution_process"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "SUP-020",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Improvement Opportunities",
+      "question_text": "If you could improve one supplier collaboration process in the next 30 days, what would it be?",
+      "response_type": "open_text",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "procurement",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "manual_procurement_process",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "supplier_improvement_priority"
+      ],
+      "ai_analysis_purpose": "Generate supplier quick-win ideas.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Please provide a recent example.",
+        "What happened?",
+        "Who was involved?",
+        "How often does this happen?",
+        "What was the impact?",
+        "What should change?"
+      ],
+      "recommendation_triggers": [
+        "supplier_quick_win"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "medium"
+    },
+    {
+      "question_id": "SUP-021",
+      "stakeholder_group_id": "partner",
+      "stakeholder_role_id": "supplier",
+      "section": "Forecasting & Planning",
+      "question_text": "How often could better forecasting have prevented urgent orders, delivery delays, or inventory shortages?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "procurement",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "poor_forecast_visibility",
+        "inventory_availability_risk",
+        "urgent_order_pattern",
+        "supplier_delivery_delay",
+        "planning_gap",
+        "procurement_risk"
+      ],
+      "impact_dimensions": [
+        "cost_impact",
+        "customer_impact",
+        "revenue_impact",
+        "operational_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "forecast_preventable_urgency_frequency",
+        "supplier_planning_gap_score",
+        "supplier_inventory_risk_score"
+      ],
+      "ai_analysis_purpose": "Measure whether urgent orders, shortages, or delivery delays are caused by weak forecasting or poor demand visibility.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What types of orders or products are most affected?",
+        "What forecast information is usually missing?",
+        "How much earlier would you need forecast visibility?",
+        "What would improve planning reliability?"
+      ],
+      "recommendation_triggers": [
+        "forecast_collaboration",
+        "demand_planning_process",
+        "supplier_planning_visibility",
+        "inventory_planning_collaboration",
+        "supplier_scorecard"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high"
+    }
+  ]
+}

@@ -1,0 +1,1502 @@
+{
+  "technician_question_bank_v1": [
+    {
+      "question_id": "TECH-001",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Role & Daily Work",
+      "question_text": "Which field service activities are part of your regular work?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Tire installation",
+        "Roadside assistance",
+        "Fleet tire inspection",
+        "Tire repair",
+        "Tire rotation/balancing",
+        "Pressure checks",
+        "Casing inspection",
+        "Retread pickup/delivery",
+        "Customer reporting",
+        "Photo documentation",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "field_operations",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "process_complexity",
+        "workload_imbalance",
+        "unclear_ownership"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "technician_work_scope"
+      ],
+      "ai_analysis_purpose": "Understand technician role scope and detect workload complexity.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which activity takes the most time?",
+        "Which activity creates the most delays?"
+      ],
+      "recommendation_triggers": [
+        "technician_workflow_mapping",
+        "role_clarity"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-002",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Role & Daily Work",
+      "question_text": "How many service jobs do you complete on a typical working day?",
+      "response_type": "numeric",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "field_operations",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "capacity_constraint",
+        "workload_imbalance"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "jobs_per_day"
+      ],
+      "ai_analysis_purpose": "Quantify technician output and field capacity.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What is a realistic target number of jobs per day?",
+        "What prevents completing more jobs?"
+      ],
+      "recommendation_triggers": [
+        "technician_capacity_planning",
+        "productivity_dashboard"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-003",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Role & Daily Work",
+      "question_text": "How predictable is your daily work schedule?",
+      "response_type": "scale_1_5",
+      "options": [
+        "1 = Not predictable",
+        "2 = Low predictability",
+        "3 = Somewhat predictable",
+        "4 = Mostly predictable",
+        "5 = Very predictable"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 5,
+        "2": 4,
+        "3": 3,
+        "4": 2,
+        "5": 1
+      },
+      "business_domain": "field_operations",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "scheduling_delay",
+        "communication_breakdown",
+        "capacity_constraint"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "employee_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "schedule_predictability_score"
+      ],
+      "ai_analysis_purpose": "Measure schedule stability and planning maturity.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What most often changes your schedule?",
+        "How does schedule change affect customers?"
+      ],
+      "recommendation_triggers": [
+        "dispatch_planning_improvement",
+        "route_planning"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-004",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Work Order Quality",
+      "question_text": "How often is important information missing before you arrive at the service location?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "field_operations",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "missing_data",
+        "work_order_quality_issue",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "missing_information_frequency"
+      ],
+      "ai_analysis_purpose": "Measure missing work order information before field execution.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What information is missing most often?",
+        "How severe is the impact when this occurs?",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "work_order_required_fields",
+        "digital_request_intake_form"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-005",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Work Order Quality",
+      "question_text": "Which information is most often missing or unclear in work orders?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Customer location",
+        "Vehicle plate / asset ID",
+        "Tire size",
+        "Problem description",
+        "Required service type",
+        "Customer contact person",
+        "Photos",
+        "Approval status",
+        "Inventory/parts availability",
+        "Urgency level",
+        "Access/site instructions",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "field_operations",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "missing_data",
+        "poor_data_quality",
+        "work_order_quality_issue"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "missing_work_order_fields"
+      ],
+      "ai_analysis_purpose": "Identify specific work order data gaps that delay technicians.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which missing field causes the biggest delay?",
+        "Which team should provide this information?",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "work_order_data_standard",
+        "mandatory_fields"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-006",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Work Order Quality",
+      "question_text": "Rate the overall quality of work orders you receive.",
+      "response_type": "scale_1_5",
+      "options": [
+        "1 = Very poor",
+        "2 = Poor",
+        "3 = Acceptable",
+        "4 = Good",
+        "5 = Excellent"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 5,
+        "2": 4,
+        "3": 3,
+        "4": 2,
+        "5": 1
+      },
+      "business_domain": "field_operations",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "work_order_quality_issue",
+        "missing_data",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "work_order_quality_score"
+      ],
+      "ai_analysis_purpose": "Score work order quality from technician perspective.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What would make work orders easier to execute?",
+        "What quality level should be the target?"
+      ],
+      "recommendation_triggers": [
+        "work_order_quality_improvement",
+        "dispatch_standardization"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-007",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Travel & Dispatch",
+      "question_text": "How much travel time do you spend per job on average?",
+      "response_type": "single_choice",
+      "options": [
+        "0-15 minutes",
+        "16-30 minutes",
+        "31-60 minutes",
+        "1-2 hours",
+        "More than 2 hours"
+      ],
+      "required": true,
+      "score_mapping": {
+        "0-15 minutes": 1,
+        "16-30 minutes": 2,
+        "31-60 minutes": 3,
+        "1-2 hours": 4,
+        "More than 2 hours": 5
+      },
+      "business_domain": "field_operations",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "travel_waste",
+        "scheduling_delay",
+        "route_based_service"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "travel_time_per_job"
+      ],
+      "ai_analysis_purpose": "Measure travel time burden per service job.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What should the target travel time be?",
+        "What causes unnecessary travel?"
+      ],
+      "recommendation_triggers": [
+        "route_optimization",
+        "dispatch_area_planning"
+      ],
+      "roadmap_relevance": "optimization",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-008",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Travel & Dispatch",
+      "question_text": "How often do you travel to a job and then wait before starting work?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "field_operations",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "waiting_time",
+        "missing_data",
+        "approval_delay",
+        "inventory_availability_problem"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "waiting_time_frequency"
+      ],
+      "ai_analysis_purpose": "Detect waiting time at customer/site before service execution.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What causes the waiting time?",
+        "How long do you usually wait?",
+        "How severe is the impact when this occurs?"
+      ],
+      "recommendation_triggers": [
+        "pre_arrival_readiness_check",
+        "approval_before_dispatch"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-009",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Travel & Dispatch",
+      "question_text": "What is the average waiting time per job before service can begin?",
+      "response_type": "single_choice",
+      "options": [
+        "0-5 minutes",
+        "6-15 minutes",
+        "16-30 minutes",
+        "31-60 minutes",
+        "More than 60 minutes"
+      ],
+      "required": true,
+      "score_mapping": {
+        "0-5 minutes": 1,
+        "6-15 minutes": 2,
+        "16-30 minutes": 3,
+        "31-60 minutes": 4,
+        "More than 60 minutes": 5
+      },
+      "business_domain": "field_operations",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "waiting_time",
+        "approval_delay",
+        "missing_data"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "waiting_time_per_job"
+      ],
+      "ai_analysis_purpose": "Quantify waiting time waste per job.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What should the acceptable waiting time be?",
+        "Who or what usually causes the wait?"
+      ],
+      "recommendation_triggers": [
+        "waiting_time_reduction",
+        "service_readiness_process"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-010",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Service Execution",
+      "question_text": "How often can you complete the service successfully on the first visit?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Almost always"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 5,
+        "Monthly": 4,
+        "Weekly": 3,
+        "Daily": 2,
+        "Almost always": 1
+      },
+      "business_domain": "field_operations",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "repeat_visits",
+        "service_quality_issue",
+        "missing_data",
+        "inventory_availability_problem"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "cost_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "first_time_resolution_rate"
+      ],
+      "ai_analysis_purpose": "Assess first-time service completion reliability.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What prevents first-time completion?",
+        "What should the target first-time resolution rate be?"
+      ],
+      "recommendation_triggers": [
+        "first_time_resolution_improvement",
+        "service_completion_controls"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-011",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Service Execution",
+      "question_text": "What percentage of jobs require a repeat visit or follow-up service?",
+      "response_type": "percentage",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "field_operations",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "repeat_visits",
+        "service_quality_issue",
+        "rework"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "repeat_visit_rate"
+      ],
+      "ai_analysis_purpose": "Measure repeat visit rate and service rework.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What would be an acceptable repeat visit percentage?",
+        "What are the top reasons for repeat visits?"
+      ],
+      "recommendation_triggers": [
+        "repeat_visit_root_cause_tracking",
+        "quality_control"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-012",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Service Execution",
+      "question_text": "What usually prevents job completion on the first visit?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Missing information",
+        "Wrong tire/part",
+        "Inventory unavailable",
+        "Customer approval missing",
+        "Vehicle unavailable",
+        "Wrong location",
+        "Required tool unavailable",
+        "Need branch/manager approval",
+        "Safety/access issue",
+        "Technician capacity/time",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "field_operations",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "missing_data",
+        "inventory_availability_problem",
+        "approval_delay",
+        "repeat_visits",
+        "service_quality_issue"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "first_time_resolution_blockers"
+      ],
+      "ai_analysis_purpose": "Identify root causes of failed first-time resolution.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which reason happens most often?",
+        "Which reason has the highest customer impact?",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "completion_blocker_tracking",
+        "pre_dispatch_validation"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-013",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Inventory & Parts",
+      "question_text": "How often are required tires, parts, tools, or materials unavailable when needed?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "inventory_management",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "inventory_availability_problem",
+        "waiting_time",
+        "repeat_visits"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "inventory_availability_rate"
+      ],
+      "ai_analysis_purpose": "Measure inventory/material availability from field perspective.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which items are unavailable most often?",
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "inventory_visibility",
+        "field_parts_planning"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-014",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Inventory & Parts",
+      "question_text": "Can you check tire/part availability before going to the service location?",
+      "response_type": "single_choice",
+      "options": [
+        "Always",
+        "Usually",
+        "Sometimes",
+        "Rarely",
+        "Never"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Always": 1,
+        "Usually": 2,
+        "Sometimes": 3,
+        "Rarely": 4,
+        "Never": 5
+      },
+      "business_domain": "inventory_management",
+      "assessment_category": "technology",
+      "problem_types_detectable": [
+        "poor_service_visibility",
+        "missing_integration",
+        "inventory_availability_problem"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "inventory_visibility_for_technicians"
+      ],
+      "ai_analysis_purpose": "Assess field inventory visibility before dispatch.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which inventory information should be visible?",
+        "Where should technicians access it?"
+      ],
+      "recommendation_triggers": [
+        "mobile_inventory_visibility",
+        "inventory_system_integration"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-015",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Communication",
+      "question_text": "Which communication tools do you use during service jobs?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Phone",
+        "WhatsApp",
+        "Email",
+        "SMS",
+        "Microsoft Teams",
+        "Mobile app",
+        "ERP / service system",
+        "Paper form",
+        "Spreadsheet",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "field_operations",
+      "assessment_category": "communication",
+      "problem_types_detectable": [
+        "whatsapp_dependency",
+        "phone_dependency",
+        "email_dependency",
+        "paper_based_process",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "employee_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "technician_communication_channels"
+      ],
+      "ai_analysis_purpose": "Detect informal and fragmented technician communication channels.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which tool creates the most confusion?",
+        "Which tool is hardest to track later?"
+      ],
+      "recommendation_triggers": [
+        "technician_mobile_workflow",
+        "centralized_service_communication"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-016",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Communication",
+      "question_text": "How often do communication problems delay or complicate service work?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "field_operations",
+      "assessment_category": "communication",
+      "problem_types_detectable": [
+        "communication_breakdown",
+        "missing_data",
+        "waiting_time"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "communication_delay_frequency"
+      ],
+      "ai_analysis_purpose": "Measure field communication breakdown frequency.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Who is usually involved?",
+        "Please provide a recent example.",
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "communication_handoff_standard",
+        "service_timeline_updates"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-017",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Documentation & Reporting",
+      "question_text": "How do you document completed service work?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Paper form",
+        "WhatsApp message",
+        "Phone call to dispatcher",
+        "Photo sent manually",
+        "Mobile app",
+        "ERP / service system",
+        "Spreadsheet",
+        "Email",
+        "No formal documentation",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "field_operations",
+      "assessment_category": "reporting",
+      "problem_types_detectable": [
+        "paper_based_process",
+        "whatsapp_dependency",
+        "manual_reporting",
+        "duplicate_data",
+        "missing_data"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "risk_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "service_documentation_methods"
+      ],
+      "ai_analysis_purpose": "Identify service documentation channels and reporting risks.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which method is most common?",
+        "Where is the same information entered again?"
+      ],
+      "recommendation_triggers": [
+        "digital_service_report",
+        "photo_based_reporting"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-018",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Documentation & Reporting",
+      "question_text": "How much time do you spend documenting each completed job?",
+      "response_type": "single_choice",
+      "options": [
+        "0-5 minutes",
+        "6-15 minutes",
+        "16-30 minutes",
+        "31-60 minutes",
+        "More than 60 minutes"
+      ],
+      "required": true,
+      "score_mapping": {
+        "0-5 minutes": 1,
+        "6-15 minutes": 2,
+        "16-30 minutes": 3,
+        "31-60 minutes": 4,
+        "More than 60 minutes": 5
+      },
+      "business_domain": "field_operations",
+      "assessment_category": "reporting",
+      "problem_types_detectable": [
+        "manual_reporting",
+        "paper_based_process",
+        "duplicate_data"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "documentation_time"
+      ],
+      "ai_analysis_purpose": "Measure documentation time burden after service completion.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What should the target documentation time be?",
+        "Which documentation step wastes most time?"
+      ],
+      "recommendation_triggers": [
+        "mobile_service_forms",
+        "automated_report_generation"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-019",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Documentation & Reporting",
+      "question_text": "Where do you enter the same service information more than once?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Paper form to system",
+        "WhatsApp to system",
+        "Photo message to report",
+        "Mobile app to ERP",
+        "Spreadsheet to ERP",
+        "Phone update to dispatcher then system",
+        "Invoice/billing system",
+        "Nowhere",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "field_operations",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "duplicate_data",
+        "duplicate_activity",
+        "manual_reporting",
+        "missing_integration"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "duplicate_data_entry_points"
+      ],
+      "ai_analysis_purpose": "Detect duplicate entry after field service.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which duplicate entry happens most often?",
+        "Which creates most errors?"
+      ],
+      "recommendation_triggers": [
+        "system_integration",
+        "single_service_record"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-020",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Technology",
+      "question_text": "Do you use a mobile application or digital tool for field service work?",
+      "response_type": "single_choice",
+      "options": [
+        "Yes, for most work",
+        "Yes, for some work",
+        "Rarely",
+        "No",
+        "Not available"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Yes, for most work": 1,
+        "Yes, for some work": 2,
+        "Rarely": 4,
+        "No": 5,
+        "Not available": 5
+      },
+      "business_domain": "technology",
+      "assessment_category": "technology",
+      "problem_types_detectable": [
+        "lack_of_automation",
+        "poor_usability",
+        "manual_process"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "employee_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "mobile_tool_adoption_rate"
+      ],
+      "ai_analysis_purpose": "Measure field technology adoption and digital workflow coverage.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What works well?",
+        "What is missing from the mobile workflow?"
+      ],
+      "recommendation_triggers": [
+        "technician_mobile_app",
+        "field_service_digitization"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-021",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Technology",
+      "question_text": "Rate how easy current systems/tools are to use during field service work.",
+      "response_type": "scale_1_5",
+      "options": [
+        "1 = Very difficult",
+        "2 = Difficult",
+        "3 = Acceptable",
+        "4 = Easy",
+        "5 = Very easy"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 5,
+        "2": 4,
+        "3": 3,
+        "4": 2,
+        "5": 1
+      },
+      "business_domain": "technology",
+      "assessment_category": "technology",
+      "problem_types_detectable": [
+        "poor_usability",
+        "manual_process",
+        "poor_adoption"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "field_tool_usability_score"
+      ],
+      "ai_analysis_purpose": "Score field system usability from technician perspective.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What is the hardest part of the tool/system?",
+        "What should be improved first?"
+      ],
+      "recommendation_triggers": [
+        "field_ux_improvement",
+        "mobile_workflow_redesign"
+      ],
+      "roadmap_relevance": "optimization",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-022",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Service Quality",
+      "question_text": "How often do customers complain or express frustration during/after service?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "customer_experience",
+      "assessment_category": "customer",
+      "problem_types_detectable": [
+        "customer_complaints",
+        "service_quality_issue",
+        "slow_response_time"
+      ],
+      "impact_dimensions": [
+        "customer_impact",
+        "revenue_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "field_customer_complaint_frequency"
+      ],
+      "ai_analysis_purpose": "Measure customer friction observed by technicians.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What do customers complain about most?",
+        "How severe is the impact when this occurs? 1 = Minor, 2 = Low, 3 = Moderate, 4 = High, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "customer_feedback_capture",
+        "service_quality_improvement"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-023",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Service Quality",
+      "question_text": "Rank the biggest causes of service quality problems in the field.",
+      "response_type": "ranking",
+      "options": [
+        "Missing information",
+        "Wrong/late dispatch",
+        "Inventory unavailable",
+        "Insufficient tools",
+        "Communication gaps",
+        "Customer not ready",
+        "Approval delays",
+        "Poor documentation",
+        "Training gaps",
+        "System issues"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "field_operations",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "service_quality_issue",
+        "missing_data",
+        "inventory_availability_problem",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "customer_impact",
+        "time_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "service_quality_root_cause_ranking"
+      ],
+      "ai_analysis_purpose": "Prioritize field service quality root causes.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Why is the top-ranked cause most serious?",
+        "Please provide a recent example."
+      ],
+      "recommendation_triggers": [
+        "quality_root_cause_program",
+        "service_readiness_controls"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-024",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Improvement Opportunities",
+      "question_text": "Which improvements would help technicians most?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Better work order information",
+        "Mobile technician app",
+        "Inventory visibility",
+        "Route optimization",
+        "Digital forms",
+        "Photo-based reporting",
+        "Customer status updates",
+        "Technician availability planning",
+        "Faster approvals",
+        "Less duplicate entry",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "automation",
+      "assessment_category": "automation",
+      "problem_types_detectable": [
+        "lack_of_automation",
+        "manual_process",
+        "poor_service_visibility",
+        "missing_integration"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "technician_improvement_candidates"
+      ],
+      "ai_analysis_purpose": "Identify high-value field service improvement opportunities.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which improvement would save the most time?",
+        "Which would improve customer experience most?"
+      ],
+      "recommendation_triggers": [
+        "technician_mobile_platform",
+        "field_service_automation_roadmap"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-025",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Improvement Opportunities",
+      "question_text": "If you could change one field service workflow in the next 90 days, what would you change and why? Please include the workflow name, a recent example, how often the issue happens, the business impact, who is affected, and what improvement you recommend.",
+      "response_type": "open_text",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "automation",
+      "assessment_category": "automation",
+      "problem_types_detectable": [
+        "manual_process",
+        "lack_of_automation",
+        "communication_breakdown",
+        "service_quality_issue",
+        "bottleneck",
+        "duplicate_activity",
+        "waiting_time",
+        "paper_based_process"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "customer_impact",
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "candidate_technician_quick_win",
+        "field_workflow_improvement_priority",
+        "qualitative_service_failure_evidence",
+        "technician_improvement_business_impact"
+      ],
+      "ai_analysis_purpose": "Capture technician-prioritized workflow improvement evidence with enough detail to generate findings, root causes, recommendation triggers, and roadmap items.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which exact workflow should change?",
+        "Please provide a recent example.",
+        "How often does this issue happen? Rarely / Monthly / Weekly / Daily / Continuously",
+        "How severe is the impact? 1 = Minor, 5 = Critical",
+        "Who is affected? Technician / Dispatcher / Branch / Customer / Warehouse / Finance",
+        "What happens as a result?",
+        "What would a better workflow look like?",
+        "What data, tool, approval, or communication change would prevent the issue?"
+      ],
+      "recommendation_triggers": [
+        "quick_win_field_service_workflow",
+        "technician_pilot_project",
+        "mobile_technician_workflow",
+        "field_service_standardization",
+        "digital_forms",
+        "dispatch_workflow_automation"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-026",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Evidence Collection",
+      "question_text": "Describe the most recent service job that was difficult to complete from dispatch to documentation.",
+      "response_type": "open_text",
+      "options": [],
+      "required": false,
+      "score_mapping": {},
+      "business_domain": "field_operations",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "missing_information",
+        "communication_breakdown",
+        "bottleneck",
+        "manual_process",
+        "inventory_availability_problem",
+        "waiting_time",
+        "service_quality_issue",
+        "repeat_visits"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Customer Experience"
+      ],
+      "kpi_outputs": [
+        "difficult_service_job_example",
+        "qualitative_field_failure_evidence",
+        "field_service_root_cause_evidence"
+      ],
+      "ai_analysis_purpose": "Collect concrete field evidence that explains how work order quality, dispatch, inventory, communication, and documentation issues appear in real service jobs.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What made the job difficult?",
+        "Which teams or departments were involved?",
+        "Which systems, tools, or communication channels were used?",
+        "What information, part, approval, or decision was missing?",
+        "How was the issue resolved?",
+        "What could have prevented the difficulty?"
+      ],
+      "recommendation_triggers": [
+        "field_service_standardization",
+        "mobile_technician_workflow",
+        "dispatch_workflow_automation",
+        "inventory_visibility",
+        "work_order_quality_improvement"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    },
+    {
+      "question_id": "TECH-027",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Technician / Field Service Technician",
+      "section": "Productivity Allocation",
+      "question_text": "On a typical working day, what percentage of your time is spent on each activity?",
+      "response_type": "percentage_allocation",
+      "options": [
+        "Actual service work",
+        "Travel",
+        "Waiting for information/approval/customer",
+        "Searching for tires/parts/tools",
+        "Communication/coordination",
+        "Documentation/reporting",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "workforce",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "travel_waste",
+        "waiting_time",
+        "manual_reporting",
+        "communication_breakdown",
+        "manual_process",
+        "workload_imbalance",
+        "lack_of_automation"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "employee_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Automation"
+      ],
+      "kpi_outputs": [
+        "technician_productivity_score",
+        "productive_time_ratio",
+        "travel_time_ratio",
+        "waiting_time_ratio",
+        "documentation_time_ratio",
+        "coordination_time_ratio"
+      ],
+      "ai_analysis_purpose": "Quantify how technician time is allocated across productive service work, travel, waiting, communication, and reporting so the platform can estimate productivity loss and automation potential.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What percentage should ideally be spent on actual service work?",
+        "Which non-service activity creates the most frustration?",
+        "Which activity has the highest improvement potential?",
+        "How severe is the impact of lost productive time? 1 = Minor, 5 = Critical"
+      ],
+      "recommendation_triggers": [
+        "technician_productivity_improvement",
+        "route_optimization",
+        "mobile_technician_workflow",
+        "digital_forms",
+        "dispatch_workflow_automation",
+        "inventory_visibility"
+      ],
+      "roadmap_relevance": "optimization",
+      "finding_strength": "high",
+      "current_state_value": true,
+      "desired_state_value": true,
+      "gap_calculation_enabled": true,
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "technician"
+    }
+  ]
+}

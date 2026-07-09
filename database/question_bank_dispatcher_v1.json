@@ -1,0 +1,1685 @@
+{
+  "dispatcher_question_bank_v1_revised": [
+    {
+      "question_id": "DSP-001",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Role & Responsibilities",
+      "question_text": "Which activities are part of your daily dispatch or customer service responsibilities?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Receive service requests",
+        "Collect missing customer information",
+        "Schedule technicians",
+        "Assign jobs",
+        "Update customers",
+        "Coordinate with branches",
+        "Coordinate with service partners",
+        "Track service completion",
+        "Prepare reports",
+        "Escalate urgent issues",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "process_complexity",
+        "unclear_ownership",
+        "workload_imbalance"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "employee_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Customer Experience"
+      ],
+      "kpi_outputs": [
+        "dispatcher_responsibility_scope",
+        "dispatch_workload_complexity"
+      ],
+      "ai_analysis_purpose": "Understand the dispatcher role scope and identify workload complexity or unclear handoffs.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which activity consumes the most time?",
+        "Which activity creates the most stress or delay?",
+        "Which responsibility should belong to another role?"
+      ],
+      "recommendation_triggers": [
+        "dispatcher_role_clarity",
+        "dispatch_process_mapping"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-002",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Role & Responsibilities",
+      "question_text": "How many service requests do you personally handle on a typical working day?",
+      "response_type": "numeric",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "capacity_constraint",
+        "workload_imbalance",
+        "bottleneck"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "employee_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "daily_requests_per_dispatcher",
+        "dispatch_capacity_load"
+      ],
+      "ai_analysis_purpose": "Quantify dispatch workload and detect capacity constraints.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What is the highest number of requests you handled in one day recently?",
+        "At what volume does service quality start to decline?"
+      ],
+      "recommendation_triggers": [
+        "dispatch_capacity_planning",
+        "service_request_queue_management"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-003",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Service Request Intake",
+      "question_text": "Through which channels do service requests usually arrive?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Phone",
+        "WhatsApp",
+        "Email",
+        "Customer portal",
+        "ERP / service system",
+        "Branch staff",
+        "Sales team",
+        "Service partner",
+        "In person",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "communication",
+      "problem_types_detectable": [
+        "phone_dependency",
+        "whatsapp_dependency",
+        "email_dependency",
+        "manual_process",
+        "data_silo"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Customer Experience",
+        "Automation"
+      ],
+      "kpi_outputs": [
+        "request_channel_distribution",
+        "manual_intake_dependency",
+        "digital_request_ratio"
+      ],
+      "ai_analysis_purpose": "Identify intake fragmentation and dependency on informal request channels.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which channel creates the most missing information?",
+        "Which channel creates the most customer complaints?",
+        "Which channel is hardest to track later?"
+      ],
+      "recommendation_triggers": [
+        "centralized_request_intake",
+        "customer_portal",
+        "dispatch_workflow_automation"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-004",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Service Request Intake",
+      "question_text": "What percentage of service requests arrive by phone?",
+      "response_type": "percentage",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "communication",
+      "problem_types_detectable": [
+        "phone_dependency",
+        "manual_process",
+        "missing_data"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Automation"
+      ],
+      "kpi_outputs": [
+        "phone_request_ratio",
+        "request_channel_distribution"
+      ],
+      "ai_analysis_purpose": "Measure phone dependency and manual request intake risk.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What information is commonly missed during phone requests?",
+        "How are phone requests recorded after the call?"
+      ],
+      "recommendation_triggers": [
+        "digital_request_intake",
+        "call_to_case_workflow"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-005",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Service Request Intake",
+      "question_text": "What percentage of service requests arrive by WhatsApp?",
+      "response_type": "percentage",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "communication",
+      "problem_types_detectable": [
+        "whatsapp_dependency",
+        "manual_process",
+        "data_silo",
+        "poor_service_visibility"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Technology",
+        "Automation"
+      ],
+      "kpi_outputs": [
+        "whatsapp_request_ratio",
+        "manual_intake_dependency"
+      ],
+      "ai_analysis_purpose": "Measure WhatsApp dependency and visibility risk in service intake.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What usually happens after a WhatsApp request arrives?",
+        "Do WhatsApp requests need to be re-entered into another system?"
+      ],
+      "recommendation_triggers": [
+        "centralized_request_intake",
+        "whatsapp_to_work_order_process"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-006",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Information Quality",
+      "question_text": "How often is important information missing when a service request first arrives?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "data_management",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "missing_data",
+        "communication_breakdown",
+        "manual_process"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "missing_information_frequency",
+        "missing_information_rate"
+      ],
+      "ai_analysis_purpose": "Measure missing information frequency at request intake.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which information is missing most often?",
+        "Please provide a recent example.",
+        "What happened as a result?",
+        "How severe is the impact when this occurs?"
+      ],
+      "recommendation_triggers": [
+        "mandatory_request_fields",
+        "digital_intake_form",
+        "customer_request_template"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high",
+      "follow_up_logic": [
+        {
+          "question_text": "How severe is the impact when this occurs?",
+          "response_type": "scale_1_5",
+          "options": [
+            "1 = Minor",
+            "2 = Low",
+            "3 = Moderate",
+            "4 = High",
+            "5 = Critical"
+          ]
+        }
+      ],
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-007",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Information Quality",
+      "question_text": "Which information is most often missing or unclear in service requests?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Vehicle location",
+        "Customer contact person",
+        "Vehicle plate / asset ID",
+        "Tire size",
+        "Problem description",
+        "Urgency level",
+        "Required service type",
+        "Photos",
+        "Approval status",
+        "Billing/customer account information",
+        "Technician availability",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "data_management",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "missing_data",
+        "poor_data_quality",
+        "approval_delay",
+        "scheduling_delay"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Operations",
+        "Customer Experience"
+      ],
+      "kpi_outputs": [
+        "missing_information_categories",
+        "request_quality_gap"
+      ],
+      "ai_analysis_purpose": "Identify exact missing data fields that delay dispatch or service execution.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which missing field causes the biggest delay?",
+        "Which department or team must usually provide it?",
+        "Please provide a recent example.",
+        "Which teams or departments were involved?",
+        "What happened as a result?",
+        "How often does this happen?"
+      ],
+      "recommendation_triggers": [
+        "request_data_standard",
+        "required_fields_workflow",
+        "photo_based_request_intake"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-008",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Information Quality",
+      "question_text": "How much time is usually spent collecting missing information before a request can be assigned?",
+      "response_type": "time_duration",
+      "options": [
+        "0-5 minutes",
+        "6-15 minutes",
+        "16-30 minutes",
+        "31-60 minutes",
+        "More than 60 minutes"
+      ],
+      "required": true,
+      "score_mapping": {
+        "0-5 minutes": 1,
+        "6-15 minutes": 2,
+        "16-30 minutes": 3,
+        "31-60 minutes": 4,
+        "More than 60 minutes": 5
+      },
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "missing_data",
+        "dispatch_bottleneck",
+        "scheduling_delay",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Data"
+      ],
+      "kpi_outputs": [
+        "average_information_collection_time",
+        "assignment_delay_due_to_missing_data"
+      ],
+      "ai_analysis_purpose": "Measure time loss before assignment caused by missing information.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What would be an acceptable target time?",
+        "Who is usually contacted to complete the information?"
+      ],
+      "recommendation_triggers": [
+        "pre_dispatch_required_fields",
+        "customer_self_service_request_form"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-009",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Scheduling & Dispatch",
+      "question_text": "How often are service assignments delayed after the request is received?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "scheduling_delay",
+        "dispatch_bottleneck",
+        "capacity_constraint",
+        "approval_delay"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Customer Experience"
+      ],
+      "kpi_outputs": [
+        "dispatch_delay_frequency",
+        "assignment_delay_frequency"
+      ],
+      "ai_analysis_purpose": "Measure how frequently dispatch delays occur after intake.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What is the most common cause of assignment delay?",
+        "Please provide a recent example.",
+        "How severe is the business impact from 1 to 5?",
+        "How severe is the impact when this occurs?"
+      ],
+      "recommendation_triggers": [
+        "dispatch_queue_management",
+        "assignment_sla_tracking"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "follow_up_logic": [
+        {
+          "question_text": "How severe is the impact when this occurs?",
+          "response_type": "scale_1_5",
+          "options": [
+            "1 = Minor",
+            "2 = Low",
+            "3 = Moderate",
+            "4 = High",
+            "5 = Critical"
+          ]
+        }
+      ],
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-010",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Scheduling & Dispatch",
+      "question_text": "What is the average time between receiving a service request and assigning it to a technician or service partner?",
+      "response_type": "time_duration",
+      "options": [
+        "0-10 minutes",
+        "11-30 minutes",
+        "31-60 minutes",
+        "1-2 hours",
+        "More than 2 hours"
+      ],
+      "required": true,
+      "score_mapping": {
+        "0-10 minutes": 1,
+        "11-30 minutes": 2,
+        "31-60 minutes": 3,
+        "1-2 hours": 4,
+        "More than 2 hours": 5
+      },
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "dispatch_bottleneck",
+        "scheduling_delay",
+        "manual_process"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "revenue_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Automation"
+      ],
+      "kpi_outputs": [
+        "average_assignment_delay",
+        "dispatch_response_time"
+      ],
+      "ai_analysis_purpose": "Quantify assignment delay and identify dispatch performance baseline.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What should the target assignment time be?",
+        "Which request types take longest to assign?",
+        "What should be the target time between receiving a request and assigning it?"
+      ],
+      "recommendation_triggers": [
+        "dispatch_performance_dashboard",
+        "automated_assignment_rules"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "current_state_value": true,
+      "desired_state_value": true,
+      "gap_calculation_enabled": true,
+      "follow_up_logic": [
+        {
+          "question_text": "What should be the target time between receiving a request and assigning it?",
+          "response_type": "time_duration",
+          "options": [
+            "0-10 minutes",
+            "11-30 minutes",
+            "31-60 minutes",
+            "1-2 hours",
+            "More than 2 hours"
+          ]
+        }
+      ],
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-011",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Scheduling & Dispatch",
+      "question_text": "What usually causes dispatch or scheduling delays?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Missing customer information",
+        "Technician availability unknown",
+        "Branch approval needed",
+        "Inventory/parts availability unknown",
+        "Customer approval pending",
+        "Service partner availability unknown",
+        "Traffic/location uncertainty",
+        "Unclear priority",
+        "Too many urgent requests",
+        "System or data issue",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "missing_data",
+        "approval_delay",
+        "scheduling_delay",
+        "dispatch_bottleneck",
+        "missing_integration"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Data",
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "dispatch_delay_root_causes",
+        "dispatch_bottleneck_categories"
+      ],
+      "ai_analysis_purpose": "Identify root causes behind dispatch delays.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which cause happens most often?",
+        "Which cause creates the highest customer impact?",
+        "Please provide a recent example.",
+        "Which teams or departments were involved?",
+        "What happened as a result?",
+        "How often does this happen?"
+      ],
+      "recommendation_triggers": [
+        "dispatch_root_cause_reduction",
+        "availability_visibility",
+        "approval_workflow_automation"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-012",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Communication",
+      "question_text": "Which communication tools do you use during a typical service request?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Phone",
+        "WhatsApp",
+        "Email",
+        "SMS",
+        "Microsoft Teams",
+        "ERP / service system",
+        "Customer portal",
+        "Paper note",
+        "Spreadsheet",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "communication",
+      "problem_types_detectable": [
+        "phone_dependency",
+        "whatsapp_dependency",
+        "email_dependency",
+        "spreadsheet_dependency",
+        "paper_based_process",
+        "communication_breakdown"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology",
+        "Automation",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "communication_tool_count",
+        "informal_communication_dependency"
+      ],
+      "ai_analysis_purpose": "Detect fragmented communication and dependency on informal tools.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which tool creates the most rework?",
+        "Which tool is hardest to audit later?"
+      ],
+      "recommendation_triggers": [
+        "communication_centralization",
+        "service_timeline_record"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-013",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Communication",
+      "question_text": "How often do communication handoffs fail or create confusion between customer service, branches, technicians, or partners?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "service_delivery",
+      "assessment_category": "communication",
+      "problem_types_detectable": [
+        "communication_breakdown",
+        "rework",
+        "poor_service_visibility",
+        "service_quality_issue"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Customer Experience"
+      ],
+      "kpi_outputs": [
+        "handoff_failure_frequency",
+        "communication_breakdown_frequency"
+      ],
+      "ai_analysis_purpose": "Measure frequency of communication breakdown across service handoffs.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which handoff fails most often?",
+        "Please provide a recent example.",
+        "What happened as a result?",
+        "How severe is the impact when this occurs?"
+      ],
+      "recommendation_triggers": [
+        "handoff_standardization",
+        "service_status_timeline",
+        "dispatch_collaboration_workflow"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high",
+      "follow_up_logic": [
+        {
+          "question_text": "How severe is the impact when this occurs?",
+          "response_type": "scale_1_5",
+          "options": [
+            "1 = Minor",
+            "2 = Low",
+            "3 = Moderate",
+            "4 = High",
+            "5 = Critical"
+          ]
+        }
+      ],
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-014",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Customer Visibility",
+      "question_text": "How often do customers ask for updates after submitting a service request?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Multiple times per day"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Multiple times per day": 5
+      },
+      "business_domain": "customer_experience",
+      "assessment_category": "customer",
+      "problem_types_detectable": [
+        "poor_service_visibility",
+        "slow_response_time",
+        "customer_complaints"
+      ],
+      "impact_dimensions": [
+        "customer_impact",
+        "time_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Customer Experience",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "customer_followup_frequency",
+        "customer_visibility_gap"
+      ],
+      "ai_analysis_purpose": "Measure customer update demand and visibility gaps.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What updates do customers request most often?",
+        "Which customer groups request updates most frequently?",
+        "How severe is the impact when this occurs?"
+      ],
+      "recommendation_triggers": [
+        "customer_status_notifications",
+        "customer_portal",
+        "service_tracking"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "follow_up_logic": [
+        {
+          "question_text": "How severe is the impact when this occurs?",
+          "response_type": "scale_1_5",
+          "options": [
+            "1 = Minor",
+            "2 = Low",
+            "3 = Moderate",
+            "4 = High",
+            "5 = Critical"
+          ]
+        }
+      ],
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-015",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Customer Visibility",
+      "question_text": "Rate the current visibility customers have into service request status.",
+      "response_type": "scale_1_5",
+      "options": [
+        "1 = No visibility",
+        "2 = Low visibility",
+        "3 = Some visibility",
+        "4 = Good visibility",
+        "5 = Full real-time visibility"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1": 5,
+        "2": 4,
+        "3": 3,
+        "4": 2,
+        "5": 1
+      },
+      "business_domain": "customer_experience",
+      "assessment_category": "customer",
+      "problem_types_detectable": [
+        "poor_service_visibility",
+        "customer_complaints",
+        "slow_response_time"
+      ],
+      "impact_dimensions": [
+        "customer_impact",
+        "revenue_impact",
+        "time_impact"
+      ],
+      "maturity_dimensions": [
+        "Customer Experience",
+        "Technology"
+      ],
+      "kpi_outputs": [
+        "customer_visibility_score",
+        "service_tracking_maturity"
+      ],
+      "ai_analysis_purpose": "Score customer service visibility and detect need for tracking or notifications.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What would customers most want to see?",
+        "How should customers receive updates?",
+        "What level of service status visibility should customers ideally have?"
+      ],
+      "recommendation_triggers": [
+        "customer_portal",
+        "service_status_notifications",
+        "real_time_tracking"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "current_state_value": true,
+      "desired_state_value": true,
+      "gap_calculation_enabled": true,
+      "follow_up_logic": [
+        {
+          "question_text": "What level of service status visibility should customers ideally have?",
+          "response_type": "scale_1_5",
+          "options": [
+            "1 = No visibility",
+            "2 = Low visibility",
+            "3 = Some visibility",
+            "4 = Good visibility",
+            "5 = Full real-time visibility"
+          ]
+        }
+      ],
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-016",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Technology & Systems",
+      "question_text": "How many systems or tools are required to process one service request from intake to completion?",
+      "response_type": "single_choice",
+      "options": [
+        "1 system/tool",
+        "2-3 systems/tools",
+        "4-5 systems/tools",
+        "6+ systems/tools"
+      ],
+      "required": true,
+      "score_mapping": {
+        "1 system/tool": 1,
+        "2-3 systems/tools": 2,
+        "4-5 systems/tools": 4,
+        "6+ systems/tools": 5
+      },
+      "business_domain": "technology",
+      "assessment_category": "technology",
+      "problem_types_detectable": [
+        "process_complexity",
+        "missing_integration",
+        "duplicate_activity",
+        "poor_usability"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Technology",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "systems_per_service_request",
+        "dispatch_system_complexity"
+      ],
+      "ai_analysis_purpose": "Measure system complexity in dispatch workflow.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which systems are used?",
+        "Where does information move manually between tools?"
+      ],
+      "recommendation_triggers": [
+        "system_integration",
+        "single_dispatch_workspace",
+        "workflow_simplification"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-017",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Technology & Systems",
+      "question_text": "Where is service request data entered more than once?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Customer message to spreadsheet",
+        "Customer message to ERP/system",
+        "Spreadsheet to ERP/system",
+        "Phone notes to system",
+        "WhatsApp to system",
+        "Email to system",
+        "Branch note to system",
+        "Technician update to system",
+        "Invoice/billing system",
+        "Nowhere",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "technology",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "duplicate_data",
+        "duplicate_activity",
+        "manual_process",
+        "missing_integration"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Technology",
+        "Automation"
+      ],
+      "kpi_outputs": [
+        "duplicate_entry_points",
+        "duplicate_entry_frequency"
+      ],
+      "ai_analysis_purpose": "Identify duplicate entry points and integration gaps.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which duplicate entry wastes the most time?",
+        "Which duplicate entry creates the most errors?",
+        "Please provide a recent example.",
+        "Which teams or departments were involved?",
+        "What happened as a result?",
+        "How often does this happen?"
+      ],
+      "recommendation_triggers": [
+        "system_integration",
+        "single_source_of_truth",
+        "automated_data_capture"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-018",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Technology & Systems",
+      "question_text": "What percentage of your dispatch/customer service work is manual and repeatable?",
+      "response_type": "percentage",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "automation",
+      "assessment_category": "automation",
+      "problem_types_detectable": [
+        "manual_process",
+        "lack_of_automation",
+        "workload_imbalance"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Automation",
+        "Workforce"
+      ],
+      "kpi_outputs": [
+        "manual_dispatch_work_ratio",
+        "automation_potential_score"
+      ],
+      "ai_analysis_purpose": "Quantify manual work and automation opportunity in dispatch.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which manual task repeats most often?",
+        "What should the desired manual work percentage be?",
+        "What percentage of manual and repeatable work would be acceptable after improvement?"
+      ],
+      "recommendation_triggers": [
+        "workflow_automation",
+        "digital_forms",
+        "dispatch_automation"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high",
+      "current_state_value": true,
+      "desired_state_value": true,
+      "gap_calculation_enabled": true,
+      "follow_up_logic": [
+        {
+          "question_text": "What percentage of manual and repeatable work would be acceptable after improvement?",
+          "response_type": "percentage",
+          "options": []
+        }
+      ],
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-019",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Reporting",
+      "question_text": "Which dispatch or customer service KPIs are unavailable today?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Average assignment delay",
+        "Emergency response time",
+        "SLA compliance rate",
+        "Missing information rate",
+        "Customer follow-up frequency",
+        "Escalation rate",
+        "First-time resolution rate",
+        "Technician utilization",
+        "Request channel distribution",
+        "Duplicate entry frequency",
+        "None of these",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "reporting_analytics",
+      "assessment_category": "reporting",
+      "problem_types_detectable": [
+        "reporting_gap",
+        "missing_data",
+        "no_single_source_of_truth"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Analytics",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "dispatch_kpi_gap_list",
+        "kpi_availability_score"
+      ],
+      "ai_analysis_purpose": "Detect missing dispatch KPIs that limit operational visibility.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which missing KPI would help you most?",
+        "Where could the data be captured?"
+      ],
+      "recommendation_triggers": [
+        "dispatch_kpi_dashboard",
+        "kpi_data_capture_model"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-020",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Reporting",
+      "question_text": "How much time do you spend each week preparing or updating dispatch/customer service reports?",
+      "response_type": "time_duration",
+      "options": [
+        "Less than 1 hour",
+        "1-2 hours",
+        "3-5 hours",
+        "6-10 hours",
+        "More than 10 hours"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Less than 1 hour": 1,
+        "1-2 hours": 2,
+        "3-5 hours": 3,
+        "6-10 hours": 4,
+        "More than 10 hours": 5
+      },
+      "business_domain": "reporting_analytics",
+      "assessment_category": "reporting",
+      "problem_types_detectable": [
+        "manual_process",
+        "reporting_gap",
+        "spreadsheet_dependency",
+        "lack_of_automation"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "cost_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Analytics",
+        "Automation"
+      ],
+      "kpi_outputs": [
+        "dispatch_reporting_time",
+        "report_preparation_time"
+      ],
+      "ai_analysis_purpose": "Measure reporting effort and reporting automation opportunity.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What would be an acceptable target time per week?",
+        "Which reports are most manual?",
+        "What would be the acceptable weekly reporting time?"
+      ],
+      "recommendation_triggers": [
+        "automated_dispatch_reporting",
+        "kpi_dashboard"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high",
+      "current_state_value": true,
+      "desired_state_value": true,
+      "gap_calculation_enabled": true,
+      "follow_up_logic": [
+        {
+          "question_text": "What would be the acceptable weekly reporting time?",
+          "response_type": "time_duration",
+          "options": [
+            "Less than 1 hour",
+            "1-2 hours",
+            "3-5 hours",
+            "6-10 hours",
+            "More than 10 hours"
+          ]
+        }
+      ],
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-021",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Risks & Escalations",
+      "question_text": "How often do service requests require escalation to a manager, branch, or partner?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Multiple times per day"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Multiple times per day": 5
+      },
+      "business_domain": "risk_management",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "approval_delay",
+        "operational_risk",
+        "communication_breakdown",
+        "service_quality_issue"
+      ],
+      "impact_dimensions": [
+        "risk_impact",
+        "customer_impact",
+        "time_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Risk"
+      ],
+      "kpi_outputs": [
+        "escalation_rate",
+        "escalation_frequency"
+      ],
+      "ai_analysis_purpose": "Measure escalation frequency and operational risk in service coordination.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What are the top escalation reasons?",
+        "Which escalations should be preventable?",
+        "How severe is the impact when this occurs?"
+      ],
+      "recommendation_triggers": [
+        "escalation_reason_tracking",
+        "approval_rules",
+        "dispatch_exception_workflow"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "follow_up_logic": [
+        {
+          "question_text": "How severe is the impact when this occurs?",
+          "response_type": "scale_1_5",
+          "options": [
+            "1 = Minor",
+            "2 = Low",
+            "3 = Moderate",
+            "4 = High",
+            "5 = Critical"
+          ]
+        }
+      ],
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-022",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Risks & Escalations",
+      "question_text": "Rank the highest-risk situations in dispatch/customer service.",
+      "response_type": "ranking",
+      "options": [
+        "Emergency request not assigned quickly",
+        "Wrong technician or partner assigned",
+        "Customer location unclear",
+        "Service status not updated",
+        "Customer approval missing",
+        "Inventory/parts unavailable",
+        "Technician cannot complete job",
+        "Customer complaint escalates",
+        "Billing information missing"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "risk_management",
+      "assessment_category": "risk",
+      "problem_types_detectable": [
+        "operational_risk",
+        "slow_response_time",
+        "missing_data",
+        "service_quality_issue"
+      ],
+      "impact_dimensions": [
+        "risk_impact",
+        "customer_impact",
+        "revenue_impact"
+      ],
+      "maturity_dimensions": [
+        "Risk",
+        "Customer Experience",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "dispatch_risk_ranking",
+        "service_coordination_risk_profile"
+      ],
+      "ai_analysis_purpose": "Prioritize dispatch risks based on frontline experience.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Why is the top-ranked risk most serious?",
+        "How often does it occur?",
+        "What control would prevent it?",
+        "Please provide a recent example.",
+        "Which teams or departments were involved?",
+        "What happened as a result?",
+        "How often does this happen?"
+      ],
+      "recommendation_triggers": [
+        "dispatch_risk_controls",
+        "sla_alerts",
+        "service_exception_management"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-023",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Automation Opportunities",
+      "question_text": "Which dispatch/customer service activities should be automated first?",
+      "response_type": "multiple_choice",
+      "options": [
+        "Request intake forms",
+        "Missing information checks",
+        "Technician assignment",
+        "Customer status notifications",
+        "Escalation alerts",
+        "SLA tracking",
+        "Photo/document collection",
+        "Report generation",
+        "Customer follow-up reminders",
+        "Partner availability checks",
+        "Other"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "automation",
+      "assessment_category": "automation",
+      "problem_types_detectable": [
+        "manual_process",
+        "lack_of_automation",
+        "communication_breakdown",
+        "reporting_gap"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Automation",
+        "Innovation"
+      ],
+      "kpi_outputs": [
+        "dispatch_automation_candidates",
+        "automation_priority_areas"
+      ],
+      "ai_analysis_purpose": "Identify high-value automation candidates from dispatcher perspective.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Which automation would save the most time?",
+        "Which automation would improve customer experience most?"
+      ],
+      "recommendation_triggers": [
+        "dispatch_automation_roadmap",
+        "quick_win_automation"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-024",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Automation Opportunities",
+      "question_text": "Rank the improvements that would create the most value for dispatch/customer service.",
+      "response_type": "ranking",
+      "options": [
+        "Central request intake",
+        "Customer portal",
+        "Automated customer notifications",
+        "Technician availability visibility",
+        "Inventory/parts visibility",
+        "Dispatch dashboard",
+        "Mobile technician updates",
+        "Automated reporting",
+        "SLA alerts",
+        "Service partner portal"
+      ],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "automation",
+      "assessment_category": "automation",
+      "problem_types_detectable": [
+        "lack_of_automation",
+        "poor_service_visibility",
+        "missing_integration",
+        "reporting_gap"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "cost_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Automation",
+        "Technology",
+        "Customer Experience"
+      ],
+      "kpi_outputs": [
+        "dispatch_improvement_priority_rankings",
+        "opportunity_priority_signal"
+      ],
+      "ai_analysis_purpose": "Prioritize dispatch improvements for roadmap placement.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Why is the first-ranked improvement most valuable?",
+        "Which KPI would prove success?"
+      ],
+      "recommendation_triggers": [
+        "opportunity_matrix",
+        "dispatch_roadmap",
+        "phase_1_quick_wins"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-025",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Automation Opportunities",
+      "question_text": "If you could change one dispatch/customer service workflow in the next 90 days, what would you change and why?",
+      "response_type": "open_text",
+      "options": [],
+      "required": true,
+      "score_mapping": {},
+      "business_domain": "automation",
+      "assessment_category": "automation",
+      "problem_types_detectable": [
+        "manual_process",
+        "lack_of_automation",
+        "communication_breakdown",
+        "dispatch_bottleneck"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Automation",
+        "Innovation",
+        "Operations"
+      ],
+      "kpi_outputs": [
+        "candidate_dispatch_quick_win"
+      ],
+      "ai_analysis_purpose": "Capture the dispatcher's highest-confidence quick-win workflow improvement.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "Please provide a recent example.",
+        "Which department or team was involved?",
+        "What happened as a result?",
+        "How often does this happen?",
+        "What would success look like after 90 days?",
+        "Which teams or departments were involved?"
+      ],
+      "recommendation_triggers": [
+        "quick_win_dispatch_workflow",
+        "pilot_project_definition"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "low",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-026",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Evidence Collection",
+      "question_text": "Describe the most recent service request that was difficult to manage from intake to completion.",
+      "response_type": "open_text",
+      "options": [],
+      "required": false,
+      "score_mapping": {},
+      "business_domain": "service_delivery",
+      "assessment_category": "process",
+      "problem_types_detectable": [
+        "missing_data",
+        "communication_breakdown",
+        "bottleneck",
+        "manual_process",
+        "poor_service_visibility",
+        "service_quality_issue"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact",
+        "risk_impact"
+      ],
+      "maturity_dimensions": [
+        "Operations",
+        "Customer Experience",
+        "Automation"
+      ],
+      "kpi_outputs": [
+        "difficult_request_example",
+        "qualitative_service_failure_evidence"
+      ],
+      "ai_analysis_purpose": "Collect concrete evidence that explains how request intake, dispatch, communication, and completion problems happen in real situations.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What caused the difficulty?",
+        "Which systems or communication tools were involved?",
+        "How was the issue resolved?",
+        "What could have prevented the issue?"
+      ],
+      "recommendation_triggers": [
+        "centralized_request_intake",
+        "dispatch_workflow_automation",
+        "customer_status_visibility",
+        "service_request_standardization"
+      ],
+      "roadmap_relevance": "foundation",
+      "finding_strength": "medium",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    },
+    {
+      "question_id": "DSP-027",
+      "stakeholder_group": "Operations",
+      "stakeholder_role": "Dispatcher / Customer Service Coordinator",
+      "section": "Information Quality",
+      "question_text": "How often do you need to contact customers again because the original request lacked necessary information?",
+      "response_type": "single_choice",
+      "options": [
+        "Rarely",
+        "Monthly",
+        "Weekly",
+        "Daily",
+        "Continuously"
+      ],
+      "required": true,
+      "score_mapping": {
+        "Rarely": 1,
+        "Monthly": 2,
+        "Weekly": 3,
+        "Daily": 4,
+        "Continuously": 5
+      },
+      "business_domain": "service_delivery",
+      "assessment_category": "data",
+      "problem_types_detectable": [
+        "missing_data",
+        "communication_breakdown",
+        "rework",
+        "manual_process"
+      ],
+      "impact_dimensions": [
+        "time_impact",
+        "customer_impact",
+        "employee_impact"
+      ],
+      "maturity_dimensions": [
+        "Data",
+        "Operations",
+        "Customer Experience"
+      ],
+      "kpi_outputs": [
+        "customer_recontact_frequency",
+        "missing_information_rate",
+        "intake_quality_score"
+      ],
+      "ai_analysis_purpose": "Measure how often poor request intake quality creates additional work and customer follow-up.",
+      "follow_up_enabled": true,
+      "follow_up_questions": [
+        "What information is usually missing?",
+        "How much time does this usually add?",
+        "Does this delay technician assignment?",
+        "Does this affect customer satisfaction?"
+      ],
+      "recommendation_triggers": [
+        "digital_request_intake_form",
+        "required_field_validation",
+        "customer_portal",
+        "intake_standardization"
+      ],
+      "roadmap_relevance": "quick_win",
+      "finding_strength": "high",
+      "stakeholder_group_id": "operations",
+      "stakeholder_role_id": "dispatcher"
+    }
+  ]
+}
