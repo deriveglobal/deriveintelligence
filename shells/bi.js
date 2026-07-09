@@ -4659,6 +4659,21 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       try {
         const data = await rfApi('/api/rakip/piyasa?' + qs.toString());
         if (!data.rows?.length) { res.innerHTML = '<div style="color:#778;padding:20px">Sonuç bulunamadı.</div>'; return; }
+        const histByUrl = {};
+        try {
+          const hist = await rfApi('/api/rakip/gecmis?' + qs.toString());
+          (hist.rows || []).forEach(h => { if (!h.url || isNaN(parseFloat(h.fiyat))) return; (histByUrl[h.url] = histByUrl[h.url] || []).push({ t: +new Date(h.gecerli_tarih), fy: parseFloat(h.fiyat) }); });
+          Object.keys(histByUrl).forEach(u => histByUrl[u].sort((a,b) => a.t - b.t));
+        } catch (e) {}
+        const trendBadge = (url, cur) => {
+          const pts = url && histByUrl[url]; if (!pts || pts.length < 2 || isNaN(cur)) return '';
+          let prev = null;
+          for (let i = pts.length - 1; i >= 0; i--) { if (pts[i].fy && pts[i].fy !== cur) { prev = pts[i].fy; break; } }
+          if (prev == null || prev <= 0) return '';
+          const pct = (cur - prev) / prev * 100; if (Math.abs(pct) < 0.5) return '';
+          const up = pct > 0;
+          return ' <span title="\u00d6nceki: ' + Number(prev).toLocaleString('tr-TR', { maximumFractionDigits: 0 }) + ' \u20ba" style="font-size:9px;font-weight:700;white-space:nowrap;color:' + (up ? '#f87171' : '#4ade80') + '">' + (up ? '\u25b2' : '\u25bc') + Math.abs(pct).toFixed(0) + '%</span>';
+        };
         const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         const isSet = m => /(4\s*['`´]?\s*l[üu]|4\s*adet|takım|takim|set olarak)/i.test(m || '');
         const money = n => (n == null || isNaN(n)) ? '—' : Number(n).toLocaleString('tr-TR', { maximumFractionDigits: 0 }) + ' ₺';
@@ -4686,7 +4701,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
             + '<td style="padding:8px 10px;font-weight:600;white-space:nowrap">' + esc(r.marka) + '</td>'
             + '<td style="padding:8px 10px;color:#9ab;font-family:monospace;white-space:nowrap">' + esc(sizeOf(r)) + '</td>'
             + '<td style="padding:8px 10px;max-width:360px;word-break:break-word;color:#cbd5e1">' + esc(r.model) + badge + '</td>'
-            + '<td style="padding:8px 10px;text-align:right;font-weight:700;' + (set ? 'color:#f59e0b' : 'color:#e2e8f0') + ';white-space:nowrap">' + money(fy) + '</td>'
+            + '<td style="padding:8px 10px;text-align:right;font-weight:700;' + (set ? 'color:#f59e0b' : 'color:#e2e8f0') + ';white-space:nowrap">' + money(fy) + trendBadge(r.url, fy) + '</td>'
             + '<td style="padding:8px 10px;text-align:right;white-space:nowrap;color:' + (birim ? '#38a169' : '#556') + '">' + (birim ? money(birim) : '—') + '</td>'
             + '<td style="padding:8px 10px;color:#8899aa;white-space:nowrap">' + (r.satici_sayisi ? ('🏪' + r.satici_sayisi) : '') + '</td>'
             + '<td style="padding:8px 10px;color:#8899aa;white-space:nowrap">' + (r.puan ? ('⭐' + r.puan) : '') + '</td>'
