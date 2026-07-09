@@ -1770,8 +1770,8 @@ async function vIskonto() {
           ${S.role === "admin" ? `<button class="btn kucuk cizgili" id="esik-duzenle">Eşik & Kural</button>
           <button class="btn kucuk cizgili" id="kullanici-yonet">👤 Kullanıcılar</button>` : ""}
         </div>` : ""}
-      ${yonetici && bekleyenler.length ? `
-        <h4 class="bolum-baslik" style="color:#f59e0b">⏳ Onay Bekleyen (${bekleyenler.length})</h4>
+      ${bekleyenler.length ? `
+        <h4 class="bolum-baslik" style="color:#f59e0b">⏳ ${yonetici ? "Onay Bekleyen" : "Onay Bekleniyor — yönetici onayında"} (${bekleyenler.length})</h4>
         ${bekleyenler.map(t => teklifKart(t)).join("")}` : ""}
       ${taslaklar.length ? `<h4 class="bolum-baslik">${S.role === "rep" ? "Gönderilmeyi Bekleyenler" : "Taslak"} (${taslaklar.length})</h4>${taslaklar.map(t => teklifKart(t)).join("")}` : ""}
       ${onaylananlar.length ? `<h4 class="bolum-baslik">Onaylandı — Sunulmayı Bekliyor (${onaylananlar.length})</h4>${onaylananlar.map(t => teklifKart(t)).join("")}` : ""}
