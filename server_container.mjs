@@ -26489,6 +26489,61 @@ async function handleSahaApi(request, response, url, deps) {
     }
 
     // ── Teklif oluştur (çok satırlı) ──
+    // ── Gerçek Piyasa Teklifleri (Real Market Offers) — REAL_MARKET_V1 ──
+    if (method === "POST" && path === "/api/saha/rakip-teklif") {
+      const session = await requireSahaAccess(request);
+      const p = await readJson(request);
+      if (!p.rakip_marka || !p.ebat || p.rakip_fiyat == null || isNaN(Number(p.rakip_fiyat))) {
+        sendJson(response, 400, { error: "rakip_marka, ebat ve rakip_fiyat zorunlu." }); return;
+      }
+      const kaynak = ["ZIYARET","TELEFON","MANUEL"].includes(p.kaynak) ? p.kaynak : "MANUEL";
+      let il = p.il || null, bolge = p.bolge || null;
+      if (!il && p.musteri_id) {
+        try { const mr = await query("SELECT il, bolge FROM saha_musteri WHERE id=$1 AND tenant_id=$2", [p.musteri_id, session.tenantId]); il = il || mr.rows[0]?.il || null; bolge = bolge || mr.rows[0]?.bolge || null; } catch(e){}
+      }
+      const r = await query(
+        "INSERT INTO saha_rakip_teklif (tenant_id,kaynak,rakip_marka,rakip_model,ebat,rakip_fiyat,adet,musteri_id,ziyaret_id,rep_id,il,bolge,teklif_tarihi,notlar,created_by) " +
+        "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,COALESCE($13::date,CURRENT_DATE),$14,$10) RETURNING *",
+        [session.tenantId, kaynak, String(p.rakip_marka).trim(), p.rakip_model || null, String(p.ebat).trim(),
+         Number(p.rakip_fiyat), p.adet != null ? Number(p.adet) : null, p.musteri_id || null, p.ziyaret_id || null,
+         session.userId, il, bolge, p.teklif_tarihi || null, p.notlar || null]);
+      sendJson(response, 200, { kayit: r.rows[0] });
+      return;
+    }
+    if (method === "GET" && path === "/api/saha/rakip-teklif") {
+      const session = await requireSahaAccess(request);
+      const ebat = (url.searchParams.get("ebat") || "").trim();
+      const marka = (url.searchParams.get("marka") || "").trim();
+      const il = (url.searchParams.get("il") || "").trim();
+      const lim = Math.min(parseInt(url.searchParams.get("limit") || "100", 10), 500);
+      const w = ["rt.tenant_id=$1"]; const v = [session.tenantId];
+      if (ebat)  { v.push(ebat);        w.push("rt.ebat=$" + v.length); }
+      if (marka) { v.push("%"+marka+"%"); w.push("rt.rakip_marka ILIKE $" + v.length); }
+      if (il)    { v.push(il);          w.push("rt.il=$" + v.length); }
+      const r = await query(
+        "SELECT rt.*, m.firma AS musteri, COALESCE(u.full_name,u.email) AS rep " +
+        "FROM saha_rakip_teklif rt LEFT JOIN saha_musteri m ON m.id=rt.musteri_id LEFT JOIN users u ON u.id=rt.rep_id " +
+        "WHERE " + w.join(" AND ") + " ORDER BY rt.teklif_tarihi DESC, rt.created_at DESC LIMIT " + lim, v);
+      sendJson(response, 200, { kayitlar: r.rows, toplam: r.rows.length });
+      return;
+    }
+    if (method === "GET" && path === "/api/saha/rakip-teklif-ozet") {
+      const session = await requireSahaAccess(request);
+      const ebat = (url.searchParams.get("ebat") || "").trim();
+      const marka = (url.searchParams.get("marka") || "").trim();
+      const il = (url.searchParams.get("il") || "").trim();
+      const w = ["tenant_id=$1"]; const v = [session.tenantId];
+      if (ebat)  { v.push(ebat);  w.push("ebat=$" + v.length); }
+      if (marka) { v.push(marka); w.push("lower(rakip_marka)=lower($" + v.length + ")"); }
+      const base = " FROM saha_rakip_teklif WHERE " + w.join(" AND ");
+      const sel = "SELECT MIN(rakip_fiyat) AS min, MAX(rakip_fiyat) AS max, ROUND(AVG(rakip_fiyat),0) AS ort, COUNT(*) AS adet, MAX(teklif_tarihi) AS son_tarih";
+      const ulusal = await query(sel + base, v);
+      let bolgesel = null;
+      if (il) { const vi = v.slice(); vi.push(il); const br = await query(sel + base + " AND il=$" + vi.length, vi); bolgesel = br.rows[0]; }
+      sendJson(response, 200, { ulusal: ulusal.rows[0], bolgesel: bolgesel, il: il || null });
+      return;
+    }
+
     // GET /api/saha/stok-durumu?kalem_kodu= — current on-hand for a product — TEKLIF_TALEP_STOK_V1
     if (method === "GET" && path === "/api/saha/stok-durumu") {
       const session = await requireSahaAccess(request);
