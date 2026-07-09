@@ -28427,28 +28427,88 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
           WHERE tenant_id=$1 AND rep_id=$2 ORDER BY id DESC LIMIT 10`,
         [session.tenantId, session.userId]
       );
-      const messages = [
-        { role: "system", content: "Sen KRB Otomotiv saha ekibinin kişisel asistanısın. Türkçe cevap ver. Kısa ve pratik ol." },
-        ...hist.rows.reverse().map(r => ({ role: r.role, content: r.content }))
+      // REP_ASSISTANT_V1 — tool-use loop (fast quote + auto-task + rakip)
+      const _repSys = "Sen KRB Otomotiv saha ekibinin kişisel asistanısın. Türkçe, KISA ve pratik cevap ver — temsilci yolda/müşteride, hızlı sonuç ister.\n" +
+        "Araçlar:\n" +
+        "- musteri_ara: müşteriyi isimle bul (teklif öncesi).\n" +
+        "- teklif_olustur: hızlı teklif oluştur ve ONAYA gönder. '20 385, 60 315' = 20 adet 385 ebat + 60 adet 315 ebat (iki kalem). Marka ve talep fiyatını da al; müşteri firma adı veya musteri_id ver.\n" +
+        "- gorev_olustur: hatırlatma/görev. Temsilci 'yarına kadar cevap bekliyor', 'Perşembe arayacağım' gibi bir TAAHHÜT yazarsa OTOMATİK görev+hatırlatma oluştur (hatirlatma_tarihi ile, bugünün tarihine göre hesapla).\n" +
+        "- rakip_teklif_ekle: sahada duyulan rakip fiyatını kaydet (kaynak: ZIYARET/TELEFON/MANUEL).\n" +
+        "- rakip_fiyat: bir ebat/marka için piyasa (e-ticaret) ve saha rakip fiyat aralığını getir.\n" +
+        "Bugün: " + new Date().toISOString().slice(0,10) + ". Gereksiz soru sorma; kritik eksik varsa tek soruda sor. İş bitince kısa onayla.";
+      const _repTools = [
+        { name: 'musteri_ara', description: 'Müşteriyi firma adıyla ara.', input_schema: { type:'object', properties:{ q:{type:'string'} }, required:['q'] } },
+        { name: 'teklif_olustur', description: 'Hızlı teklif oluştur ve onaya gönder (durum ONAY_BEKLIYOR).', input_schema: { type:'object', properties:{
+            musteri_id:{type:'string'}, firma:{type:'string', description:'musteri_id yoksa firma adı'},
+            marka:{type:'string'}, talep_fiyat:{type:'number', description:'birim talep fiyatı (tüm kalemler için varsayılan)'},
+            kalemler:{type:'array', items:{type:'object', properties:{ ebat:{type:'string'}, adet:{type:'number'}, marka:{type:'string'}, talep_fiyat:{type:'number'} }, required:['ebat','adet'] }},
+            rakip_marka:{type:'string'}, rakip_fiyat:{type:'number'}, notlar:{type:'string'} }, required:['kalemler'] } },
+        { name: 'gorev_olustur', description: 'Görev/hatırlatma oluştur (saha_rep_not).', input_schema: { type:'object', properties:{ icerik:{type:'string'}, hatirlatma_tarihi:{type:'string', description:'YYYY-MM-DD'} }, required:['icerik'] } },
+        { name: 'rakip_teklif_ekle', description: 'Gerçek piyasa rakip teklifini kaydet.', input_schema: { type:'object', properties:{ rakip_marka:{type:'string'}, rakip_model:{type:'string'}, ebat:{type:'string'}, rakip_fiyat:{type:'number'}, kaynak:{type:'string', enum:['ZIYARET','TELEFON','MANUEL']}, musteri_id:{type:'string'}, notlar:{type:'string'} }, required:['rakip_marka','ebat','rakip_fiyat'] } },
+        { name: 'rakip_fiyat', description: 'Bir ebat/marka için e-ticaret ve saha rakip fiyat aralığı.', input_schema: { type:'object', properties:{ ebat:{type:'string'}, marka:{type:'string'} }, required:['ebat'] } }
       ];
+      async function _runRepTool(nm, inp) {
+        if (nm === 'musteri_ara') {
+          const r = await pool.query("SELECT id, firma, il, ilce, telefon FROM saha_musteri WHERE tenant_id=$1 AND COALESCE(aktif,true) AND firma ILIKE $2 ORDER BY firma LIMIT 8", [session.tenantId, '%'+(inp.q||'').trim()+'%']);
+          return { musteriler: r.rows };
+        }
+        if (nm === 'teklif_olustur') {
+          let mid = inp.musteri_id || null;
+          if (!mid && inp.firma) { const mr = await pool.query("SELECT id FROM saha_musteri WHERE tenant_id=$1 AND firma ILIKE $2 ORDER BY firma LIMIT 1", [session.tenantId, '%'+inp.firma+'%']); mid = mr.rows[0]?.id || null; }
+          if (!mid) return { hata: 'Müşteri bulunamadı — önce musteri_ara.' };
+          const kl = Array.isArray(inp.kalemler) ? inp.kalemler : [];
+          if (!kl.length) return { hata: 'En az bir kalem (ebat+adet) gerekli.' };
+          const dm = inp.marka || null;
+          const lines = kl.map(function(k){ const t = k.talep_fiyat!=null?Number(k.talep_fiyat):(inp.talep_fiyat!=null?Number(inp.talep_fiyat):null); const a = Math.max(1, Number(k.adet)||1); return { marka:k.marka||dm, ebat:String(k.ebat||'').trim(), adet:a, talep:t, toplam:t!=null?Math.round(t*a*100)/100:null }; });
+          const ilk = lines[0];
+          const toplam = lines.reduce(function(s,l){return s+(l.toplam||0);},0) || null;
+          const hdr = await pool.query("INSERT INTO saha_teklif (tenant_id,musteri_id,rep_id,marka,ebat,adet,birim_fiyat,talep_fiyat,toplam_tutar,rakip_marka,rakip_fiyat,notlar,durum,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$11,'ONAY_BEKLIYOR',$3) RETURNING id",
+            [session.tenantId, mid, session.userId, ilk.marka||'Belirtilmedi', ilk.ebat, lines.reduce(function(s,l){return s+l.adet;},0), ilk.talep, toplam, inp.rakip_marka||null, inp.rakip_fiyat!=null?Number(inp.rakip_fiyat):null, inp.notlar||null]);
+          const tid = hdr.rows[0].id; let sira = 1;
+          for (const l of lines) { await pool.query("INSERT INTO saha_teklif_kalem (teklif_id,tenant_id,kalem_sira,marka,ebat,adet,birim_fiyat,talep_fiyat,toplam_tutar) VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8)", [tid, session.tenantId, sira++, l.marka, l.ebat, l.adet, l.talep, l.toplam]); }
+          return { success:true, teklif_id:tid, kalem_sayisi:lines.length, toplam_tutar:toplam, durum:'ONAY_BEKLIYOR', mesaj:'Teklif oluşturuldu ve onaya gönderildi.' };
+        }
+        if (nm === 'gorev_olustur') {
+          if (!inp.icerik) return { hata:'icerik zorunlu' };
+          const r = await pool.query("INSERT INTO saha_rep_not (tenant_id,rep_id,icerik,hatirlatma_tarihi) VALUES ($1,$2,$3,$4) RETURNING id, hatirlatma_tarihi", [session.tenantId, session.userId, inp.icerik, inp.hatirlatma_tarihi||null]);
+          return { success:true, not_id:r.rows[0].id, hatirlatma:r.rows[0].hatirlatma_tarihi, mesaj:'Görev/hatırlatma oluşturuldu.' };
+        }
+        if (nm === 'rakip_teklif_ekle') {
+          if (!inp.rakip_marka || !inp.ebat || inp.rakip_fiyat==null) return { hata:'rakip_marka, ebat, rakip_fiyat zorunlu' };
+          const kaynak = ['ZIYARET','TELEFON','MANUEL'].includes(inp.kaynak)?inp.kaynak:'TELEFON';
+          let il = null; if (inp.musteri_id) { try { const mr = await pool.query("SELECT il FROM saha_musteri WHERE id=$1 AND tenant_id=$2", [inp.musteri_id, session.tenantId]); il = mr.rows[0]?.il||null; } catch(e){} }
+          const r = await pool.query("INSERT INTO saha_rakip_teklif (tenant_id,kaynak,rakip_marka,rakip_model,ebat,rakip_fiyat,musteri_id,rep_id,il,notlar,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$8) RETURNING id",
+            [session.tenantId, kaynak, String(inp.rakip_marka).trim(), inp.rakip_model||null, String(inp.ebat).trim(), Number(inp.rakip_fiyat), inp.musteri_id||null, session.userId, il, inp.notlar||null]);
+          return { success:true, id:r.rows[0].id, mesaj:'Rakip teklifi kaydedildi.' };
+        }
+        if (nm === 'rakip_fiyat') {
+          const ebat = (inp.ebat||'').trim(); if (!ebat) return { hata:'ebat zorunlu' };
+          const eRows = inp.marka ? [ebat, inp.marka] : [ebat];
+          const et = await pool.query("SELECT MIN(fiyat) AS min, MAX(fiyat) AS max, COUNT(*) AS n FROM bi_rakip_fiyat_son WHERE ebat=$1" + (inp.marka?" AND lower(marka)=lower($2)":""), eRows);
+          const sRows = inp.marka ? [session.tenantId, ebat, inp.marka] : [session.tenantId, ebat];
+          const sa = await pool.query("SELECT MIN(rakip_fiyat) AS min, MAX(rakip_fiyat) AS max, COUNT(*) AS n FROM saha_rakip_teklif WHERE tenant_id=$1 AND ebat=$2" + (inp.marka?" AND lower(rakip_marka)=lower($3)":""), sRows);
+          return { eticaret_piyasa: et.rows[0], saha_gercek: sa.rows[0] };
+        }
+        return { hata: 'bilinmeyen araç: ' + nm };
+      }
+      let _msgs = hist.rows.reverse().map(function(r){ return { role:r.role, content:r.content }; });
+      while (_msgs.length && _msgs[0].role !== 'user') _msgs.shift();
       let yanit = 'Şu an yanıt veremiyorum, lütfen tekrar dene.';
       try {
-        const aiRes = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'x-api-key': process.env.ANTHROPIC_API_KEY || '',
-            'anthropic-version': '2023-06-01',
-            'content-type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: 'claude-haiku-4-5-20251001',
-            max_tokens: 800,
-            messages
-          })
-        });
-        const data = await aiRes.json();
-        yanit = data.content?.[0]?.text || yanit;
-      } catch(_) {}
+        let _acc = '';
+        for (let _i = 0; _i < 6; _i++) {
+          const _res = await anthropic.messages.create({ model: 'claude-sonnet-4-6', max_tokens: 1400, system: _repSys, tools: _repTools, messages: _msgs });
+          for (const _b of _res.content) if (_b.type === 'text' && _b.text) _acc += _b.text;
+          if (_res.stop_reason !== 'tool_use') break;
+          const _trs = [];
+          for (const _tu of _res.content.filter(function(b){return b.type==='tool_use';})) {
+            let _out; try { _out = await _runRepTool(_tu.name, _tu.input); } catch(e) { _out = { hata: e.message }; }
+            _trs.push({ type:'tool_result', tool_use_id:_tu.id, content: JSON.stringify(_out) });
+          }
+          _msgs = _msgs.concat([{ role:'assistant', content:_res.content }, { role:'user', content:_trs }]);
+        }
+        if (_acc.trim()) yanit = _acc.trim();
+      } catch(e) { yanit = 'Hata: ' + e.message; }
       // AI yanıtını kaydet
       await pool.query(
         `INSERT INTO saha_rep_conversations (tenant_id, rep_id, role, content)
