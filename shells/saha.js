@@ -2133,6 +2133,15 @@ async function teklifDetayModal(t) {
 }
 
 // Helper for detail grid rows
+function _marjHTML(k) {
+  const tl = v => v != null ? "₺" + Number(v).toLocaleString("tr-TR") : "—";
+  if (k.fiyat_durumu === "liste_yok") return `<span style="color:#94a3b8;font-style:italic">Fiyat listesi yok — marj hesaplanamıyor</span>`;
+  const marjColor = (k.marj_pct != null && k.marj_pct < 10) ? "#dc2626" : (k.marj_pct != null && k.marj_pct < 20) ? "#f59e0b" : "#16a34a";
+  const karStr = k.kar_adet != null ? (` · Kâr: <b>₺${Number(k.kar_adet).toLocaleString("tr-TR")}/adet</b>`) : "";
+  const iskStr = k.fiyat_durumu === "tesvik_yok" ? ` · <span style="color:#b45309">teşvik yok</span>` : (k.iskonto_pct != null ? ` · İndirim: <b>%${k.iskonto_pct}</b>` : "");
+  return `Liste: <b>${tl(k.liste_fiyati)}</b>${iskStr} · Net maliyet: <b>${tl(k.net_maliyet)}</b> · Marj: <b style="color:${marjColor}">${k.marj_pct != null ? "%" + k.marj_pct : "—"}</b>${karStr}`;
+}
+
 function _teklifAnalizHTML(az) {
   const tl = v => v != null ? "₺" + Number(v).toLocaleString("tr-TR") : "—";
   const aralik = r => (r && r.en_dusuk != null) ? (tl(r.en_dusuk) + " – " + tl(r.en_yuksek)) : null;
@@ -2168,7 +2177,8 @@ function _teklifAnalizHTML(az) {
     return `
       <div style="border-top:1px solid #f1f5f9;padding:8px 10px;font-size:12px">
         <b style="color:#0f172a">${esc(k.marka || "")} ${esc(k.ebat || "")}</b>
-        <div style="margin-top:3px;color:#475569">Stok: <b style="color:${stokColor}">${stokStr}</b>${k.birim_maliyet != null ? ` · Maliyet: <b>${tl(k.birim_maliyet)}</b>` : ""}${k.talep_fiyat != null ? ` · İstenen: <b>${tl(k.talep_fiyat)}</b>` : ""} · Marj: <b style="color:${marjColor}">${marjStr}</b>${(k.talep_fiyat != null && k.birim_maliyet != null) ? ` · Kâr: <b>₺${Math.round(k.talep_fiyat - k.birim_maliyet).toLocaleString("tr-TR")}/adet</b>` : ""}</div>
+        <div style="margin-top:3px;color:#475569">Stok: <b style="color:${stokColor}">${stokStr}</b>${k.talep_fiyat != null ? ` · İstenen: <b>${tl(k.talep_fiyat)}</b>` : ""}</div>
+        <div style="margin-top:3px;color:#475569">${_marjHTML(k)}</div>
         ${_rrEbat(k.ebat).length ? `<div style="margin-top:3px;color:#b45309;font-weight:600">🏁 Temsilci: ${_rrEbat(k.ebat).map(_rivalStr).map(esc).join(" · ")}</div>` : ""}
         ${hasRival
           ? `<div style="margin-top:3px;color:#475569">${et ? `Piyasa (e-ticaret): <b>${et}</b>${k.eticaret.ilan ? ` <span style="color:#94a3b8">(${k.eticaret.ilan} ilan)</span>` : ""}<br>` : ""}${ma ? `Marka aralığı: <b>${ma}</b><br>` : ""}${(sa && sa.adet) ? `Saha teklifleri: <b>${aralik(sa)}</b> <span style="color:#94a3b8">(ort ${tl(sa.ortalama)}, ${sa.adet} kayıt${sa.son_tarih ? `, son ${new Date(sa.son_tarih).toLocaleDateString("tr-TR")}` : ""})</span>` : ""}</div>`
@@ -2177,7 +2187,7 @@ function _teklifAnalizHTML(az) {
   }).join("");
   return `
     <div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
-      <div style="background:#eef2ff;padding:8px 10px;font-weight:700;font-size:12px;color:#3730a3">📊 Karar Bilgisi — Stok & Rakip</div>
+      <div style="background:#eef2ff;padding:8px 10px;font-weight:700;font-size:12px;color:#3730a3">📊 Karar Bilgisi — Stok, Marj & Rakip</div>
       <div style="padding:8px 10px;border-bottom:1px solid #f1f5f9">
         <div style="font-weight:600;font-size:12px;color:#475569;margin-bottom:3px">🏁 Temsilcinin belirttiği rakip</div>
         ${repRakipHTML}
