@@ -4621,7 +4621,7 @@ function handleAuthExpired(message = "Session expired. Please sign in again.") {
 function restoreSession() {
   const session = getSavedSession();
   const email = normalizeEmail(session?.email || currentUserEmail || "");
-  if (!email || activeSurveyToken) {
+  if (!email || activeSurveyToken || activeResetToken) {
     return false;
   }
   if (session?.expiresAt && session.expiresAt < Date.now()) {
@@ -12394,7 +12394,7 @@ async function loadProductionQuestionBanks() {
 wireEvents();
 loadProductionQuestionBanks();
 const sessionRestored = activeRespondToken ? false : restoreSession();
-if (!sessionRestored) {
+if (!sessionRestored && !activeResetToken) {
   applyRole(activeContextToken || activeSurveyToken || activeRespondToken ? "participant" : resolveRoleForEmail(currentUserEmail));
 }
 // Validate session with server immediately after local restore.
