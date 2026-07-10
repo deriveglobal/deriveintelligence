@@ -28679,7 +28679,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     if (method === "POST" && path === "/api/saha/rep-brain") {
       const session = await requireSahaAccess(request);
       const body = await readJson(request);
-      const { mesaj } = body;
+      const mesaj = (body.mesaj || body.message || '').toString().trim();
       if (!mesaj) { sendJson(response, 400, { error: 'mesaj zorunlu' }); return; }
       // Sohbet geçmişini kaydet
       await pool.query(
@@ -28781,7 +28781,10 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
          VALUES ($1,$2,'assistant',$3)`,
         [session.tenantId, session.userId, yanit]
       );
-      sendJson(response, 200, { yanit });
+      response.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no" });
+      response.write("data: " + JSON.stringify({ text: yanit }) + "\n\n");
+      response.write("data: [DONE]\n\n");
+      response.end();
       return;
     }
 
