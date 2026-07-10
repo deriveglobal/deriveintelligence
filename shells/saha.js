@@ -4556,7 +4556,7 @@ async function vDuyurular() {
     const onemEtiket = { ACIL: "🚨 Acil", YUKSEK: "⚠️ Önemli" };
 
     main().innerHTML = `
-      ${isYonetici ? `<button class="saha-cta" id="yeni-duyuru">📢 Yeni Duyuru</button>` : ""}
+      <button class="saha-cta" id="yeni-duyuru">📢 Yeni Paylaşım</button>
       ${duyurular.length ? duyurular.map(d => {
         const tarih = new Date(d.created_at).toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
         const unread = !d.okundu && !isYonetici;
@@ -4564,7 +4564,7 @@ async function vDuyurular() {
           <div class="kart-ust">
             <b>${esc(d.baslik)}</b>
             <span style="display:flex;gap:4px;align-items:center">
-              ${d.onem !== "NORMAL" ? `<span class="rozet" style="background:${onemRenk[d.onem]}">${onemEtiket[d.onem]}</span>` : ""}
+              ${d.tip === "PIYASA" ? `<span class="rozet" style="background:#0891b2">📊 Piyasa</span>` : ""}${d.onem !== "NORMAL" ? `<span class="rozet" style="background:${onemRenk[d.onem]}">${onemEtiket[d.onem]}</span>` : ""}
               ${unread ? `<span class="rozet" style="background:#0284c7">Yeni</span>` : ""}
             </span>
           </div>
@@ -4585,7 +4585,12 @@ async function vDuyurular() {
 
 function yeniDuyuruModal() {
   modal(`
-    <h3>Yeni Duyuru</h3>
+    <h3>Yeni Paylaşım</h3>
+    <label class="etiket">Tür</label>
+    <select id="dy-tip" class="giris">
+      <option value="DUYURU">📢 Duyuru</option>
+      <option value="PIYASA">📊 Piyasa Bilgisi</option>
+    </select>
     <label class="etiket">Başlık *</label>
     <input id="dy-baslik" class="giris" placeholder="Duyuru başlığı…">
     <label class="etiket">Önem Seviyesi</label>
@@ -4606,7 +4611,8 @@ function yeniDuyuruModal() {
     const onem = document.getElementById("dy-onem").value;
     if (!baslik || !icerik) { uyari("Başlık ve içerik zorunludur."); return; }
     try {
-      await api("/api/saha/duyurular", { method: "POST", body: JSON.stringify({ baslik, icerik, onem }) });
+      const tip = document.getElementById("dy-tip")?.value || "DUYURU";
+      await api("/api/saha/duyurular", { method: "POST", body: JSON.stringify({ baslik, icerik, onem, tip }) });
       kapatModal(); loadView("duyurular");
     } catch (e) { uyari(e.message); }
   });
@@ -4637,7 +4643,7 @@ async function duyuruDetayModal(did) {
     modal(`
       <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:4px">
         <h3 style="margin:0;flex:1">${esc(d.baslik)}</h3>
-        ${d.onem !== "NORMAL" ? `<span class="rozet" style="background:${onemRenk[d.onem]}">${d.onem === "ACIL" ? "🚨 Acil" : "⚠️ Önemli"}</span>` : ""}
+        ${d.tip === "PIYASA" ? `<span class="rozet" style="background:#0891b2">📊 Piyasa</span>` : ""}${d.onem !== "NORMAL" ? `<span class="rozet" style="background:${onemRenk[d.onem]}">${d.onem === "ACIL" ? "🚨 Acil" : "⚠️ Önemli"}</span>` : ""}
       </div>
       <div style="font-size:12px;color:#94a3b8;margin-bottom:12px">${esc(d.yazan_adi)} · ${new Date(d.created_at).toLocaleString("tr-TR")}</div>
       <div style="font-size:14px;color:#1e293b;white-space:pre-wrap;padding:12px;background:#f8fafc;border-radius:8px;margin-bottom:12px">${esc(d.icerik)}</div>
