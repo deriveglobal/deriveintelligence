@@ -1737,6 +1737,7 @@ function musteriDetayModal(m) {
 // ── TEKLİF & İSKONTO ─────────────────────────────────────────────────────────
 let _iskontoAC = null; // AbortController for delegated click listener
 
+const KAYNAK_ETK = { ZIYARET: "🚶 Ziyaret", TELEFON: "📞 Telefon", WHATSAPP: "💬 WhatsApp", EMAIL: "✉️ E-posta", DIGER: "Diğer" };
 const TEKLIF_DURUM = {
   TASLAK:        ["Taslak",            "#64748b"],
   ONAY_BEKLIYOR: ["Onay Bekliyor",     "#f59e0b"],
@@ -1892,6 +1893,7 @@ function teklifKart(t) {
           ${t.toplam_tutar ? `<span><b>${Number(t.toplam_tutar).toLocaleString("tr-TR")}₺</b></span>` : ""}`}
       ${yonetici ? `<span>👤 ${esc(t.rep_full_name || "")}</span>` : ""}
       <span>${new Date(t.created_at).toLocaleDateString("tr-TR")}</span>
+      ${t.kaynak ? `<span>${KAYNAK_ETK[t.kaynak] || t.kaynak}</span>` : ""}
     </div>
     ${t.durum === "KAYBEDILDI" ? `
       <div class="kart-not kirmizi-kenar">
@@ -2410,6 +2412,7 @@ async function teklifFormModal(mus, ziyaretId) {
 
     <label>Satır Notu<textarea class="giris" id="tf-not" rows="2" placeholder="Bu kalem için not…"></textarea></label>
     <label>Genel Not<textarea class="giris" id="tf-genel-not" rows="2" placeholder="Teklif geneli için not…"></textarea></label>
+    ${ziyaretId ? "" : `<label>Kaynak *<select class="giris" id="tf-kaynak"><option value="">— Nereden geldi? —</option><option value="TELEFON">📞 Telefon</option><option value="WHATSAPP">💬 WhatsApp</option><option value="EMAIL">✉️ E-posta</option><option value="DIGER">Diğer</option></select></label>`}
     <div class="modal-btnlar">
       <button class="btn gri" data-kapat>Vazgeç</button>
       <button class="btn gri" id="tf-satir-ekle">＋ Satıra Ekle</button>
@@ -2780,12 +2783,15 @@ async function teklifFormModal(mus, ziyaretId) {
     const allKalemler = formKalem ? [..._kalemler, formKalem] : [..._kalemler];
     if (!allKalemler.length) { uyari("En az bir ürün ekleyin."); return; }
     const genelNot = document.getElementById("tf-genel-not").value.trim() || null;
+    const kaynak = ziyaretId ? "ZIYARET" : (document.getElementById("tf-kaynak")?.value || "");
+    if (!ziyaretId && !kaynak) { uyari("Teklif kaynağını seçin (Telefon/WhatsApp/E-posta)."); return; }
     try {
       await api("/api/saha/teklifler", {
         method: "POST",
         body: JSON.stringify({
           musteri_id: mus.id,
           ziyaret_id: ziyaretId,
+          kaynak    : kaynak,
           notlar    : genelNot,
           kalemler  : allKalemler
         })
@@ -2870,6 +2876,7 @@ function talepKart(t, onayModu) {
       ${t.liste_fiyat ? `<span>Liste: ${Number(t.liste_fiyat).toLocaleString("tr-TR")}₺</span>` : ""}
       ${yonetici ? `<span>👤 ${esc(t.rep_full_name || "")}</span>` : ""}
       <span>${new Date(t.created_at).toLocaleDateString("tr-TR")}</span>
+      ${t.kaynak ? `<span>${KAYNAK_ETK[t.kaynak] || t.kaynak}</span>` : ""}
     </div>
     ${yonetici && (t.bakiye != null || t.toplam_ciro != null) ? `
       <div class="bakiye-satir">

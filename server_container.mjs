@@ -26826,9 +26826,9 @@ async function handleSahaApi(request, response, url, deps) {
                                  adet, birim_fiyat, toplam_tutar, iskonto_orani, notlar, created_by,
                                  kalem_kodu, liste_fiyati, tesvik_garantili_pct, tesvik_maksimum_pct,
                                  tedarikci_destek_pct, kampanya_id, kampanya_indirim_turu,
-                                 kampanya_indirim_deger, musteri_ek_iskonto_pct, durum)
+                                 kampanya_indirim_deger, musteri_ek_iskonto_pct, kaynak, durum)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$5,$18,
-                $19,$20,$21,$22,$23,$24,$25,$26,'TASLAK')
+                $19,$20,$21,$22,$23,$24,$25,$26,$27,'TASLAK')
         RETURNING *
       `, [session.tenantId, p.musteri_id, p.ziyaret_id || null, null, session.userId,
           String(ilk.marka).trim(), ilk.model || null, ilk.ebat || null,
@@ -26845,7 +26845,8 @@ async function handleSahaApi(request, response, url, deps) {
           ilk.kampanya_id != null ? Number(ilk.kampanya_id) : null,
           ilk.kampanya_indirim_turu || null,
           ilk.kampanya_indirim_deger != null ? Number(ilk.kampanya_indirim_deger) : null,
-          ilk.ekIsk > 0 ? ilk.ekIsk : null]);
+          ilk.ekIsk > 0 ? ilk.ekIsk : null,
+          (p.ziyaret_id ? 'ZIYARET' : (['TELEFON','WHATSAPP','EMAIL','DIGER'].includes(String(p.kaynak||'').toUpperCase()) ? String(p.kaynak).toUpperCase() : 'DIGER'))]);
       const teklifId = hdr.rows[0].id;
       // TEKLIF_TALEP_STOK_V1 — talep fiyatı + mevcut stok snapshot (header, first line)
       await query('UPDATE saha_teklif SET talep_fiyat=$2, mevcut_stok=$3 WHERE id=$1',
@@ -28710,7 +28711,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
             musteri_id:{type:'string'}, firma:{type:'string', description:'musteri_id yoksa firma adı'},
             marka:{type:'string'}, talep_fiyat:{type:'number', description:'birim talep fiyatı (tüm kalemler için varsayılan)'},
             kalemler:{type:'array', items:{type:'object', properties:{ ebat:{type:'string'}, adet:{type:'number'}, marka:{type:'string'}, talep_fiyat:{type:'number'} }, required:['ebat','adet'] }},
-            rakip_marka:{type:'string'}, rakip_fiyat:{type:'number'}, notlar:{type:'string'} }, required:['kalemler'] } },
+            rakip_marka:{type:'string'}, rakip_fiyat:{type:'number'}, kaynak:{type:'string', enum:['TELEFON','WHATSAPP','EMAIL','ZIYARET'], description:'Musteri nasil ulasti: aradi=TELEFON, whatsapp=WHATSAPP, mail/eposta=EMAIL. Belirtmezse TELEFON.'}, notlar:{type:'string'} }, required:['kalemler'] } },
         { name: 'gorev_olustur', description: 'Görev/hatırlatma oluştur (saha_rep_not).', input_schema: { type:'object', properties:{ icerik:{type:'string'}, hatirlatma_tarihi:{type:'string', description:'YYYY-MM-DD'} }, required:['icerik'] } },
         { name: 'rakip_teklif_ekle', description: 'Gerçek piyasa rakip teklifini kaydet.', input_schema: { type:'object', properties:{ rakip_marka:{type:'string'}, rakip_model:{type:'string'}, ebat:{type:'string'}, rakip_fiyat:{type:'number'}, kaynak:{type:'string', enum:['ZIYARET','TELEFON','MANUEL']}, musteri_id:{type:'string'}, notlar:{type:'string'} }, required:['rakip_marka','ebat','rakip_fiyat'] } },
         { name: 'rakip_fiyat', description: 'Bir ebat/marka için e-ticaret ve saha rakip fiyat aralığı.', input_schema: { type:'object', properties:{ ebat:{type:'string'}, marka:{type:'string'} }, required:['ebat'] } },
@@ -28731,8 +28732,8 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
           const lines = kl.map(function(k){ const t = k.talep_fiyat!=null?Number(k.talep_fiyat):(inp.talep_fiyat!=null?Number(inp.talep_fiyat):null); const a = Math.max(1, Number(k.adet)||1); return { marka:k.marka||dm, ebat:String(k.ebat||'').trim(), adet:a, talep:t, toplam:t!=null?Math.round(t*a*100)/100:null }; });
           const ilk = lines[0];
           const toplam = lines.reduce(function(s,l){return s+(l.toplam||0);},0) || null;
-          const hdr = await pool.query("INSERT INTO saha_teklif (tenant_id,musteri_id,rep_id,marka,ebat,adet,birim_fiyat,talep_fiyat,toplam_tutar,rakip_marka,rakip_fiyat,notlar,durum,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$11,'ONAY_BEKLIYOR',$3) RETURNING id",
-            [session.tenantId, mid, session.userId, ilk.marka||'Belirtilmedi', ilk.ebat, lines.reduce(function(s,l){return s+l.adet;},0), ilk.talep, toplam, inp.rakip_marka||null, inp.rakip_fiyat!=null?Number(inp.rakip_fiyat):null, inp.notlar||null]);
+          const hdr = await pool.query("INSERT INTO saha_teklif (tenant_id,musteri_id,rep_id,marka,ebat,adet,birim_fiyat,talep_fiyat,toplam_tutar,rakip_marka,rakip_fiyat,notlar,kaynak,durum,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10,$11,$12,'ONAY_BEKLIYOR',$3) RETURNING id",
+            [session.tenantId, mid, session.userId, ilk.marka||'Belirtilmedi', ilk.ebat, lines.reduce(function(s,l){return s+l.adet;},0), ilk.talep, toplam, inp.rakip_marka||null, inp.rakip_fiyat!=null?Number(inp.rakip_fiyat):null, inp.notlar||null, (['TELEFON','WHATSAPP','EMAIL','ZIYARET'].includes(String(inp.kaynak||'').toUpperCase()) ? String(inp.kaynak).toUpperCase() : 'TELEFON')]);
           const tid = hdr.rows[0].id; let sira = 1;
           for (const l of lines) { await pool.query("INSERT INTO saha_teklif_kalem (teklif_id,tenant_id,kalem_sira,marka,ebat,adet,birim_fiyat,talep_fiyat,toplam_tutar) VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8)", [tid, session.tenantId, sira++, l.marka, l.ebat, l.adet, l.talep, l.toplam]); }
           return { success:true, teklif_id:tid, kalem_sayisi:lines.length, toplam_tutar:toplam, durum:'ONAY_BEKLIYOR', mesaj:'Teklif oluşturuldu ve onaya gönderildi.' };
