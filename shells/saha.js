@@ -291,9 +291,9 @@ function tabBadge(v, sayi) {
 // ── BUGÜN (home) ─────────────────────────────────────────────────────────────
 async function vBugun() {
   try {
-    const { bugun, ziyaretler, duyurular_okunmamis, mesaj_okunmamis, teklifler, hatirlatmalar } = await api("/api/saha/bugun");
+    const { bugun, ziyaretler, duyurular_okunmamis, duyurular_yeni_sayisi = 0, rep_sayisi = 0, mesaj_okunmamis, teklifler, hatirlatmalar } = await api("/api/saha/bugun");
 
-    if (duyurular_okunmamis.length) tabBadge("duyurular", duyurular_okunmamis.length);
+    if (duyurular_yeni_sayisi) tabBadge("duyurular", duyurular_yeni_sayisi);
     if (mesaj_okunmamis) tabBadge("mesajlar", mesaj_okunmamis);
 
     const tarihStr = new Date(bugun + "T12:00:00").toLocaleDateString("tr-TR", { weekday: "long", day: "numeric", month: "long" });
@@ -333,12 +333,13 @@ async function vBugun() {
           </div>`).join("");
 
     const duyuruHtml = duyurular_okunmamis.length === 0
-      ? empty("Okunmamış duyuru yok ✓")
+      ? empty(S.role === "rep" ? "Okunmamış duyuru yok ✓" : "Henüz duyuru yok")
       : duyurular_okunmamis.map(d => `
           <div class="kart" data-did="${d.id}" style="padding:10px 12px;margin-bottom:6px;cursor:pointer;border-left:3px solid ${onemRenk[d.onem] || "#0284c7"}">
-            <div style="font-size:10px;font-weight:700;color:${onemRenk[d.onem]};margin-bottom:3px">${onemEtiket[d.onem] || "📢"}</div>
+            <div style="font-size:10px;font-weight:700;color:${d.tip === "PIYASA" ? "#0891b2" : onemRenk[d.onem]};margin-bottom:3px">${d.tip === "PIYASA" ? "📊 PİYASA" : (onemEtiket[d.onem] || "📢")}</div>
             <div style="font-size:13px;font-weight:600;color:#0f172a">${esc(d.baslik)}</div>
             <div style="font-size:11px;color:#64748b;margin-top:2px">${esc(d.yazan_adi)} · ${new Date(d.created_at).toLocaleDateString("tr-TR")}</div>
+            <div style="font-size:11px;color:#64748b;margin-top:3px">👁 ${d.okuyan_sayisi}${rep_sayisi ? "/" + rep_sayisi : ""} gördü${!d.okundu ? ` · <span style="color:#0284c7;font-weight:600">● Yeni</span>` : ""}</div>
           </div>`).join("");
 
     const mesajHtml = `
