@@ -4621,7 +4621,7 @@ function yeniDuyuruModal() {
 
 async function duyuruDetayModal(did) {
   modal(`<div class="saha-load">Yükleniyor…</div>`);
-  if (S.role === "rep") api(`/api/saha/duyurular/${did}/oku`, { method: "POST", body: "{}" }).catch(() => {});
+  api(`/api/saha/duyurular/${did}/oku`, { method: "PUT", body: "{}" }).catch(() => {});
   try {
     const { duyuru: d, yorumlar, okuyanlar } = await api(`/api/saha/duyurular/${did}`);
     const ROL_RENK = { admin: "#7c3aed", manager: "#0284c7", rep: "#374151" };
