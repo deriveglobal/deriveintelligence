@@ -2143,11 +2143,15 @@ function _teklifAnalizHTML(az) {
     : `<div style="font-size:12px;color:#94a3b8;font-style:italic">Not girilmemiş.</div>`;
   const rr = az.rep_rakip || [];
   const headerR = az.header_rakip;
+  const _nz = e => String(e || "").toLowerCase().replace(/\s/g, "");
+  const _rrEbat = eb => rr.filter(x => x.ebat && _nz(x.ebat) === _nz(eb));
+  const _rrTop = rr.filter(x => !x.ebat || !(az.kalemler || []).some(k => _nz(k.ebat) === _nz(x.ebat)));
+  const _rivalStr = x => (x.marka || "Rakip") + (x.ebat ? (" " + x.ebat) : "") + (x.fiyat != null ? (" · " + tl(x.fiyat)) : " · fiyat yok") + (x.supheli ? " ⚠ şüpheli" : "");
   let repRakipHTML;
-  if (rr.length || headerR) {
+  if (_rrTop.length || headerR) {
     const items = [];
     if (headerR) items.push((headerR.marka || "Rakip") + (headerR.fiyat != null ? (" · " + tl(headerR.fiyat)) : ""));
-    rr.forEach(x => items.push((x.marka || "Rakip") + (x.ebat ? (" " + x.ebat) : "") + (x.fiyat != null ? (" · " + tl(x.fiyat)) : "") + (x.supheli ? " ⚠ şüpheli olabilir" : "")));
+    _rrTop.forEach(x => items.push(_rivalStr(x)));
     repRakipHTML = `<div style="font-size:12px;color:#0f172a">${items.map(esc).join("<br>")}</div>`;
   } else {
     repRakipHTML = `<div style="font-size:12px;color:#94a3b8;font-style:italic">Rakip bilgisi girilmemiş.</div>`;
@@ -2164,10 +2168,11 @@ function _teklifAnalizHTML(az) {
     return `
       <div style="border-top:1px solid #f1f5f9;padding:8px 10px;font-size:12px">
         <b style="color:#0f172a">${esc(k.marka || "")} ${esc(k.ebat || "")}</b>
-        <div style="margin-top:3px;color:#475569">Stok: <b style="color:${stokColor}">${stokStr}</b>${k.birim_maliyet != null ? ` · Maliyet: <b>${tl(k.birim_maliyet)}</b>` : ""}${k.talep_fiyat != null ? ` · İstenen: <b>${tl(k.talep_fiyat)}</b>` : ""} · Marj: <b style="color:${marjColor}">${marjStr}</b></div>
+        <div style="margin-top:3px;color:#475569">Stok: <b style="color:${stokColor}">${stokStr}</b>${k.birim_maliyet != null ? ` · Maliyet: <b>${tl(k.birim_maliyet)}</b>` : ""}${k.talep_fiyat != null ? ` · İstenen: <b>${tl(k.talep_fiyat)}</b>` : ""} · Marj: <b style="color:${marjColor}">${marjStr}</b>${(k.talep_fiyat != null && k.birim_maliyet != null) ? ` · Kâr: <b>₺${Math.round(k.talep_fiyat - k.birim_maliyet).toLocaleString("tr-TR")}/adet</b>` : ""}</div>
+        ${_rrEbat(k.ebat).length ? `<div style="margin-top:3px;color:#b45309;font-weight:600">🏁 Temsilci: ${_rrEbat(k.ebat).map(_rivalStr).map(esc).join(" · ")}</div>` : ""}
         ${hasRival
           ? `<div style="margin-top:3px;color:#475569">${et ? `Piyasa (e-ticaret): <b>${et}</b>${k.eticaret.ilan ? ` <span style="color:#94a3b8">(${k.eticaret.ilan} ilan)</span>` : ""}<br>` : ""}${ma ? `Marka aralığı: <b>${ma}</b><br>` : ""}${(sa && sa.adet) ? `Saha teklifleri: <b>${aralik(sa)}</b> <span style="color:#94a3b8">(ort ${tl(sa.ortalama)}, ${sa.adet} kayıt${sa.son_tarih ? `, son ${new Date(sa.son_tarih).toLocaleDateString("tr-TR")}` : ""})</span>` : ""}</div>`
-          : `<div style="margin-top:3px;color:#94a3b8;font-style:italic">Rakip bilgisi girilmemiş.</div>`}
+          : `<div style="margin-top:3px;color:#94a3b8;font-style:italic">Piyasa/e-ticaret verisi yok.</div>`}
       </div>`;
   }).join("");
   return `
