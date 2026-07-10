@@ -28701,7 +28701,8 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
         "- gorev_olustur: hatırlatma/görev. Temsilci 'yarına kadar cevap bekliyor', 'Perşembe arayacağım' gibi bir TAAHHÜT yazarsa OTOMATİK görev+hatırlatma oluştur (hatirlatma_tarihi ile, bugünün tarihine göre hesapla).\n" +
         "- rakip_teklif_ekle: sahada duyulan rakip fiyatını kaydet (kaynak: ZIYARET/TELEFON/MANUEL).\n" +
         "- rakip_fiyat: bir ebat/marka için piyasa (e-ticaret) ve saha rakip fiyat aralığını getir.\n" +
-        "Bugün: " + new Date().toISOString().slice(0,10) + ". Gereksiz soru sorma; kritik eksik varsa tek soruda sor. İş bitince kısa onayla.";
+        "- rep_ozet: SENİN KENDİ performansın ve durumun — bu haftaki/dönemdeki ziyaretler, teklifler (durum+tutar), bekleyen hatırlatmalar, uzun süredir uğramadığın (ihmal) müşteriler. Performans/hafta/gelişim/ihmal sorularında MUTLAKA bunu çağır.\n" +
+        "Bugün: " + new Date().toISOString().slice(0,10) + ". Sen aynı zamanda bir gelişim KOÇUSUN: performans/hafta/gelişim/ihmal sorularında ÖNCE rep_ozet ile GERÇEK veriyi çek, sonra somut rakamlarla ve motive edici şekilde yorumla. ASLA \"erişimim yok\", \"veri yok\", \"göremiyorum\" DEME — araçlarınla temsilcinin tüm verisine ulaşırsın. Gereksiz soru sorma; kritik eksik varsa tek soruda sor. İş bitince kısa onayla.";
       const _repTools = [
         { name: 'musteri_ara', description: 'Müşteriyi firma adıyla ara.', input_schema: { type:'object', properties:{ q:{type:'string'} }, required:['q'] } },
         { name: 'teklif_olustur', description: 'Hızlı teklif oluştur ve onaya gönder (durum ONAY_BEKLIYOR).', input_schema: { type:'object', properties:{
@@ -28711,7 +28712,8 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
             rakip_marka:{type:'string'}, rakip_fiyat:{type:'number'}, notlar:{type:'string'} }, required:['kalemler'] } },
         { name: 'gorev_olustur', description: 'Görev/hatırlatma oluştur (saha_rep_not).', input_schema: { type:'object', properties:{ icerik:{type:'string'}, hatirlatma_tarihi:{type:'string', description:'YYYY-MM-DD'} }, required:['icerik'] } },
         { name: 'rakip_teklif_ekle', description: 'Gerçek piyasa rakip teklifini kaydet.', input_schema: { type:'object', properties:{ rakip_marka:{type:'string'}, rakip_model:{type:'string'}, ebat:{type:'string'}, rakip_fiyat:{type:'number'}, kaynak:{type:'string', enum:['ZIYARET','TELEFON','MANUEL']}, musteri_id:{type:'string'}, notlar:{type:'string'} }, required:['rakip_marka','ebat','rakip_fiyat'] } },
-        { name: 'rakip_fiyat', description: 'Bir ebat/marka için e-ticaret ve saha rakip fiyat aralığı.', input_schema: { type:'object', properties:{ ebat:{type:'string'}, marka:{type:'string'} }, required:['ebat'] } }
+        { name: 'rakip_fiyat', description: 'Bir ebat/marka için e-ticaret ve saha rakip fiyat aralığı.', input_schema: { type:'object', properties:{ ebat:{type:'string'}, marka:{type:'string'} }, required:['ebat'] } },
+        { name: 'rep_ozet', description: 'Temsilcinin KENDI performansi/durumu: donemdeki ziyaretler, teklifler (durum+tutar), bekleyen hatirlatmalar, ihmal edilen musteriler.', input_schema: { type:'object', properties:{ gun:{type:'number', description:'kac gun geriye (varsayilan 7)'} } } }
       ];
       async function _runRepTool(nm, inp) {
         if (nm === 'musteri_ara') {
@@ -28754,6 +28756,15 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
           const sRows = inp.marka ? [session.tenantId, ebat, inp.marka] : [session.tenantId, ebat];
           const sa = await pool.query("SELECT MIN(rakip_fiyat) AS min, MAX(rakip_fiyat) AS max, COUNT(*) AS n FROM saha_rakip_teklif WHERE tenant_id=$1 AND ebat=$2" + (inp.marka?" AND lower(rakip_marka)=lower($3)":""), sRows);
           return { eticaret_piyasa: et.rows[0], saha_gercek: sa.rows[0] };
+        }
+        if (nm === 'rep_ozet') {
+          const gun = Math.min(90, Math.max(1, Number(inp.gun)||7));
+          const since = "NOW() - INTERVAL '" + gun + " days'";
+          const ziy = await pool.query("SELECT durum, count(*)::int n FROM saha_ziyaret WHERE tenant_id=$1 AND rep_id=$2 AND created_at>=" + since + " GROUP BY durum", [session.tenantId, session.userId]);
+          const tek = await pool.query("SELECT durum, count(*)::int n, COALESCE(SUM(toplam_tutar),0)::numeric tutar FROM saha_teklif WHERE tenant_id=$1 AND rep_id=$2 AND created_at>=" + since + " GROUP BY durum", [session.tenantId, session.userId]);
+          const notr = await pool.query("SELECT count(*)::int n FROM saha_rep_not WHERE tenant_id=$1 AND rep_id=$2 AND COALESCE(tamamlandi,false)=false AND hatirlatma_tarihi IS NOT NULL AND hatirlatma_tarihi <= CURRENT_DATE", [session.tenantId, session.userId]);
+          const ihmal = await pool.query("SELECT m.firma, MAX(z.ziyaret_tarihi) son FROM saha_ziyaret z JOIN saha_musteri m ON m.id=z.musteri_id WHERE z.tenant_id=$1 AND z.rep_id=$2 GROUP BY m.id, m.firma HAVING MAX(z.ziyaret_tarihi) < CURRENT_DATE - INTERVAL '21 days' ORDER BY son ASC LIMIT 5", [session.tenantId, session.userId]);
+          return { gun, ziyaretler: ziy.rows, teklifler: tek.rows, bekleyen_hatirlatma: notr.rows[0].n, ihmal_edilen_musteriler: ihmal.rows };
         }
         return { hata: 'bilinmeyen araç: ' + nm };
       }
