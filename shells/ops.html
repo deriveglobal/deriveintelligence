@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sistem Sağlığı · Derive Ops</title>
+<style>
+  :root{
+    --ok:#16a34a; --warn:#d97706; --crit:#dc2626;
+    --ink:#0f172a; --muted:#64748b; --line:#e5e7eb; --bg:#f6f7f9; --card:#ffffff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:920px;margin:0 auto;padding:20px 16px 60px}
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  h1{font-size:20px;margin:0;display:flex;align-items:center;gap:8px}
+  .sub{color:var(--muted);font-size:13px;margin-top:3px}
+  .btns{display:flex;gap:8px;align-items:center}
+  button{font:inherit;cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 12px;color:var(--ink)}
+  button.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+  .banner{border-radius:12px;padding:14px 16px;margin-bottom:14px;font-weight:600;display:flex;align-items:center;gap:10px}
+  .banner.ok{background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0}
+  .banner.warn{background:#fffbeb;color:#92400e;border:1px solid #fde68a}
+  .banner.crit{background:#fef2f2;color:#991b1b;border:1px solid #fecaca}
+  .chips{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap}
+  .chip{flex:1;min-width:120px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .chip .n{font-size:26px;font-weight:800;line-height:1}
+  .chip .l{font-size:12px;color:var(--muted);margin-top:4px;text-transform:uppercase;letter-spacing:.4px}
+  .chip.crit .n{color:var(--crit)} .chip.warn .n{color:var(--warn)} .chip.ok .n{color:var(--ok)}
+  section{margin-bottom:20px}
+  .sec-h{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:0 0 8px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .row{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:none}
+  .dot{width:10px;height:10px;border-radius:50%;margin-top:5px;flex-shrink:0}
+  .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.crit{background:var(--crit)}
+  .row .body{flex:1;min-width:0}
+  .row .title{font-weight:600;font-size:14px}
+  .row .detail{color:var(--muted);font-size:12.5px;margin-top:2px}
+  .row .val{font-weight:700;font-size:13px;white-space:nowrap;margin-left:auto}
+  .row .val.warn{color:var(--warn)} .row .val.crit{color:var(--crit)}
+  .inc{display:flex;gap:12px;padding:14px;border-bottom:1px solid var(--line)}
+  .inc:last-child{border-bottom:none}
+  .badge{align-self:flex-start;font-size:11px;font-weight:800;color:#fff;border-radius:5px;padding:3px 8px;flex-shrink:0}
+  .badge.crit{background:var(--crit)} .badge.warn{background:var(--warn)}
+  .inc .meta{color:#94a3b8;font-size:12px;margin-top:4px}
+  .empty{color:var(--muted);font-size:14px;padding:24px;text-align:center}
+  footer{color:#94a3b8;font-size:12px;margin-top:24px;text-align:center;line-height:1.6}
+  .spin{display:inline-block;width:14px;height:14px;border:2px solid #cbd5e1;border-top-color:var(--ink);border-radius:50%;animation:s .7s linear infinite;vertical-align:-2px}
+  @keyframes s{to{transform:rotate(360deg)}}
+  a{color:#2563eb}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>🩺 Sistem Sağlığı</h1>
+      <div class="sub" id="sub">Yükleniyor…</div>
+    </div>
+    <div class="btns">
+      <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px"><input type="checkbox" id="auto" checked> Otomatik</label>
+      <button class="primary" id="refresh">Yenile</button>
+    </div>
+  </header>
+
+  <div id="content"><div class="empty"><span class="spin"></span> Veriler yükleniyor…</div></div>
+
+  <footer>
+    Teşhis modu — bu panel yalnızca gözlemler, hiçbir otomatik müdahale <b>yapılmaz</b>.<br>
+    İzleme her 30 dakikada bir çalışır. Kritik durumlar e-posta ile bildirilir.
+  </footer>
+</div>
+
+<script>
+const LBL = { pipeline:"Veri Hattı", system:"Sistem", data_quality:"Veri Kalitesi", app:"Uygulama" };
+const STAT = { ok:"Sağlıklı", warn:"Uyarı", crit:"Kritik" };
+const esc = s => String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const fmt = t => { try { return new Date(t).toLocaleString("tr-TR"); } catch(e){ return t||""; } };
+
+async function load(){
+  const sub = document.getElementById("sub");
+  const box = document.getElementById("content");
+  try{
+    const res = await fetch("/api/ops/health", { credentials:"include", headers:{ "Accept":"application/json" } });
+    if(res.status===401 || res.status===403){
+      box.innerHTML = '<div class="empty">Bu panel platform sahibi girişi gerektirir.<br><a href="/">Girişe git →</a></div>';
+      sub.textContent = "Yetki gerekli";
+      return;
+    }
+    if(!res.ok) throw new Error("HTTP "+res.status);
+    const d = await res.json();
+    render(d);
+    sub.innerHTML = "Son kontrol: <b>"+fmt(d.last_run)+"</b>";
+  }catch(e){
+    box.innerHTML = '<div class="empty">Panel yüklenemedi: '+esc(e.message)+'</div>';
+    sub.textContent = "Hata";
+  }
+}
+
+function render(d){
+  const s = d.summary || {ok:0,warn:0,crit:0};
+  const open = (d.incidents && d.incidents.open) || [];
+  const checks = d.checks || [];
+  let html = "";
+
+  // banner
+  if(s.crit>0)      html += '<div class="banner crit">🔴 '+s.crit+' kritik durum var — hemen bakılmalı.</div>';
+  else if(s.warn>0) html += '<div class="banner warn">🟠 '+s.warn+' uyarı var.</div>';
+  else              html += '<div class="banner ok">🟢 Tüm sistemler sağlıklı.</div>';
+
+  // chips
+  html += '<div class="chips">'
+       +  '<div class="chip crit"><div class="n">'+s.crit+'</div><div class="l">Kritik</div></div>'
+       +  '<div class="chip warn"><div class="n">'+s.warn+'</div><div class="l">Uyarı</div></div>'
+       +  '<div class="chip ok"><div class="n">'+s.ok+'</div><div class="l">Sağlıklı</div></div>'
+       +  '</div>';
+
+  // open incidents
+  if(open.length){
+    html += '<section><div class="sec-h">Açık Durumlar ('+open.length+')</div><div class="card">';
+    for(const i of open){
+      html += '<div class="inc"><span class="badge '+i.severity+'">'+STAT[i.severity].toUpperCase()+'</span>'
+           +  '<div class="body"><div class="title">'+esc(i.title)+'</div>'
+           +  '<div class="detail" style="color:var(--muted);font-size:13px;margin-top:2px">'+esc(i.detail||"")+'</div>'
+           +  '<div class="meta">'+(LBL[i.category]||i.category)+' · ilk görülme '+fmt(i.first_seen)+' · '+i.occurrences+' kez</div>'
+           +  '</div></div>';
+    }
+    html += '</div></section>';
+  }
+
+  // checks grouped by category
+  const cats = {};
+  for(const c of checks){ (cats[c.category]=cats[c.category]||[]).push(c); }
+  for(const cat of ["pipeline","system","data_quality","app"]){
+    const list = cats[cat]; if(!list) continue;
+    html += '<section><div class="sec-h">'+(LBL[cat]||cat)+'</div><div class="card">';
+    for(const c of list){
+      html += '<div class="row"><span class="dot '+c.status+'"></span>'
+           +  '<div class="body"><div class="title">'+esc(c.title)+'</div>'
+           +  (c.detail? '<div class="detail">'+esc(c.detail)+'</div>':'')+'</div>'
+           +  '<span class="val '+(c.status==="ok"?"":c.status)+'">'+esc(c.value||STAT[c.status])+'</span></div>';
+    }
+    html += '</div></section>';
+  }
+
+  document.getElementById("content").innerHTML = html;
+}
+
+document.getElementById("refresh").addEventListener("click", load);
+let timer = setInterval(()=>{ if(document.getElementById("auto").checked) load(); }, 60000);
+load();
+</script>
+</body>
+</html>
