@@ -19872,13 +19872,33 @@ async function handleApi(request, response) {
 // Usage:
 //   const result = await queryAsTenant(ctx.tenantId, `SELECT ...`, [params]);
 
+let _tenantPool = null;
+async function tenantPool() {
+  if (_tenantPool) return _tenantPool;
+  if (!databaseUrl) throw new Error("DATABASE_URL not set");
+  const u = new URL(databaseUrl);
+  const _r = await query("SELECT value FROM ops_ayar WHERE key='app_tenant_pw'");
+  const _pw = _r.rows[0] && _r.rows[0].value;
+  if (!_pw) throw new Error("app_tenant password missing (ops_ayar.app_tenant_pw)");
+  _tenantPool = new pg.Pool({
+    host: u.hostname,
+    port: u.port ? Number(u.port) : 5432,
+    database: u.pathname.replace(/^\//, ""),
+    user: "app_tenant",
+    password: _pw,
+    max: 5,
+    ssl: (u.searchParams.get("sslmode") === "require") ? { rejectUnauthorized: false } : false
+  });
+  return _tenantPool;
+}
+
 async function queryAsTenant(tenantId, sql, params = []) {
-  const db = requireDatabase();
-  const client = await db.pool.connect();          // checkout dedicated client
+  const tp = await tenantPool();
+  const client = await tp.connect();
   try {
     await client.query('BEGIN');
     // Activate RLS policy for this tenant — SET LOCAL scoped to this transaction
-    await client.query('SET LOCAL app.current_tenant_id = $1', [tenantId]);
+    await client.query("SELECT set_config('app.current_tenant_id', $1, true)", [tenantId]);
     const result = await client.query(sql, params);
     await client.query('COMMIT');
     return result;
@@ -23561,7 +23581,7 @@ async function executeQueryTool(tenantId, sqlRaw) {
   }
 
   try {
-    const result = await query(finalSql, []);
+    const result = await queryAsTenant(tenantId, finalSql, []);
     if (!result.rows.length) return 'Sonuç bulunamadı (0 satır).';
 
     const cols = Object.keys(result.rows[0]);
