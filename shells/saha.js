@@ -160,6 +160,15 @@ async function fotoUrl(id) {
 }
 
 // ── İskelet ──────────────────────────────────────────────────────────────────
+function dahaSheet() {
+  const items = (S.moreTabs || []).map(([id, ico, l]) => {
+    const bdg = (S.moreBadges && S.moreBadges[id]) ? `<sup style="position:absolute;top:8px;right:14px;background:#ef4444;color:#fff;border-radius:9px;padding:0 5px;font-size:10px">${S.moreBadges[id]}</sup>` : "";
+    return `<button class="daha-item" data-v="${id}" style="position:relative;display:flex;flex-direction:column;align-items:center;gap:5px;padding:16px 8px;border:1px solid #e2e8f0;border-radius:12px;background:#fff;cursor:pointer">${bdg}<span style="font-size:26px">${ico}</span><span style="font-size:12px;color:#334155;font-weight:600">${l}</span></button>`;
+  }).join("");
+  modal(`<h3 style="margin:0 0 12px">Daha Fazla</h3><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">${items}</div><div class="modal-btnlar"><button class="btn gri" data-kapat>Kapat</button></div>`);
+  document.querySelectorAll(".daha-item").forEach(b => b.addEventListener("click", () => { kapatModal(); loadView(b.dataset.v); }));
+}
+
 function layout() {
   const tabs = [
     ["bugun", "🏠", "Bugün"],
@@ -169,6 +178,10 @@ function layout() {
     ["duyurular", "📢", "Duyurular"], ["mesajlar", "💬", "Mesajlar"],
     ...(["manager","admin"].includes(S.role) ? [["temsilciler", "👥", "Temsilci"], ["sistem", "🔧", "Sistem"]] : [])
   ];
+  const CORE = ["bugun","ziyaretler","iskonto","rep-brain"];
+  S.coreIds = CORE;
+  const coreTabs = tabs.filter(t => CORE.includes(t[0]));
+  S.moreTabs = tabs.filter(t => !CORE.includes(t[0]));
   return `
   <div class="saha-app">
     <header class="saha-head">
@@ -182,7 +195,8 @@ function layout() {
     </header>
     <main class="saha-main" id="saha-main"><div class="saha-load">Yükleniyor…</div></main>
     <nav class="saha-nav">
-      ${tabs.map(([id, ico, l]) => `<button class="saha-tab${id === "bugun" ? " on" : ""}" data-v="${id}"><span>${ico}</span>${l}</button>`).join("")}
+      ${coreTabs.map(([id, ico, l]) => `<button class="saha-tab${id === "bugun" ? " on" : ""}" data-v="${id}"><span>${ico}</span>${l}</button>`).join("")}
+      <button class="saha-tab" data-v="daha"><span>⋯</span>Daha</button>
     </nav>
     <button id="saha-oneri-fab" title="Öneri / Geri Bildirim" style="
       position:fixed;bottom:72px;right:16px;z-index:200;
@@ -199,7 +213,7 @@ function layout() {
 function wireNav() {
   S.container.querySelectorAll(".saha-tab").forEach(b =>
     b.addEventListener("click", () => {
-      S.container.querySelectorAll(".saha-tab").forEach(x => x.classList.toggle("on", x === b));
+      if (b.dataset.v === "daha") { dahaSheet(); return; }
       loadView(b.dataset.v);
     }));
   S.container.querySelectorAll("#saha-semsiye .chip").forEach(b =>
@@ -268,6 +282,8 @@ function wireNav() {
 function main() { return S.container.querySelector("#saha-main"); }
 function loadView(v) {
   S.view = v;
+  const _navId = (S.coreIds || []).includes(v) ? v : "daha";
+  S.container?.querySelectorAll(".saha-tab").forEach(x => x.classList.toggle("on", x.dataset.v === _navId));
   const m = main();
   m.scrollTop = 0; // reset scroll position when switching tabs
   m.innerHTML = `<div class="saha-load">Yükleniyor…</div>`;
@@ -277,7 +293,13 @@ function tipQS() { return S.semsiye ? `&tip=${S.semsiye}` : ""; }
 
 // Tab badge: shows action-count on a nav tab
 function tabBadge(v, sayi) {
-  const tab = S.container.querySelector(`.saha-tab[data-v="${v}"]`);
+  S.moreBadges = S.moreBadges || {};
+  const isCore = (S.coreIds || ["bugun","ziyaretler","iskonto","rep-brain"]).includes(v);
+  if (!isCore) {
+    if (sayi > 0) S.moreBadges[v] = sayi; else delete S.moreBadges[v];
+    sayi = Object.values(S.moreBadges).reduce((a, b) => a + Number(b || 0), 0);
+  }
+  const tab = S.container.querySelector(`.saha-tab[data-v="${isCore ? v : "daha"}"]`);
   if (!tab) return;
   const mevcut = tab.querySelector(".tab-rozet");
   if (sayi > 0) {
