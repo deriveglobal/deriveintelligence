@@ -4621,7 +4621,7 @@ function yeniDuyuruModal() {
 
 async function duyuruDetayModal(did) {
   modal(`<div class="saha-load">Yükleniyor…</div>`);
-  api(`/api/saha/duyurular/${did}/oku`, { method: "PUT", body: "{}" }).catch(() => {});
+  api(`/api/saha/duyurular/${did}/oku`, { method: "PUT", body: "{}" }).then(() => { if (S.view === "bugun" || S.view === "duyurular") loadView(S.view); }).catch(() => {});
   try {
     const { duyuru: d, yorumlar, okuyanlar } = await api(`/api/saha/duyurular/${did}`);
     const ROL_RENK = { admin: "#7c3aed", manager: "#0284c7", rep: "#374151" };
@@ -4648,7 +4648,7 @@ async function duyuruDetayModal(did) {
       </div>
       <div style="font-size:12px;color:#94a3b8;margin-bottom:12px">${esc(d.yazan_adi)} · ${new Date(d.created_at).toLocaleString("tr-TR")}</div>
       <div style="font-size:14px;color:#1e293b;white-space:pre-wrap;padding:12px;background:#f8fafc;border-radius:8px;margin-bottom:12px">${esc(d.icerik)}</div>
-      ${S.role !== "rep" && okuyanlar.length ? `<div style="font-size:12px;color:#64748b;margin-bottom:12px">👁 <b>${okuyanlar.length}</b> kişi okudu: ${okuyanlar.map(o => esc(o.full_name)).join(", ")}</div>` : ""}
+      ${okuyanlar.length ? `<div style="font-size:12px;color:#64748b;margin-bottom:12px">👁 <b>${okuyanlar.length}</b> kişi okudu: ${okuyanlar.map(o => esc(o.full_name)).join(", ")}</div>` : ""}
       <div style="font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Yorumlar</div>
       <div id="dy-yorumlar" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">
         ${yorumlar.length ? yorumlar.map(yorumHTML).join("") : `<div style="font-size:12px;color:#94a3b8;font-style:italic">Henüz yorum yok.</div>`}
