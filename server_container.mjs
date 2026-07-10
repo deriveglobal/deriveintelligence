@@ -28750,7 +28750,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
         "- teklif_olustur: hızlı teklif oluştur ve ONAYA gönder. '20 385, 60 315' = 20 adet 385 ebat + 60 adet 315 ebat (iki kalem). Marka ve talep fiyatını da al; müşteri firma adı veya musteri_id ver.\n" +
         "- gorev_olustur: hatırlatma/görev. Temsilci 'yarına kadar cevap bekliyor', 'Perşembe arayacağım' gibi bir TAAHHÜT yazarsa OTOMATİK görev+hatırlatma oluştur (hatirlatma_tarihi ile, bugünün tarihine göre hesapla).\n" +
         "- rakip_teklif_ekle: sahada duyulan rakip fiyatını kaydet (kaynak: ZIYARET/TELEFON/MANUEL).\n" +
-        "- rakip_fiyat: bir ebat/marka için piyasa (e-ticaret) ve saha rakip fiyat aralığını getir.\n" +
+        "- rakip_fiyat: bir ebat (ops. marka) için TÜM fiyat kaynakları — internet/e-ticaret piyasa, KRB kendi fiyat listemiz (liste/bayi/net) ve saha manuel piyasa. Fiyatla ilgili HER soruda bunu çağır; hangi kaynakta veri varsa net rakamlarla söyle, boş kaynağı zorlama.\n" +
         "- rep_ozet: SENİN KENDİ performansın ve durumun — bu haftaki/dönemdeki ziyaretler, teklifler (durum+tutar), bekleyen hatırlatmalar, uzun süredir uğramadığın (ihmal) müşteriler. Performans/hafta/gelişim/ihmal sorularında MUTLAKA bunu çağır.\n" +
         "Bugün: " + new Date().toISOString().slice(0,10) + ". Sen aynı zamanda bir gelişim KOÇUSUN: performans/hafta/gelişim/ihmal sorularında ÖNCE rep_ozet ile GERÇEK veriyi çek, sonra somut rakamlarla ve motive edici şekilde yorumla. ASLA \"erişimim yok\", \"veri yok\", \"göremiyorum\" DEME — araçlarınla temsilcinin tüm verisine ulaşırsın. Gereksiz soru sorma; kritik eksik varsa tek soruda sor. İş bitince kısa onayla.";
       const _repTools = [
@@ -28762,7 +28762,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
             rakip_marka:{type:'string'}, rakip_fiyat:{type:'number'}, kaynak:{type:'string', enum:['TELEFON','WHATSAPP','EMAIL','ZIYARET'], description:'Musteri nasil ulasti: aradi=TELEFON, whatsapp=WHATSAPP, mail/eposta=EMAIL. Belirtmezse TELEFON.'}, notlar:{type:'string'} }, required:['kalemler'] } },
         { name: 'gorev_olustur', description: 'Görev/hatırlatma oluştur (saha_rep_not).', input_schema: { type:'object', properties:{ icerik:{type:'string'}, hatirlatma_tarihi:{type:'string', description:'YYYY-MM-DD'} }, required:['icerik'] } },
         { name: 'rakip_teklif_ekle', description: 'Gerçek piyasa rakip teklifini kaydet.', input_schema: { type:'object', properties:{ rakip_marka:{type:'string'}, rakip_model:{type:'string'}, ebat:{type:'string'}, rakip_fiyat:{type:'number'}, kaynak:{type:'string', enum:['ZIYARET','TELEFON','MANUEL']}, musteri_id:{type:'string'}, notlar:{type:'string'} }, required:['rakip_marka','ebat','rakip_fiyat'] } },
-        { name: 'rakip_fiyat', description: 'Bir ebat/marka için e-ticaret ve saha rakip fiyat aralığı.', input_schema: { type:'object', properties:{ ebat:{type:'string'}, marka:{type:'string'} }, required:['ebat'] } },
+        { name: 'rakip_fiyat', description: 'Bir ebat (ops. marka) icin TUM fiyat kaynaklari: internet/e-ticaret piyasa, KRB kendi guncel fiyat listemiz (liste/bayi/net) ve saha manuel piyasa fiyatlari. Fiyatla ilgili HER soruda bunu kullan; ebati 205/55R16 gibi ver.', input_schema: { type:'object', properties:{ ebat:{type:'string'}, marka:{type:'string'} }, required:['ebat'] } },
         { name: 'rep_ozet', description: 'Temsilcinin KENDI performansi/durumu: donemdeki ziyaretler, teklifler (durum+tutar), bekleyen hatirlatmalar, ihmal edilen musteriler.', input_schema: { type:'object', properties:{ gun:{type:'number', description:'kac gun geriye (varsayilan 7)'} } } }
       ];
       async function _runRepTool(nm, inp) {
@@ -28801,11 +28801,12 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
         }
         if (nm === 'rakip_fiyat') {
           const ebat = (inp.ebat||'').trim(); if (!ebat) return { hata:'ebat zorunlu' };
-          const eRows = inp.marka ? [ebat, inp.marka] : [ebat];
-          const et = await pool.query("SELECT MIN(fiyat) AS min, MAX(fiyat) AS max, COUNT(*) AS n FROM bi_rakip_fiyat_son WHERE ebat=$1" + (inp.marka?" AND lower(marka)=lower($2)":""), eRows);
-          const sRows = inp.marka ? [session.tenantId, ebat, inp.marka] : [session.tenantId, ebat];
-          const sa = await pool.query("SELECT MIN(rakip_fiyat) AS min, MAX(rakip_fiyat) AS max, COUNT(*) AS n FROM saha_rakip_teklif WHERE tenant_id=$1 AND ebat=$2" + (inp.marka?" AND lower(rakip_marka)=lower($3)":""), sRows);
-          return { eticaret_piyasa: et.rows[0], saha_gercek: sa.rows[0] };
+          const _k=(inp.ebat||'').toLowerCase().replace(/[^0-9a-z]/g,''); if(_k.length<3) return { hata:'ebat cok kisa, tam ebat ver (orn 205/55R16)' }; const _like='%'+_k+'%'; const _mk = inp.marka ? '%'+String(inp.marka).toLowerCase().replace(/[^0-9a-z]/g,'')+'%' : null; const eRows = _mk ? [_like, _mk] : [_like];
+          const et = await pool.query("SELECT MIN(fiyat)::numeric AS min, MAX(fiyat)::numeric AS max, ROUND(AVG(fiyat)::numeric,0) AS ort, COUNT(*)::int AS n FROM bi_rakip_fiyat_son WHERE fiyat>0 AND regexp_replace(lower(coalesce(ebat,'')),'[^0-9a-z]','','g') LIKE $1" + (_mk?" AND regexp_replace(lower(coalesce(marka,'')),'[^0-9a-z]','','g') LIKE $2":""), eRows);
+          const _pl = await pool.query("SELECT COUNT(*)::int AS n, MIN(k.liste_fiyati)::numeric AS liste_min, MAX(k.liste_fiyati)::numeric AS liste_max, MIN(k.bayi_fiyati)::numeric AS bayi_min, MAX(k.bayi_fiyati)::numeric AS bayi_max, MIN(k.net_fiyati)::numeric AS net_min, MAX(k.net_fiyati)::numeric AS net_max, MAX(k.para_birimi) AS para FROM bi_fiyat_listesi_kalemler k JOIN bi_fiyat_listesi_uploads u ON u.id=k.upload_id WHERE u.aktif=true AND k.tenant_id=$1::uuid AND regexp_replace(lower(coalesce(k.ebat,'')),'[^0-9a-z]','','g') LIKE $2", [session.tenantId, _like]);
+          const sRows = _mk ? [session.tenantId, _like, _mk] : [session.tenantId, _like];
+          const sa = await pool.query("SELECT MIN(rakip_fiyat)::numeric AS min, MAX(rakip_fiyat)::numeric AS max, ROUND(AVG(rakip_fiyat)::numeric,0) AS ort, COUNT(*)::int AS n FROM saha_rakip_teklif WHERE tenant_id=$1 AND rakip_fiyat>0 AND regexp_replace(lower(coalesce(ebat,'')),'[^0-9a-z]','','g') LIKE $2" + (_mk?" AND regexp_replace(lower(coalesce(rakip_marka,'')),'[^0-9a-z]','','g') LIKE $3":""), sRows);
+          return { ebat: (inp.ebat||'').trim(), internet_eticaret: et.rows[0], kendi_fiyat_listemiz: _pl.rows[0], saha_manuel_piyasa: sa.rows[0] };
         }
         if (nm === 'rep_ozet') {
           const gun = Math.min(90, Math.max(1, Number(inp.gun)||7));

@@ -100,6 +100,26 @@ checks = [
 for name, cond, desc in checks:
     (ok if cond else bad)("%s: %s" % (name, desc))
 
+print("\n=== 6) Every front saha API call has a server handler (catches meeting-class bugs) ===")
+server_exact = set(re.findall(r'path === "(/api/saha/[^"]+)"', src))
+server_seg = set(re.findall(r'saha\\?/([A-Za-z0-9_-]+)', src))
+seen6 = set()
+for mm in re.finditer(r"/api/saha/[A-Za-z0-9_\-/]+", front):
+    raw = mm.group(0)
+    dyn = raw.endswith("/")          # truncated by ${...} -> had an id/suffix
+    p = raw.rstrip("/")
+    if p in seen6:
+        continue
+    seen6.add(p)
+    if not dyn:                       # fully-static path -> precise check
+        cov = (p in server_exact) or any(e == p or e.startswith(p + "/") for e in server_exact)
+        (ok if cov else bad)(p if cov else p + " — NO server handler (missing endpoint)")
+    else:                            # dynamic (id/suffix) -> lenient base check
+        segs = p.split("/"); seg = segs[3] if len(segs) > 3 else ""
+        cov = (p in server_exact) or any(e.startswith(p) for e in server_exact) or (seg in server_seg)
+        if not cov:
+            warn(p + "/… — base not clearly handled (dynamic route)")
+
 print("\n" + "="*50)
 print("TOTAL: %d passed, %d warnings, %d FAILURES" % (PASS, WARN, FAIL))
 print("✅ SAHA CLEAN" if FAIL == 0 else "❌ %d ISSUE(S) — see FAIL lines above" % FAIL)
