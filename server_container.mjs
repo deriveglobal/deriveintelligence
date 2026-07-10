@@ -23598,6 +23598,30 @@ if (request.method === "POST" && biChatMatch) {
 }
 
 // POST /api/bi/ingest — internal webhook from email ingestion pipeline
+if ((request.method === "GET" || request.method === "POST") && url.pathname === "/api/ops/notify") {
+  let secret = "";
+  try { secret = url.searchParams.get("key") || request.headers["x-ops-secret"] || ""; } catch (e) {}
+  let ok = false;
+  try { const _s = await query("SELECT value FROM bi_rakip_izle_ayar WHERE key='alarm_flush_secret'"); ok = !!(_s.rows[0] && _s.rows[0].value && _s.rows[0].value === secret); } catch (e) {}
+  if (!ok) { sendJson(response, 403, { error: "forbidden" }); return; }
+  let sent = 0;
+  try {
+    const _em = await query("SELECT value FROM ops_ayar WHERE key='alert_email'");
+    const to = (_em.rows[0] && _em.rows[0].value) || "fatih@deriveglobal.com";
+    const inc = await query("SELECT id, category, title, detail, first_seen, occurrences FROM ops_incident WHERE status='open' AND severity='crit' AND email_sent=false ORDER BY first_seen ASC");
+    if (inc.rows.length) {
+      const lines = inc.rows.map(r => "- [" + r.category + "] " + r.title + " - " + (r.detail || "") + " (ilk gorulme: " + new Date(r.first_seen).toLocaleString("tr-TR") + ", tekrar: " + r.occurrences + ")").join("\n");
+      const subject = "Ops uyarisi: " + inc.rows.length + " kritik durum";
+      const body = "Merhaba,\n\nDerive Ops izleme katmani asagidaki KRITIK durumlari tespit etti:\n\n" + lines + "\n\nBu bir teshis bildirimidir; otomatik mudahale YAPILMADI. Paneli inceleyebilirsin.\n\n-- Ops Monitor";
+      await sendGraphMail({ to, subject, body });
+      await query("UPDATE ops_incident SET email_sent=true WHERE id = ANY($1)", [inc.rows.map(r => r.id)]);
+      sent = inc.rows.length;
+    }
+  } catch (e) { sendJson(response, 500, { error: String((e && e.message) || e) }); return; }
+  sendJson(response, 200, { ok: true, emailed: sent });
+  return;
+}
+
 if (request.method === "POST" && url.pathname === "/api/bi/ingest") {
   try {
     const ingestToken = process.env.BI_INGEST_TOKEN;
@@ -28642,29 +28666,6 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     }
 
     // POST /api/saha/notlar — not oluştur
-    if ((method === "GET" || method === "POST") && path === "/api/ops/notify") {
-      let secret = "";
-      try { secret = url.searchParams.get("key") || request.headers["x-ops-secret"] || ""; } catch (e) {}
-      let ok = false;
-      try { const _s = await pool.query("SELECT value FROM bi_rakip_izle_ayar WHERE key='alarm_flush_secret'"); ok = !!(_s.rows[0] && _s.rows[0].value && _s.rows[0].value === secret); } catch (e) {}
-      if (!ok) { sendJson(response, 403, { error: "forbidden" }); return; }
-      let sent = 0;
-      try {
-        const _em = await pool.query("SELECT value FROM ops_ayar WHERE key='alert_email'");
-        const to = (_em.rows[0] && _em.rows[0].value) || "fatih@deriveglobal.com";
-        const inc = await pool.query("SELECT id, category, title, detail, first_seen, occurrences FROM ops_incident WHERE status='open' AND severity='crit' AND email_sent=false ORDER BY first_seen ASC");
-        if (inc.rows.length) {
-          const lines = inc.rows.map(r => "- [" + r.category + "] " + r.title + " - " + (r.detail || "") + " (ilk gorulme: " + new Date(r.first_seen).toLocaleString("tr-TR") + ", tekrar: " + r.occurrences + ")").join("\n");
-          const subject = "Ops uyarisi: " + inc.rows.length + " kritik durum";
-          const body = "Merhaba,\n\nDerive Ops izleme katmani asagidaki KRITIK durumlari tespit etti:\n\n" + lines + "\n\nBu bir teshis bildirimidir; otomatik mudahale YAPILMADI. Paneli inceleyebilirsin.\n\n-- Ops Monitor";
-          await sendGraphMail({ to, subject, body });
-          await pool.query("UPDATE ops_incident SET email_sent=true WHERE id = ANY($1)", [inc.rows.map(r => r.id)]);
-          sent = inc.rows.length;
-        }
-      } catch (e) { sendJson(response, 500, { error: String((e && e.message) || e) }); return; }
-      sendJson(response, 200, { ok: true, emailed: sent });
-      return;
-    }
     if ((method === "POST" || method === "GET") && path === "/api/saha/gunluk-ozet") {
       let secret = "";
       try { secret = url.searchParams.get("key") || request.headers["x-ozet-secret"] || ""; } catch (e) {}
