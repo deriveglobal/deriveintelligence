@@ -28543,7 +28543,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       try {
         const _isRep = session.sahaRole === "rep";
         const _base = "SELECT d.id, d.baslik, d.yazan_adi, d.onem, COALESCE(d.tip,'DUYURU') AS tip, d.created_at, (SELECT count(*) FROM saha_duyuru_okundu o WHERE o.duyuru_id=d.id) AS okuyan_sayisi, EXISTS(SELECT 1 FROM saha_duyuru_okundu o WHERE o.duyuru_id=d.id AND o.user_id=$2) AS okundu FROM saha_duyuru d WHERE d.tenant_id=$1";
-        const _dq = _isRep ? (_base + " AND NOT EXISTS(SELECT 1 FROM saha_duyuru_okundu o WHERE o.duyuru_id=d.id AND o.user_id=$2) ORDER BY d.created_at DESC LIMIT 10") : (_base + " ORDER BY d.created_at DESC LIMIT 6");
+        const _dq = _base + " AND NOT EXISTS(SELECT 1 FROM saha_duyuru_okundu o WHERE o.duyuru_id=d.id AND o.user_id=$2) ORDER BY d.created_at DESC LIMIT 10";
         duyurular_okunmamis = (await pool.query(_dq, [tid, session.userId])).rows;
         const _yq = await pool.query("SELECT count(*)::int AS n FROM saha_duyuru d WHERE d.tenant_id=$1 AND NOT EXISTS(SELECT 1 FROM saha_duyuru_okundu o WHERE o.duyuru_id=d.id AND o.user_id=$2)", [tid, session.userId]);
         duyurular_yeni_sayisi = _yq.rows[0].n;

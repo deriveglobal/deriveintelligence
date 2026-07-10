@@ -333,7 +333,7 @@ async function vBugun() {
           </div>`).join("");
 
     const duyuruHtml = duyurular_okunmamis.length === 0
-      ? empty(S.role === "rep" ? "Okunmamış duyuru yok ✓" : "Henüz duyuru yok")
+      ? empty("Okunmamış duyuru yok ✓")
       : duyurular_okunmamis.map(d => `
           <div class="kart" data-did="${d.id}" style="padding:10px 12px;margin-bottom:6px;cursor:pointer;border-left:3px solid ${onemRenk[d.onem] || "#0284c7"}">
             <div style="font-size:10px;font-weight:700;color:${d.tip === "PIYASA" ? "#0891b2" : onemRenk[d.onem]};margin-bottom:3px">${d.tip === "PIYASA" ? "📊 PİYASA" : (onemEtiket[d.onem] || "📢")}</div>
