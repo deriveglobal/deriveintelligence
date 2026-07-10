@@ -28550,7 +28550,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
         rep_sayisi = _rq.rows[0].n;
       } catch (e) {}
       try {
-        hatirlatmalar = (await pool.query("SELECT id, icerik, hatirlatma_tarihi FROM saha_rep_not WHERE tenant_id=$1 AND rep_id=$2 AND tamamlandi=false AND hatirlatma_tarihi IS NOT NULL AND hatirlatma_tarihi <= (CURRENT_DATE + INTERVAL '1 day') ORDER BY hatirlatma_tarihi ASC LIMIT 10", [tid, session.userId])).rows;
+        hatirlatmalar = (await pool.query("SELECT id, icerik, to_char(hatirlatma_tarihi,'YYYY-MM-DD') AS hatirlatma_tarihi FROM saha_rep_not WHERE tenant_id=$1 AND rep_id=$2 AND tamamlandi=false AND hatirlatma_tarihi IS NOT NULL AND hatirlatma_tarihi <= (CURRENT_DATE + INTERVAL '1 day') ORDER BY hatirlatma_tarihi ASC LIMIT 10", [tid, session.userId])).rows;
       } catch (e) {}
 
       sendJson(response, 200, {
@@ -28582,7 +28582,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     if (method === "GET" && path === "/api/saha/notlar") {
       const session = await requireSahaAccess(request);
       const rows = await pool.query(
-        `SELECT id, icerik, hatirlatma_tarihi, tamamlandi, created_at, updated_at
+        `SELECT id, icerik, to_char(hatirlatma_tarihi,'YYYY-MM-DD') AS hatirlatma_tarihi, tamamlandi, created_at, updated_at
            FROM saha_rep_not
           WHERE tenant_id = $1 AND rep_id = $2
           ORDER BY created_at DESC LIMIT 100`,
