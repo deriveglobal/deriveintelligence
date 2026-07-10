@@ -28835,9 +28835,9 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     if ((method === "PUT" || method === "POST") && (m = path.match(/^\/api\/saha\/duyurular\/([0-9a-f-]{36})\/oku$/))) {
       const session = await requireSahaAccess(request);
       await pool.query(
-        `INSERT INTO saha_duyuru_okundu (duyuru_id, user_id, tenant_id)
-         VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
-        [m[1], session.userId, session.tenantId]
+        `INSERT INTO saha_duyuru_okundu (duyuru_id, user_id)
+         VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+        [m[1], session.userId]
       );
       sendJson(response, 200, { ok: true });
       return;
