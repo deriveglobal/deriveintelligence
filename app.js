@@ -12433,6 +12433,19 @@ if (activeRespondToken) {
 } else if (!sessionRestored && shouldOpenAppShell) {
   showAuthPanel();
 }
+
+// RESET_LINK_FIX — reset link always shows the set-password form, never the app shell.
+if (activeResetToken) {
+  document.querySelector(".app-shell")?.classList.add("hidden");
+  document.querySelector("#auth-screen")?.classList.remove("hidden");
+  const _rlLoad = document.querySelector("#app-loading"); if (_rlLoad) _rlLoad.style.display = "none";
+  document.querySelector("#auth-form")?.classList.add("hidden");
+  document.querySelector("#forgot-password-form")?.classList.add("hidden");
+  document.querySelector("#forgot-password-button")?.classList.add("hidden");
+  document.querySelector("#reset-password-form")?.classList.remove("hidden");
+  const _rlT = document.querySelector("#auth-title"); if (_rlT) _rlT.textContent = "Reset password";
+  const _rlS = document.querySelector("#auth-subtitle"); if (_rlS) _rlS.textContent = "Choose a new password for your assessment platform account.";
+}
 // ─── Platform session bootstrap ───────────────────────────────────────────────
 
 function authHeaders() {
