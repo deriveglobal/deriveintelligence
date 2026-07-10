@@ -8501,6 +8501,7 @@ function applyRole(role) {
       });
     return;
   }
+  if (window.__platformSessionPending) return;
   setActiveView(defaultView);
 }
 
@@ -12468,6 +12469,7 @@ async function initPlatformSession() {
       const el = document.querySelector(sel);
       if (el) el.style.display = 'none';
     });
+    const _plLoad = document.querySelector('#app-loading'); if (_plLoad) _plLoad.style.display = 'flex';
   }
   try {
     const res = await fetch("/api/platform/me", { credentials: "same-origin" });
@@ -12526,6 +12528,7 @@ async function initPlatformSession() {
     // #auth-screen, so we must do it here after the async surface load completes.
     document.querySelector("#auth-screen")?.classList.add("hidden");
 
+    const _plDone = document.querySelector("#app-loading"); if (_plDone) _plDone.style.display = "none";
     return true; // handled — caller should not route to regular shells
   } catch (err) {
     console.error("[platform] initPlatformSession error:", err);
