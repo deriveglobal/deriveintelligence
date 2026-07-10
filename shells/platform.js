@@ -3869,10 +3869,7 @@ async function renderPlatformIntelligence() {
     tenants = Array.isArray(data) ? data.filter(t => t.status === 'active') : [];
   } catch (e) { tenants = []; }
 
-  // Single tenant → go straight to VMO (no pointless picker)
-  if (!intelligenceActiveTenantId && tenants.length === 1) {
-    intelligenceActiveTenantId = tenants[0].id;
-  }
+  // Explicit entry: platform owner must pick a tenant (no silent auto-select).
 
   // Multi-tenant picker
   if (!intelligenceActiveTenantId) {
@@ -3908,14 +3905,22 @@ async function _renderIntelligenceBiShell(tenants = []) {
   const tenant = tenants.find(t => t.id === intelligenceActiveTenantId)
     || { id: intelligenceActiveTenantId, name: 'Tenant' };
 
-  // Only show the context bar when there are multiple tenants (single-tenant: no need)
-  const contextBar = tenants.length > 1 ? `
-    <div style="display:flex;align-items:center;gap:10px;padding:6px 16px;border-bottom:1px solid var(--border-subtle,#e5e7eb);background:var(--surface-raised,#fff);flex-shrink:0;font-size:12px;">
-      <span style="color:var(--text-muted);">Platform Owner</span>
-      <span style="color:var(--text-muted);">·</span>
+  // Tell the SERVER which tenant is being viewed (sets session.tenantId; RLS-safe impersonation)
+  try {
+    await fetch('/api/platform/enter-tenant', {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenantId: tenant.id })
+    });
+  } catch (_) {}
+
+  // Always-visible impersonation banner — never a silent default
+  const contextBar = `
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;border-bottom:1px solid #f59e0b;background:#fffbeb;color:#92400e;flex-shrink:0;font-size:13px;">
+      <span>👁 Platform sahibi olarak görüntülüyorsunuz:</span>
       <strong>${escapeHtml(tenant.name)}</strong>
-      <button class="text-button" id="intel-switch-tenant" style="margin-left:auto;font-size:12px;">Tenant değiştir</button>
-    </div>` : '';
+      <button class="text-button" id="intel-exit-tenant" style="margin-left:auto;font-size:13px;font-weight:600;color:#92400e;">Çıkış → Platform</button>
+    </div>`;
 
   updateViewContainer(`
     <div style="display:flex;flex-direction:column;height:100%;overflow:hidden;">
@@ -3923,10 +3928,11 @@ async function _renderIntelligenceBiShell(tenants = []) {
       <div id="bi-shell-mount" style="flex:1;min-height:0;overflow:auto;"></div>
     </div>`);
 
-  platformViewContainer?.querySelector('#intel-switch-tenant')?.addEventListener('click', () => {
+  platformViewContainer?.querySelector('#intel-exit-tenant')?.addEventListener('click', async () => {
+    try { await fetch('/api/platform/exit-tenant', { method: 'POST', headers: authHeaders() }); } catch (_) {}
     intelligenceActiveTenantId = null;
     if (intelligenceBiDestroy) { try { intelligenceBiDestroy(); } catch(_){} intelligenceBiDestroy = null; }
-    renderPlatformIntelligence();
+    renderPlatformView('command-center');
   });
 
   const mount = platformViewContainer?.querySelector('#bi-shell-mount');
