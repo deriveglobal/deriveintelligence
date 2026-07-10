@@ -4147,6 +4147,7 @@ async function getSessionUser(request) {
        us.id as session_id,
        us.user_id,
        us.expires_at,
+       us.metadata,
        u.email,
        u.name,
        u.full_name,
@@ -4173,15 +4174,22 @@ async function getSessionUser(request) {
   );
   if (!result.rowCount) return null;
   const row = result.rows[0];
-  return {
+  const _role = normalizeRole(row.assignment_role || row.project_role || row.organization_role || row.role);
+  const _sess = {
     sessionId: row.session_id,
     userId: row.user_id,
     email: row.email,
     name: row.name || row.full_name || "",
-    role: normalizeRole(row.assignment_role || row.project_role || row.organization_role || row.role),
+    role: _role,
     organizationId: row.organization_id,
     projectId: row.company_id || row.assessment_project_id
   };
+  if (_role === "platform_owner") {
+    const _meta = (row.metadata && typeof row.metadata === "object") ? row.metadata : {};
+    _sess.tenantId = _meta.active_tenant_id || null;
+    _sess.impersonating = !!_meta.active_tenant_id;
+  }
+  return _sess;
 }
 
 async function requireAuth(request, allowedRoles = []) {
@@ -20100,7 +20108,13 @@ async function requireModuleAccess(request, moduleId) {
   if (normalizeRole(session.role) === "platform_owner") {
     const _pOwnerHasTenant = await query('SELECT 1 FROM tenant_users WHERE user_id=$1 AND active=true LIMIT 1', [session.userId]);
     if (!_pOwnerHasTenant.rowCount) {
-      return { ...session, tenantId: null, tenantName: null, tenantRole: "platform_owner",
+      let _tName = null;
+      if (session.tenantId) {
+        const _tn = await query("SELECT name FROM platform_tenants WHERE id=$1 AND status='active'", [session.tenantId]);
+        _tName = _tn.rows[0] ? _tn.rows[0].name : null;
+        if (!_tName) session.tenantId = null;
+      }
+      return { ...session, tenantId: session.tenantId || null, tenantName: _tName, tenantRole: "platform_owner",
                moduleRole: "admin", plan: "internal", features: {}, permissions: {} };
     }
     // Has tenant membership — fall through to full tenant lookup below
@@ -21263,9 +21277,15 @@ if (request.method === "GET" && url.pathname === "/api/platform/me") {
     if (!session) { sendJson(response, 401, { error: "Authentication required." }); return; }
 
     if (normalizeRole(session.role) === "platform_owner") {
+      let _atName = null;
+      if (session.tenantId) {
+        const _t = await query("SELECT name FROM platform_tenants WHERE id=$1 AND status='active'", [session.tenantId]);
+        _atName = _t.rows[0] ? _t.rows[0].name : null;
+      }
       sendJson(response, 200, {
         userId: session.userId, name: session.name, globalRole: "platform_owner",
-        tenantId: null, tenantName: null, tenantRole: "platform_owner",
+        tenantId: session.tenantId || null, tenantName: _atName, tenantRole: "platform_owner",
+        activeTenantId: session.tenantId || null, activeTenantName: _atName,
         subscriptions: []
       });
       return;
@@ -21317,6 +21337,31 @@ if (request.method === "GET" && url.pathname === "/api/platform/me") {
   return;
 }
 
+if (request.method === "POST" && url.pathname === "/api/platform/enter-tenant") {
+  const session = await requirePlatformOwner(request, response);
+  if (!session) return;
+  try {
+    const _b = await readJson(request);
+    const _tid = _b && _b.tenantId;
+    if (!_tid) { sendJson(response, 400, { error: "tenantId gerekli" }); return; }
+    const _t = await query("SELECT id, name FROM platform_tenants WHERE id=$1 AND status='active'", [_tid]);
+    if (!_t.rowCount) { sendJson(response, 404, { error: "Tenant bulunamadi." }); return; }
+    await query("UPDATE user_sessions SET metadata = jsonb_set(COALESCE(metadata,'{}'::jsonb), '{active_tenant_id}', to_jsonb($1::text)) WHERE id=$2", [_tid, session.sessionId]);
+    try { await query("INSERT INTO krb_audit_logs (actor_user_id, actor_email, action, entity_type, entity_id) VALUES ($1,$2,'enter_tenant','tenant',$3)", [session.userId, session.email, _tid]); } catch (e) {}
+    sendJson(response, 200, { ok: true, tenant: { id: _t.rows[0].id, name: _t.rows[0].name } });
+  } catch (e) { sendJson(response, 500, { error: String((e && e.message) || e) }); }
+  return;
+}
+if (request.method === "POST" && url.pathname === "/api/platform/exit-tenant") {
+  const session = await requirePlatformOwner(request, response);
+  if (!session) return;
+  try {
+    await query("UPDATE user_sessions SET metadata = (COALESCE(metadata,'{}'::jsonb) - 'active_tenant_id') WHERE id=$1", [session.sessionId]);
+    try { await query("INSERT INTO krb_audit_logs (actor_user_id, actor_email, action, entity_type) VALUES ($1,$2,'exit_tenant','tenant')", [session.userId, session.email]); } catch (e) {}
+    sendJson(response, 200, { ok: true });
+  } catch (e) { sendJson(response, 500, { error: String((e && e.message) || e) }); }
+  return;
+}
 // GET /api/platform/tenants (platform_owner only)
 if (request.method === "GET" && url.pathname === "/api/platform/tenants") {
   try {
