@@ -1680,7 +1680,13 @@ function musteriDetayModal(m) {
         <button class="btn kucuk" id="md-durum-kaydet">Kaydet</button>
       </span></div>
     ${m.musteri_kodu ? `<div class="det-satir"><span>ERP Kodu</span><b>${esc(m.musteri_kodu)}</b></div>` : ""}
-    ${m.kimlik_vergi_no ? `<div class="det-satir"><span>VKN</span><b>${esc(m.kimlik_vergi_no)}</b></div>` : ""}
+    ${m.musteri_kodu
+      ? (m.kimlik_vergi_no ? `<div class="det-satir"><span>VKN</span><b>${esc(m.kimlik_vergi_no)}</b></div>` : "")
+      : `<div class="det-satir"><span>VKN</span>
+          <span style="display:flex;align-items:center;gap:6px">
+            <input class="giris" id="md-vkn" inputmode="numeric" placeholder="10 hane — sonradan eklenebilir" value="${esc(m.vergi_no || "")}" style="font-size:13px;padding:4px 8px;display:inline-block;width:auto;margin-bottom:0">
+            <button class="btn kucuk" id="md-vkn-kaydet">Kaydet</button>
+          </span></div>`}
     ${m.kimlik_tc_no ? `<div class="det-satir"><span>TC No</span><b>${esc(m.kimlik_tc_no)}</b></div>` : ""}
     ${m.il ? `<div class="det-satir"><span>Konum</span><b>${esc([m.il, m.ilce].filter(Boolean).join(" / "))}</b></div>` : ""}
     ${m.yetkili ? `<div class="det-satir"><span>Yetkili</span><b>${esc(m.yetkili)}</b></div>` : ""}
@@ -1720,6 +1726,16 @@ function musteriDetayModal(m) {
       m.durum = yeniDurum;
       // Refresh the musteriler list in background so it reflects on next tab visit
       if (S.musteriler) { const idx = S.musteriler.findIndex(x => x.id === m.id); if (idx !== -1) S.musteriler[idx].durum = yeniDurum; }
+    } catch (e) { uyari(e.message); }
+  });
+  document.getElementById("md-vkn-kaydet")?.addEventListener("click", async () => {
+    const v = (document.getElementById("md-vkn")?.value || "").replace(/\D/g, "");
+    if (v && (v.length < 10 || v.length > 11)) { uyari("Vergi No 10, TC 11 hane olmalı."); return; }
+    try {
+      await api(`/api/saha/musteriler/${m.id}`, { method: "PUT", body: JSON.stringify({ vergi_no: v || null }) });
+      uyari(v ? "✓ Vergi No kaydedildi." : "✓ Vergi No temizlendi.", true);
+      m.vergi_no = v || null; m.kimlik_vergi_no = v || null;
+      if (S.musteriler) { const idx = S.musteriler.findIndex(x => x.id === m.id); if (idx !== -1) S.musteriler[idx].vergi_no = v || null; }
     } catch (e) { uyari(e.message); }
   });
   // Ziyaret geçmişi: tarih + temsilci + not (tıklayınca tam detay)

@@ -26359,6 +26359,13 @@ async function handleSahaApi(request, response, url, deps) {
           sets.push(`${f} = $${params.length}`);
         }
       }
+      // vergi_no / tc_no — digits-only, addable later (enables ERP promotion by tax no)
+      for (const f of ["vergi_no", "tc_no"]) {
+        if (Object.prototype.hasOwnProperty.call(p, f)) {
+          const dv = p[f] ? String(p[f]).replace(/\D/g, "") : null;
+          params.push(dv || null); sets.push(`${f} = $${params.length}`);
+        }
+      }
       // aktif (soft-delete) sadece müdür/admin yetkisi gerektirir
       if (session.sahaRole !== "rep" && Object.prototype.hasOwnProperty.call(p, "aktif")) {
         params.push(p.aktif); sets.push(`aktif = $${params.length}`);
