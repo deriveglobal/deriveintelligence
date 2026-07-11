@@ -1272,8 +1272,9 @@ async function kontrolPaneliYukle() {
           ${m.oneri_firma
             ? `<div style="font-size:11px;color:#64748b;margin:3px 0">Olası eş: <b>${esc(m.oneri_firma)}</b>${m.oneri_il ? ` · 📍${esc(m.oneri_il)}` : ""} <span style="color:#94a3b8">(benzerlik ${m.oneri_skor ?? "-"})</span></div>`
             : (m.notlar ? `<div style="font-size:11px;color:#64748b;margin:3px 0">${esc(m.notlar)}</div>` : "")}
-          <div style="display:flex;gap:6px;margin-top:6px">
+          <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
             <button class="btn" data-kb="${m.id}" style="font-size:12px;padding:5px 10px">🔗 Saha müşterisi</button>
+            <button class="btn" data-kl="${m.id}" style="font-size:12px;padding:5px 10px;background:#7c3aed">📍 Şube olarak bağla</button>
             <button class="btn" data-ke="${m.id}" style="font-size:12px;padding:5px 10px;background:#0891b2">🏢 ERP'den eşleştir</button>
             <button class="btn cizgili" data-ky="${m.id}" style="font-size:12px;padding:5px 10px">✓ Yeni müşteri</button>
           </div>
@@ -1293,6 +1294,15 @@ async function kontrolPaneliYukle() {
     });
   }));
   box.querySelectorAll("[data-ke]").forEach(b => b.addEventListener("click", () => erpEslesModal(b.dataset.ke)));
+  box.querySelectorAll("[data-kl]").forEach(b => b.addEventListener("click", () => {
+    const kid = b.dataset.kl;
+    musteriSecModal(async target => {
+      if (!target || target.id === kid) { uyari("Bağlanacak ana müşteriyi seç."); return; }
+      if (!confirm(`Bu kayıt "${target.firma || "seçilen müşteri"}" firmasının şubesi/lokasyonu olarak bağlansın mı? Ziyaretleri o müşteriye taşınır.`)) return;
+      try { await api("/api/saha/kontrol-musteri-karar", { method: "POST", body: JSON.stringify({ id: kid, karar: "LOKASYON", hedef_id: target.id }) }); uyari("✓ Şube olarak bağlandı.", true); await loadView("musteriler"); }
+      catch (e) { uyari(e.message); }
+    });
+  }));
 }
 
 function erpEslesModal(kid) {
