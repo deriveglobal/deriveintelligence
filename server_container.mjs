@@ -29454,7 +29454,12 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       return;
     }
     if (method === "GET" && path === "/api/saha/hata-raporu") {
-      const session = await requireSahaAccess(request, ["manager", "admin"]);
+      const session = await requireSahaAccess(request);
+      // Platform IT only — tenants must not see the platform's error telemetry.
+      if (normalizeRole(session.role) !== "platform_owner") {
+        sendJson(response, 403, { error: "Bu bölüm platform yönetimine özeldir." });
+        return;
+      }
       let gun = parseInt(url.searchParams.get("gun") || "7", 10);
       if (!Number.isFinite(gun) || gun < 1) gun = 7;
       if (gun > 90) gun = 90;

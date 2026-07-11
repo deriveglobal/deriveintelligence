@@ -38,8 +38,11 @@ export function initSahaSurface(container, me, sub, opts = {}) {
   });
   const role = (me.tenantRole === "platform_owner" || sub.moduleRole === "admin") ? "admin"
     : (sub.moduleRole === "manager" ? "manager" : "rep");
+  // platform_owner (Derive) and tenant admin both map to role 'admin'. Keep the real
+  // distinction: platform telemetry must never be shown to a tenant.
+  const isOwner = me.tenantRole === "platform_owner";
   S = {
-    container, me, role, headers,
+    container, me, role, isOwner, headers,
     view: "ziyaretler", semsiye: "", // '' = tümü | TUKETICI | TICARI
     ziyaretler: [], musteriler: [], talepler: [], ayarlar: null,
     fotoUrls: new Map(),
@@ -176,7 +179,8 @@ function layout() {
     ["musteriler", "🏪", "Müşteri"], ["iskonto", "💰", "Teklif"], ["rapor", "📊", "Rapor"], ["piyasa", "🏷️", "Piyasa"],
     ["notlarim", "📝", "Notlarım"], ["rep-brain", "🤖", "Asistan"],
     ["duyurular", "📢", "Duyurular"], ["mesajlar", "💬", "Mesajlar"],
-    ...(["manager","admin"].includes(S.role) ? [["temsilciler", "👥", "Temsilci"], ["sistem", "🔧", "Sistem"]] : [])
+    ...(["manager","admin"].includes(S.role) ? [["temsilciler", "👥", "Temsilci"]] : []),
+    ...(S.isOwner ? [["sistem", "🔧", "Sistem"]] : [])
   ];
   const CORE = ["bugun","ziyaretler","iskonto","rep-brain"];
   S.coreIds = CORE;
@@ -5808,7 +5812,7 @@ async function oneriModal() {
 
 // ── SİSTEM (error report — manager/admin only) ───────────────────────────────
 async function vSistem() {
-  if (!["manager","admin"].includes(S.role)) {
+  if (!S.isOwner) {
     main().innerHTML = `<div class="saha-bos">Bu bölüme erişim yetkiniz yok.</div>`;
     return;
   }
