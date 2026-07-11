@@ -5773,6 +5773,8 @@ async function vOneriler() {
           ${esc(ONERI_KAT[o.kategori] || o.kategori)}${staff ? " · " + esc(o.kullanici || "-") : ""}
           · ${o.mesaj_sayisi || 1} mesaj
           · ${new Date(o.son_mesaj_at || o.ts).toLocaleDateString("tr-TR")}
+          ${staff && o.sahip_gordu === false ? `· <span style="color:#d97706">✓ görülmedi</span>` : ""}
+          ${staff && o.sahip_gordu === true && (o.mesaj_sayisi || 1) > 1 ? `· <span style="color:#0284c7">✓✓ görüldü</span>` : ""}
         </div>
       </div>`;
 
@@ -5801,7 +5803,16 @@ async function oneriThreadModal(id) {
   let d;
   try { d = await api(`/api/saha/oneriler/${id}`); }
   catch (e) { uyari(e.message); return; }
-  const { oneri: o, mesajlar = [], staff, ben } = d;
+  const { oneri: o, mesajlar = [], okumalar = [], staff, ben } = d;
+
+  // "Seen by" — anyone other than me who opened the thread AFTER the last message.
+  const sonMsg = mesajlar.length ? mesajlar[mesajlar.length - 1] : null;
+  const gorenler = sonMsg
+    ? okumalar.filter(r => r.user_id !== ben && new Date(r.okundu_at) >= new Date(sonMsg.ts))
+    : [];
+  const gorulduHtml = !sonMsg ? "" : (gorenler.length
+    ? `<div style="text-align:right;font-size:11px;color:#0284c7;margin-top:6px">✓✓ Görüldü — ${gorenler.map(r => `${esc(r.ad)} (${new Date(r.okundu_at).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })})`).join(", ")}</div>`
+    : `<div style="text-align:right;font-size:11px;color:#94a3b8;margin-top:6px">✓ Gönderildi — henüz görülmedi</div>`);
 
   const satir = (m) => m.tip === "DURUM"
     ? `<div style="text-align:center;margin:8px 0"><span style="background:#e2e8f0;color:#475569;border-radius:10px;padding:2px 10px;font-size:11px">${esc(m.mesaj)} · ${esc(m.yazar)}</span></div>`
@@ -5819,6 +5830,7 @@ async function oneriThreadModal(id) {
     <div id="ot-thread" style="max-height:300px;overflow-y:auto;padding:8px;background:#fff;border:1px solid #e2e8f0;border-radius:10px">
       ${mesajlar.map(satir).join("")}
     </div>
+    ${gorulduHtml}
     ${staff ? `
       <label style="display:block;margin-top:10px">
         <div class="giris-etiket">Durum</div>

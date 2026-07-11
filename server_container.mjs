@@ -29465,7 +29465,10 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
                (SELECT count(*) FROM saha_oneri_mesaj mm WHERE mm.oneri_id = o.id)::int AS mesaj_sayisi,
                (o.son_mesaj_at > COALESCE(
                   (SELECT r.okundu_at FROM saha_oneri_okuma r
-                    WHERE r.oneri_id = o.id AND r.user_id = $2), 'epoch'::timestamptz)) AS okunmamis
+                    WHERE r.oneri_id = o.id AND r.user_id = $2), 'epoch'::timestamptz)) AS okunmamis,
+               (COALESCE((SELECT r2.okundu_at FROM saha_oneri_okuma r2
+                           WHERE r2.oneri_id = o.id AND r2.user_id = o.user_id),
+                         'epoch'::timestamptz) >= o.son_mesaj_at) AS sahip_gordu
           FROM saha_oneri o
           LEFT JOIN users u ON u.id = o.user_id
          WHERE o.tenant_id = $1`;
@@ -29490,11 +29493,16 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
                 COALESCE(u.full_name, u.email, 'Sistem') AS yazar
            FROM saha_oneri_mesaj m2 LEFT JOIN users u ON u.id = m2.user_id
           WHERE m2.oneri_id = $1 AND m2.tenant_id = $2 ORDER BY m2.ts`, [m[1], session.tenantId]);
+      const oku = await pool.query(
+        `SELECT r.user_id, COALESCE(u.full_name, u.email) AS ad, r.okundu_at
+           FROM saha_oneri_okuma r JOIN users u ON u.id = r.user_id
+          WHERE r.oneri_id = $1 AND r.tenant_id = $2
+          ORDER BY r.okundu_at DESC`, [m[1], session.tenantId]);
       await pool.query(
         `INSERT INTO saha_oneri_okuma (tenant_id, oneri_id, user_id, okundu_at) VALUES ($1,$2,$3,now())
          ON CONFLICT (oneri_id, user_id) DO UPDATE SET okundu_at = now()`,
         [session.tenantId, m[1], session.userId]);
-      sendJson(response, 200, { oneri: tk, mesajlar: msgs.rows, staff, ben: session.userId });
+      sendJson(response, 200, { oneri: tk, mesajlar: msgs.rows, okumalar: oku.rows, staff, ben: session.userId });
       return;
     }
     if (method === "POST" && path === "/api/saha/oneri") {
