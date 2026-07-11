@@ -26572,12 +26572,14 @@ async function handleSahaApi(request, response, url, deps) {
     if (method === "PUT" && (m = path.match(new RegExp(`^/api/saha/ziyaretler/(${SAHA_UUID_RE})$`)))) {
       const session = await requireSahaAccess(request);
       const p = await readJson(request);
-      const own = await query(`SELECT rep_id, durum FROM saha_ziyaret WHERE tenant_id = $1 AND id = $2`,
+      const own = await query(`SELECT rep_id, durum, notlar FROM saha_ziyaret WHERE tenant_id = $1 AND id = $2`,
         [session.tenantId, m[1]]);
       if (!own.rowCount) { sendJson(response, 404, { error: "Ziyaret bulunamadı." }); return; }
       if (session.sahaRole === "rep" && own.rows[0].rep_id !== session.userId) {
         sendJson(response, 403, { error: "Sadece kendi ziyaretlerinizi güncelleyebilirsiniz." }); return;
       }
+      const _oncekiNot = own.rows[0].notlar;
+      const _ilkKezNot = !(_oncekiNot && String(_oncekiNot).trim());
       const action = p.action || "guncelle";
       let result;
       if (action === "checkin") {
@@ -26621,14 +26623,31 @@ async function handleSahaApi(request, response, url, deps) {
               katilimci = COALESCE($4, katilimci),
               notlar = COALESCE($5, notlar),
               detay = COALESCE($6::jsonb, detay),
+              ziyaret_tarihi = COALESCE($7, ziyaret_tarihi),
+              -- keep the first version of the note; never overwrite it silently
+              notlar_orijinal = CASE
+                  WHEN $5 IS NOT NULL AND $5 IS DISTINCT FROM notlar
+                    THEN COALESCE(notlar_orijinal, notlar)
+                  ELSE notlar_orijinal END,
+              duzenlendi_at = CASE
+                  WHEN $5 IS NOT NULL AND $5 IS DISTINCT FROM notlar THEN now()
+                  ELSE duzenlendi_at END,
+              duzenleyen = CASE
+                  WHEN $5 IS NOT NULL AND $5 IS DISTINCT FROM notlar THEN $8::uuid
+                  ELSE duzenleyen END,
               updated_at = now()
           WHERE tenant_id = $1 AND id = $2 RETURNING *
         `, [session.tenantId, m[1], p.planlanan_tarih || null, p.katilimci || null,
-            p.notlar || null, p.detay ? JSON.stringify(p.detay) : null]);
+            p.notlar || null, p.detay ? JSON.stringify(p.detay) : null,
+            p.ziyaret_tarihi || null, session.userId]);
       }
       let _asistan = null;
-      if (p.notlar) { try { const _zr = result.rows[0]; const _sg = await _extractIntent(p.notlar); const _ack = await _applyIntents(_sg, { tenantId: session.tenantId, repId: session.userId, musteriId: _zr.musteri_id, kaynakTip: "ziyaret", kaynakId: _zr.id, hamMetin: p.notlar }); _asistan = _ack && _ack.mesaj; } catch (e) {} }
-      sendJson(response, 200, { ziyaret: result.rows[0], asistan: _asistan });
+      // Intent extraction runs when a note is FIRST written (create / tamamla / first
+      // note on an edit) — NOT when an existing note is corrected. Otherwise every
+      // typo fix would create a duplicate reminder, task and CEO signal.
+      const _notAnalizEt = p.notlar && (action !== "guncelle" || _ilkKezNot);
+      if (_notAnalizEt) { try { const _zr = result.rows[0]; const _sg = await _extractIntent(p.notlar); const _ack = await _applyIntents(_sg, { tenantId: session.tenantId, repId: session.userId, musteriId: _zr.musteri_id, kaynakTip: "ziyaret", kaynakId: _zr.id, hamMetin: p.notlar }); _asistan = _ack && _ack.mesaj; } catch (e) {} }
+      sendJson(response, 200, { ziyaret: result.rows[0], asistan: _asistan, duzenlendi: action === "guncelle" && !_ilkKezNot });
       return;
     }
 

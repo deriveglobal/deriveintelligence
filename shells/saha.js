@@ -552,6 +552,11 @@ async function ziyaretDetayModal(zid) {
     ${dizi("Sektörler", d.sektorler)}${dizi("Kullanılan markalar", d.kullanilan_markalar)}${dizi("Tedarikçi markalar", d.tedarikci_markalar)}${satir("Yıllık potansiyel", d.yillik_potansiyel)}
     ${d.arac_parki ? satir("Araç parkı", Object.entries(d.arac_parki).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`).join(", ")) : ""}
     ${z.notlar ? `<div class="det-not">${esc(z.notlar)}</div>` : ""}
+    ${z.duzenlendi_at ? `
+      <details style="margin-top:4px">
+        <summary style="font-size:11px;color:#b45309;cursor:pointer">✏️ ${new Date(z.duzenlendi_at).toLocaleString("tr-TR")} tarihinde düzenlendi — ilk hâlini gör</summary>
+        <div style="font-size:12px;color:#64748b;background:#f8fafc;border-radius:8px;padding:8px;margin-top:4px;white-space:pre-wrap">${esc(z.notlar_orijinal || "—")}</div>
+      </details>` : ""}
     <div id="det-fotolar" class="foto-izgara"></div>
     <div style="margin-top:14px;border-top:1px solid #f1f5f9;padding-top:12px">
       <div style="font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Yorumlar</div>
@@ -565,11 +570,16 @@ async function ziyaretDetayModal(zid) {
     </div>
     <div class="modal-btnlar">
       <button class="btn gri" data-kapat>Kapat</button>
+      <button class="btn cizgili" id="det-duzenle">✏️ Düzenle</button>
       <button class="btn" id="det-teklif">＋ Teklif</button>
     </div>`);
 
   document.getElementById("det-teklif")?.addEventListener("click", () => {
     kapatModal(); teklifFormModal({ id: z.musteri_id, firma: z.firma }, zid);
+  });
+
+  document.getElementById("det-duzenle")?.addEventListener("click", () => {
+    kapatModal(); ziyaretDuzenleModal(z);
   });
 
   // Load photos
@@ -777,6 +787,49 @@ function yeniMusteriModal(firma, devam, musteriKodu = null) {
 }
 
 // ── ZİYARET FORMU (kaydet = tamamlandı | planla = ileri tarih) ──────────────
+// ── Ziyaret düzenle (kendi ziyaretin) — not/katılımcı/tarih ─────────────────
+async function ziyaretDuzenleModal(z) {
+  modal(`
+    <h3>✏️ Ziyaret Düzenle — ${esc(z.firma || "")}</h3>
+    <div style="font-size:11px;color:#64748b;margin-bottom:10px">Düzeltmeler kayıt altına alınır; notun ilk hâli saklanır.</div>
+    <div class="yanyana">
+      <label>Ziyaret tarihi
+        <input class="giris" id="zd-tarih" type="date" value="${z.ziyaret_tarihi ? String(z.ziyaret_tarihi).slice(0, 10) : ""}">
+      </label>
+      <label>Katılımcı
+        <input class="giris" id="zd-katilimci" value="${esc(z.katilimci || "")}" placeholder="Görüşülen kişi">
+      </label>
+    </div>
+    <label>Notlar
+      <textarea class="giris" id="zd-notlar" rows="6" placeholder="Ziyaret notu…">${esc(z.notlar || "")}</textarea>
+    </label>
+    <div class="modal-btnlar">
+      <button class="btn gri" data-kapat>Vazgeç</button>
+      <button class="btn" id="zd-kaydet">Kaydet</button>
+    </div>`);
+
+  document.getElementById("zd-kaydet").addEventListener("click", async () => {
+    const notlar = document.getElementById("zd-notlar").value.trim();
+    const katilimci = document.getElementById("zd-katilimci").value.trim();
+    const tarih = document.getElementById("zd-tarih").value || null;
+    if (!notlar) { uyari("Not boş olamaz."); return; }
+    const btn = document.getElementById("zd-kaydet");
+    btn.disabled = true; btn.textContent = "Kaydediliyor…";
+    try {
+      await api(`/api/saha/ziyaretler/${z.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ action: "guncelle", notlar, katilimci: katilimci || null, ziyaret_tarihi: tarih })
+      });
+      kapatModal();
+      uyari("✓ Ziyaret güncellendi.", true);
+      await loadView("ziyaretler");
+    } catch (e) {
+      btn.disabled = false; btn.textContent = "Kaydet";
+      uyari(e.message);
+    }
+  });
+}
+
 async function ziyaretFormModal(mus, mod, presetDate = null) {
   const tip = mus.tip || S.semsiye || "TUKETICI";
   const bugun = new Date().toISOString().slice(0, 10);
