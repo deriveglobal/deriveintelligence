@@ -1268,8 +1268,10 @@ async function kontrolPaneliYukle() {
       <div style="font-size:11px;color:#b45309;margin-bottom:8px">Excel'den gelen bu kayıtlar mevcut bir müşteriyle aynı olabilir. Karar ver:</div>
       ${list.map(m => `
         <div class="kart" style="margin-bottom:6px;padding:8px 10px;background:#fff">
-          <div style="font-weight:600">${esc(m.firma)} <span style="color:#94a3b8;font-size:11px">· ${m.ziyaret_sayisi} ziyaret</span></div>
-          ${m.notlar ? `<div style="font-size:11px;color:#64748b;margin:3px 0">${esc(m.notlar)}</div>` : ""}
+          <div style="font-weight:600">${esc(m.firma)}${(m.il || m.ilce) ? ` <span style="color:#0f766e;font-size:11px">· 📍${esc([m.il, m.ilce].filter(Boolean).join(" / "))}</span>` : ""} <span style="color:#94a3b8;font-size:11px">· ${m.ziyaret_sayisi} ziyaret</span></div>
+          ${m.oneri_firma
+            ? `<div style="font-size:11px;color:#64748b;margin:3px 0">Olası eş: <b>${esc(m.oneri_firma)}</b>${m.oneri_il ? ` · 📍${esc(m.oneri_il)}` : ""} <span style="color:#94a3b8">(benzerlik ${m.oneri_skor ?? "-"})</span></div>`
+            : (m.notlar ? `<div style="font-size:11px;color:#64748b;margin:3px 0">${esc(m.notlar)}</div>` : "")}
           <div style="display:flex;gap:6px;margin-top:6px">
             <button class="btn" data-kb="${m.id}" style="font-size:12px;padding:5px 10px">🔗 Saha müşterisi</button>
             <button class="btn" data-ke="${m.id}" style="font-size:12px;padding:5px 10px;background:#0891b2">🏢 ERP'den eşleştir</button>

@@ -27689,8 +27689,18 @@ async function handleSahaApi(request, response, url, deps) {
       const session = await requireSahaAccess(request);
       const r = await pool.query(
         `SELECT m.id, m.firma, m.il, m.ilce, m.notlar,
-                (SELECT count(*) FROM saha_ziyaret z WHERE z.musteri_id=m.id) AS ziyaret_sayisi
+                (SELECT count(*) FROM saha_ziyaret z WHERE z.musteri_id=m.id) AS ziyaret_sayisi,
+                c.firma AS oneri_firma, c.il AS oneri_il,
+                round(similarity(m.firma, c.firma)::numeric, 2) AS oneri_skor
            FROM saha_musteri m
+           LEFT JOIN LATERAL (
+             SELECT x.firma, x.il
+               FROM saha_musteri x
+              WHERE x.tenant_id=m.tenant_id AND x.aktif=true AND x.id<>m.id
+                AND x.kayit_kaynagi<>'EXCEL_IMPORT_KONTROL'
+              ORDER BY similarity(m.firma, x.firma) DESC
+              LIMIT 1
+           ) c ON true
           WHERE m.tenant_id=$1 AND m.kayit_kaynagi='EXCEL_IMPORT_KONTROL' AND m.aktif=true
             AND EXISTS (SELECT 1 FROM saha_ziyaret z WHERE z.musteri_id=m.id AND z.rep_id=$2)
           ORDER BY m.firma`,
