@@ -509,9 +509,7 @@ export function initBiSurface(container, me, sub, callbacks) {
       } catch(e) { alert('Hata: ' + e.message); }
     };
 
-    var _brainDayKey = 'brain_greeted_' + new Date().toISOString().slice(0, 10);
-    if (!msgsEl.children.length && !localStorage.getItem(_brainDayKey)) {
-      localStorage.setItem(_brainDayKey, '1');
+    if (!msgsEl.children.length) {
       setTimeout(function() { sendBrainMsg('Merhaba! Bug\u00fcnk\u00fc genel durumu \u00f6zetle.', true); }, 700);
     }
   }
