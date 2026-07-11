@@ -5339,7 +5339,7 @@ async function vRepBrain() {
   histMsgs.forEach(msg => rbRenderMsg(msgsEl, msg.role, msg.content));
 
   // Daily greeting — only if no history and not greeted today
-  if (!histMsgs.length && !localStorage.getItem(todayKey)) {
+  if (!histMsgs.length) {
     localStorage.setItem(todayKey, "1");
     const thinkEl = rbAddThinking(msgsEl);
     rbStream("/api/saha/rep-brain", { message: "Merhaba! Bugünkü ziyaret planımı ve son notlarımı kısaca özetle.", is_greeting: true }, thinkEl, msgsEl);
