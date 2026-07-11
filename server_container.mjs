@@ -29413,11 +29413,12 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     if (method === "POST" && path === "/api/saha/oneri") {
       const session = await requireSahaAccess(request);
       const body = await readJson(request);
-      const { kategori='GENEL', baslik, mesaj } = body;
+      let { kategori='DIGER', baslik, mesaj } = body;
+      if (!["HATA","OZELLIK","UI","DIGER"].includes(kategori)) kategori = "DIGER";
       if (!baslik || !mesaj) { sendJson(response, 400, { error: 'baslik ve mesaj zorunlu' }); return; }
       await pool.query(
         `INSERT INTO saha_oneri (id,tenant_id,user_id,kategori,baslik,mesaj,durum)
-         VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,'BEKLEMEDE')`,
+         VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,'YENI')`,
         [session.tenantId, session.userId, kategori, baslik, mesaj]
       );
       sendJson(response, 201, { ok: true });
@@ -29450,6 +29451,28 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
         );
       } catch(_) {}
       sendJson(response, 200, { ok: true });
+      return;
+    }
+    if (method === "GET" && path === "/api/saha/hata-raporu") {
+      const session = await requireSahaAccess(request, ["manager", "admin"]);
+      let gun = parseInt(url.searchParams.get("gun") || "7", 10);
+      if (!Number.isFinite(gun) || gun < 1) gun = 7;
+      if (gun > 90) gun = 90;
+      const a = [session.tenantId, gun];
+      const ozet = await pool.query(
+        "SELECT tip, count(*)::int AS sayi FROM saha_hata_log WHERE tenant_id=$1 AND ts > now() - ($2::int * INTERVAL '1 day') GROUP BY tip ORDER BY sayi DESC", a);
+      const endpointOzet = await pool.query(
+        "SELECT endpoint, count(*)::int AS sayi, round(avg(duration_ms))::int AS ort_ms FROM saha_hata_log WHERE tenant_id=$1 AND ts > now() - ($2::int * INTERVAL '1 day') AND endpoint IS NOT NULL GROUP BY endpoint ORDER BY sayi DESC LIMIT 20", a);
+      const userOzet = await pool.query(
+        "SELECT COALESCE(u.full_name, u.email, 'Bilinmiyor') AS kullanici, count(*)::int AS sayi FROM saha_hata_log h LEFT JOIN users u ON u.id = h.user_id WHERE h.tenant_id=$1 AND h.ts > now() - ($2::int * INTERVAL '1 day') GROUP BY 1 ORDER BY sayi DESC LIMIT 20", a);
+      const sonHatalar = await pool.query(
+        "SELECT h.ts, h.tip, h.endpoint, h.view_adi, h.hata_mesaji FROM saha_hata_log h WHERE h.tenant_id=$1 AND h.ts > now() - ($2::int * INTERVAL '1 day') ORDER BY h.ts DESC LIMIT 50", a);
+      sendJson(response, 200, {
+        ozet: ozet.rows,
+        endpoint_ozet: endpointOzet.rows,
+        user_ozet: userOzet.rows,
+        son_hatalar: sonHatalar.rows
+      });
       return;
     }
     if (method === "POST" && path === "/api/saha/hata-raporu") {
