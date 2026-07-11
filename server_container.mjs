@@ -29541,6 +29541,14 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       oneriBildirim(session.tenantId, m[1], staff ? "YANIT_SAHIBE" : "YANIT_EKIBE", session.userId);
       return;
     }
+    if (method === "DELETE" && (m = path.match(/^\/api\/saha\/oneriler\/([0-9a-f-]{36})$/))) {
+      const session = await requireSahaAccess(request, ['manager','admin']);
+      const r = await pool.query(
+        "DELETE FROM saha_oneri WHERE id=$1 AND tenant_id=$2 RETURNING baslik", [m[1], session.tenantId]);
+      if (!r.rowCount) { sendJson(response, 404, { error: "Kayıt bulunamadı." }); return; }
+      sendJson(response, 200, { ok: true, silinen: r.rows[0].baslik });
+      return;
+    }
     if (method === "PUT" && (m = path.match(/^\/api\/saha\/oneriler\/([0-9a-f-]{36})$/))) {
       const session = await requireSahaAccess(request, ['manager','admin']);
       const body = await readJson(request);

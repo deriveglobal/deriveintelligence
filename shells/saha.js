@@ -5831,9 +5831,20 @@ async function oneriThreadModal(id) {
       <textarea class="giris" id="ot-mesaj" rows="3" placeholder="${staff ? "Yanıtınızı yazın…" : "Eklemek istediğiniz bir şey var mı?"}"></textarea>
     </label>
     <div class="modal-btnlar">
+      ${staff ? `<button class="btn" id="ot-sil" style="background:#dc2626;margin-right:auto">🗑 Sil</button>` : ""}
       <button class="btn gri" data-kapat>Kapat</button>
       <button class="btn" id="ot-gonder">Gönder</button>
     </div>`);
+
+  document.getElementById("ot-sil")?.addEventListener("click", async () => {
+    if (!confirm(`"${o.baslik}" kaydı ve tüm mesajları kalıcı olarak silinecek. Geri alınamaz. Devam edilsin mi?`)) return;
+    try {
+      await api(`/api/saha/oneriler/${id}`, { method: "DELETE" });
+      kapatModal();
+      uyari("✓ Kayıt silindi.", true);
+      if (S.view === "oneriler") await loadView("oneriler");
+    } catch (e) { uyari(e.message); }
+  });
 
   const th = document.getElementById("ot-thread");
   if (th) th.scrollTop = th.scrollHeight;
