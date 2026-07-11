@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile } from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { extname, join, normalize } from "node:path";
@@ -483,7 +484,12 @@ function requireDatabase() {
   return pool;
 }
 
+const tenantALS = new AsyncLocalStorage();
 async function query(sql, params = []) {
+  const _ctx = tenantALS.getStore();
+  if (_ctx && _ctx.tenantId && !_ctx.elevated) {
+    return queryAsTenant(_ctx.tenantId, sql, params);
+  }
   return requireDatabase().query(sql, params);
 }
 
