@@ -319,7 +319,7 @@ export function initBiSurface(container, me, sub, callbacks) {
     const inp = container.querySelector('#vmo-brain-inp');
     const form = container.querySelector('#vmo-brain-form');
 
-    async function sendBrainMsg(msg) {
+    async function sendBrainMsg(msg, isGreeting) {
       if (!msg || !msg.trim()) return;
       inp.disabled = true;
       const ub = document.createElement('div');
@@ -335,7 +335,7 @@ export function initBiSurface(container, me, sub, callbacks) {
         const res = await fetch('/api/brain/chat', {
           method: 'POST', credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: msg })
+          body: JSON.stringify({ message: msg, is_greeting: !!isGreeting })
         });
         const thEl = document.getElementById('vmo-brain-thinking');
         if (thEl) thEl.remove();
@@ -512,7 +512,7 @@ export function initBiSurface(container, me, sub, callbacks) {
     var _brainDayKey = 'brain_greeted_' + new Date().toISOString().slice(0, 10);
     if (!msgsEl.children.length && !localStorage.getItem(_brainDayKey)) {
       localStorage.setItem(_brainDayKey, '1');
-      setTimeout(function() { sendBrainMsg('Merhaba! Bug\u00fcnk\u00fc genel durumu \u00f6zetle.'); }, 700);
+      setTimeout(function() { sendBrainMsg('Merhaba! Bug\u00fcnk\u00fc genel durumu \u00f6zetle.', true); }, 700);
     }
   }
 

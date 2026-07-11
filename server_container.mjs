@@ -24768,6 +24768,18 @@ function buildDeptSystemPrompt(dept, context, session) {
         try { body = await readJson(request); } catch { sendJson(response, 400, { error: 'Invalid JSON' }); return; }
         const userMsg = (body.message || '').trim();
         if (!userMsg) { sendJson(response, 400, { error: 'message required' }); return; }
+        if (body.is_greeting) {
+          try {
+            const _cg = await query("SELECT content FROM agent_greeting_cache WHERE user_id=$1 AND agent='ceo' AND greet_date=CURRENT_DATE", [session.userId]);
+            if (_cg.rows[0]) {
+              response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive', 'X-Accel-Buffering': 'no' });
+              response.write('data: ' + JSON.stringify({ text: _cg.rows[0].content }) + '\n\n');
+              response.write('data: ' + JSON.stringify({ done: true }) + '\n\n');
+              response.end();
+              return;
+            }
+          } catch (e) {}
+        }
         await query('INSERT INTO brain_conversations (tenant_id, role, content) VALUES ($1,$2,$3)', [tenantId, 'user', userMsg]);
         let hist = [];
         try {
@@ -24838,6 +24850,9 @@ function buildDeptSystemPrompt(dept, context, session) {
         }
         if (fullResp.trim()) {
           await query('INSERT INTO brain_conversations (tenant_id, role, content) VALUES ($1,$2,$3)', [tenantId, 'assistant', fullResp.trim()]);
+          if (body.is_greeting) {
+            try { await query("INSERT INTO agent_greeting_cache (tenant_id,user_id,agent,greet_date,content) VALUES ($1,$2,'ceo',CURRENT_DATE,$3) ON CONFLICT (user_id,agent,greet_date) DO UPDATE SET content=EXCLUDED.content, created_at=now()", [tenantId, session.userId, fullResp.trim()]); } catch (e) {}
+          }
         }
         response.write('data: ' + JSON.stringify({ done: true }) + '\n\n');
         response.end();
