@@ -4389,7 +4389,10 @@ async function oneriBildirim(tenantId, oneriId, olay, aktorUserId) {
       alicilar = (a.rows[0] && a.rows[0].bildirim_eposta) || [];
     }
     alicilar = [...new Set(alicilar.filter(Boolean))];
-    if (!alicilar.length) return;
+    if (!alicilar.length) {
+      console.log(`[oneriBildirim] SKIP olay=${olay} oneri=${oneriId} — alici yok (sahip=${t0.sahip_email || "-"} aktor=${aktorUserId})`);
+      return;
+    }
 
     const KAT = { HATA: "Hata Bildirimi", OZELLIK: "Özellik İsteği", UI: "Arayüz", DIGER: "Diğer" };
     const DUR = { YENI: "Yeni", INCELENIYOR: "İnceleniyor", TAMAMLANDI: "Tamamlandı", REDDEDILDI: "Reddedildi" };
@@ -4410,7 +4413,12 @@ async function oneriBildirim(tenantId, oneriId, olay, aktorUserId) {
         <p style="margin-top:14px;color:#64748b;font-size:12px">Saha &rsaquo; Öneriler sekmesinden görüntüleyip yanıtlayabilirsiniz.</p>
       </div>`;
     for (const adr of alicilar) {
-      await sendGraphMail({ to: adr, subject: `[Derive Saha] ${ust}: ${t0.baslik}`, body: html });
+      try {
+        await sendGraphMail({ to: adr, subject: `[Derive Saha] ${ust}: ${t0.baslik}`, body: html });
+        console.log(`[oneriBildirim] SENT olay=${olay} -> ${adr} ("${t0.baslik}")`);
+      } catch (me) {
+        console.error(`[oneriBildirim] FAILED olay=${olay} -> ${adr} :: ${me && me.message}`);
+      }
     }
   } catch (e) {
     console.error("[oneriBildirim]", e && e.message);
