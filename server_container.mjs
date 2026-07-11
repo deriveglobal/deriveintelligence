@@ -29276,14 +29276,14 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       if (!Array.isArray(rep_ids) || !icerik) { sendJson(response, 400, { error: "rep_ids ve icerik zorunlu" }); return; }
       for (const rid of rep_ids) {
         let kRes = await pool.query(
-          `SELECT id FROM saha_konusma WHERE tenant_id=$1 AND rep_id=$2 AND tip='rep-manager' LIMIT 1`,
+          `SELECT id FROM saha_konusma WHERE tenant_id=$1 AND rep_id=$2 AND tip='BIREYSEL' LIMIT 1`,
           [session.tenantId, rid]
         );
         let kid;
         if (kRes.rows.length) { kid = kRes.rows[0].id; }
         else {
           const ins = await pool.query(
-            `INSERT INTO saha_konusma (id,tenant_id,tip,rep_id) VALUES (gen_random_uuid(),$1,'rep-manager',$2) RETURNING id`,
+            `INSERT INTO saha_konusma (id,tenant_id,tip,rep_id) VALUES (gen_random_uuid(),$1,'BIREYSEL',$2) RETURNING id`,
             [session.tenantId, rid]
           );
           kid = ins.rows[0].id;
@@ -29303,7 +29303,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       const body = await readJson(request);
       const { icerik } = body;
       if (!icerik) { sendJson(response, 400, { error: "icerik zorunlu" }); return; }
-      // Yayım için ayrı konuşma kaydı (tip='yayim') her temsilci için
+      // Yayım için ayrı konuşma kaydı (tip='YAYIM') her temsilci için
       const reps = await pool.query(
         `SELECT DISTINCT u.id FROM users u
           JOIN user_modules um ON um.user_id=u.id AND um.module='saha'
@@ -29312,14 +29312,14 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       );
       for (const r of reps.rows) {
         let kRes = await pool.query(
-          `SELECT id FROM saha_konusma WHERE tenant_id=$1 AND rep_id=$2 AND tip='yayim' LIMIT 1`,
+          `SELECT id FROM saha_konusma WHERE tenant_id=$1 AND rep_id=$2 AND tip='YAYIM' LIMIT 1`,
           [session.tenantId, r.id]
         );
         let kid;
         if (kRes.rows.length) { kid = kRes.rows[0].id; }
         else {
           const ins = await pool.query(
-            `INSERT INTO saha_konusma (id,tenant_id,tip,rep_id) VALUES (gen_random_uuid(),$1,'yayim',$2) RETURNING id`,
+            `INSERT INTO saha_konusma (id,tenant_id,tip,rep_id) VALUES (gen_random_uuid(),$1,'YAYIM',$2) RETURNING id`,
             [session.tenantId, r.id]
           );
           kid = ins.rows[0].id;
@@ -29342,7 +29342,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       if (session.sahaRole === "rep") {
         // Rep'in yönetici ile konuşması (veya oluştur)
         let kRes = await pool.query(
-          `SELECT id FROM saha_konusma WHERE tenant_id=$1 AND rep_id=$2 AND tip='rep-manager' LIMIT 1`,
+          `SELECT id FROM saha_konusma WHERE tenant_id=$1 AND rep_id=$2 AND tip='BIREYSEL' LIMIT 1`,
           [tid, session.userId]
         );
         let konusma_id;
@@ -29350,7 +29350,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
           konusma_id = kRes.rows[0].id;
         } else {
           const ins = await pool.query(
-            `INSERT INTO saha_konusma (id,tenant_id,tip,rep_id) VALUES (gen_random_uuid(),$1,'rep-manager',$2) RETURNING id`,
+            `INSERT INTO saha_konusma (id,tenant_id,tip,rep_id) VALUES (gen_random_uuid(),$1,'BIREYSEL',$2) RETURNING id`,
             [tid, session.userId]
           );
           konusma_id = ins.rows[0].id;
@@ -29368,7 +29368,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
             `SELECT m.id, m.gonderen_adi, m.icerik, m.created_at
                FROM saha_konusma k
                JOIN saha_konusma_mesaj m ON m.konusma_id=k.id
-              WHERE k.tenant_id=$1 AND k.rep_id=$2 AND k.tip='yayim'
+              WHERE k.tenant_id=$1 AND k.rep_id=$2 AND k.tip='YAYIM'
               ORDER BY m.created_at DESC LIMIT 20`,
             [tid, session.userId]
           );
@@ -29389,7 +29389,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
               0::int AS okunmamis
              FROM saha_konusma k
              LEFT JOIN users u ON u.id=k.rep_id
-            WHERE k.tenant_id=$1 AND k.tip='rep-manager'
+            WHERE k.tenant_id=$1 AND k.tip='BIREYSEL'
             ORDER BY (SELECT MAX(m3.created_at) FROM saha_konusma_mesaj m3 WHERE m3.konusma_id=k.id) DESC NULLS LAST
             LIMIT 100`,
           [tid]
@@ -29401,7 +29401,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
             `SELECT DISTINCT ON (m.icerik) m.icerik, m.created_at, m.gonderen_adi
                FROM saha_konusma k
                JOIN saha_konusma_mesaj m ON m.konusma_id=k.id
-              WHERE k.tenant_id=$1 AND k.tip='yayim'
+              WHERE k.tenant_id=$1 AND k.tip='YAYIM'
               ORDER BY m.icerik, m.created_at DESC
               LIMIT 5`,
             [tid]
@@ -29419,7 +29419,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       const repId = m[1];
       const tid = session.tenantId;
       let kRes = await pool.query(
-        `SELECT id FROM saha_konusma WHERE tenant_id=$1 AND rep_id=$2 AND tip='rep-manager' LIMIT 1`,
+        `SELECT id FROM saha_konusma WHERE tenant_id=$1 AND rep_id=$2 AND tip='BIREYSEL' LIMIT 1`,
         [tid, repId]
       );
       let konusma_id = null, mesajlar = [];
@@ -29577,18 +29577,22 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
 
     // ══ LOG / HATA ═══════════════════════════════════════════════════════════
     if (method === "POST" && path === "/api/saha/log-hata") {
-      // Sessiz hata logu — auth gerekmez
+      // Sessiz hata logu — auth zorunlu degil, ama varsa gercek tenant/user'i kullan.
+      // (Onceki hali sahte bir UUID yaziyordu; tenant_id FK oldugu icin HER insert
+      //  sessizce dusuyordu ve hata kaydi hic tutulmuyordu.)
       try {
         const body = await readJson(request);
         const { tip, view_adi, endpoint, http_status, hata_mesaji, duration_ms, extra } = body;
+        let _tid = null, _uid = null;
+        try { const _s = await requireSahaAccess(request); _tid = _s.tenantId || null; _uid = _s.userId || null; } catch (_) {}
         await pool.query(
           `INSERT INTO saha_hata_log (id,tenant_id,user_id,tip,view_adi,endpoint,http_status,hata_mesaji,duration_ms,extra)
            VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          ['00000000-0000-0000-0000-000000000000', null, tip||'client', view_adi||null,
+          [_tid, _uid, tip||'client', view_adi||null,
            endpoint||null, http_status||null, hata_mesaji||null, duration_ms||null,
            extra ? JSON.stringify(extra) : null]
         );
-      } catch(_) {}
+      } catch (e) { console.error("[log-hata]", e && e.message); }
       sendJson(response, 200, { ok: true });
       return;
     }
