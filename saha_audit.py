@@ -52,15 +52,22 @@ print("\n=== 2) Saha POST/PUT handlers that use `body` must parse it ===")
 # scope to the saha router
 sidx = src.find('startsWith("/api/saha/")')
 saha = src[sidx:] if sidx >= 0 else src
-# each `... } = body;` or `body.<x>` occurrence: is there a readJson within 15 lines above?
+# each `... } = body;` or `body.<x>` occurrence: was `body` parsed earlier in the
+# SAME handler? (a fixed 15-line window false-positives on long handlers)
 lines = saha.splitlines()
+_HSTART = re.compile(r"if \(method === ")
 for i, ln in enumerate(lines):
     if re.search(r"\}\s*=\s*body;|=\s*body\.", ln) or re.search(r"\bbody\.\w+", ln):
-        window = "\n".join(lines[max(0, i-15):i+1])
+        start = max(0, i - 400)
+        for j in range(i, start, -1):
+            if _HSTART.search(lines[j]):
+                start = j
+                break
+        window = "\n".join(lines[start:i+1])
         if ("readJson(request)" not in window and "await new Promise" not in window
                 and "for await" not in window and "JSON.parse" not in window
                 and "readRawBody" not in window):
-            bad("line uses `body` without readJson nearby: " + ln.strip()[:70])
+            bad("line uses `body` without readJson in its handler: " + ln.strip()[:70])
         # else silently ok (too many to list)
 print("  (only failures shown; no output above = all body uses are parsed)")
 

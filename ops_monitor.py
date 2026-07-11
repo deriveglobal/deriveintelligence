@@ -122,8 +122,18 @@ try:
     mm = re.search(r"TOTAL:\s*\d+ passed,\s*\d+ warnings,\s*(\d+) FAILURES", au)
     fails = int(mm.group(1)) if mm else -1
     st = "ok" if fails == 0 else ("crit" if fails > 0 else "warn")
-    add("app.endpoint_coverage", "app", "Uc nokta kapsamasi (saha)", st,
-        ("%d hata" % fails) if fails >= 0 else "?", "Front<->server uc nokta denetimi.", fails)
+    # Name the actual failures. An alert you cannot act on is only half an alert.
+    _fl = [re.sub(r"\s+", " ", l.strip()[4:].strip(" :")) for l in au.splitlines()
+           if l.strip().startswith("FAIL")]
+    _fl = [x.replace("'", "\"") for x in _fl if x]
+    if _fl:
+        _d = " | ".join(_fl[:5])[:400]
+        if len(_fl) > 5:
+            _d += " | (+%d daha)" % (len(_fl) - 5)
+    else:
+        _d = "Saha denetimi temiz (uc nokta + kod)."
+    add("app.endpoint_coverage", "app", "Saha denetimi (uc nokta + kod)", st,
+        ("%d hata" % fails) if fails >= 0 else "?", _d, fails)
 except Exception as e:
     add("app.endpoint_coverage", "app", "Uc nokta kapsamasi (saha)", "warn", "", "denetim calismadi: %s" % e)
 
