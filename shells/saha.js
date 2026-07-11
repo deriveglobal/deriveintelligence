@@ -455,10 +455,17 @@ async function vZiyaretler() {
         : ziyaretler;
       if (repFiltre) liste = liste.filter(z => (z.rep_full_name || z.rep_adi || "") === repFiltre);
 
+      const ara = (document.getElementById("ziy-filtre")?.value || "").trim().toLocaleLowerCase("tr");
+      if (ara) {
+        liste = liste.filter(z =>
+          [z.firma, z.il, z.ilce, z.lokasyon_adi, z.notlar, z.rep_full_name, z.rep_adi]
+            .some(v => String(v || "").toLocaleLowerCase("tr").includes(ara)));
+      }
+
       const listEl = document.getElementById("ziyaret-liste");
       if (listEl) listEl.innerHTML = liste.length
         ? liste.map(zKart).join("")
-        : `<div class="saha-bos">${repFiltre ? "Bu temsilciye ait ziyaret yok." : bugunFiltre ? "Bugün tamamlanan ziyaret yok." : "Henüz ziyaret yok. İlk ziyaretini kaydet!"}</div>`;
+        : `<div class="saha-bos">${ara ? "Aramayla eşleşen ziyaret yok." : repFiltre ? "Bu temsilciye ait ziyaret yok." : bugunFiltre ? "Bugün tamamlanan ziyaret yok." : "Henüz ziyaret yok. İlk ziyaretini kaydet!"}</div>`;
       listEl?.querySelectorAll("[data-zid]").forEach(el =>
         el.addEventListener("click", () => ziyaretDetayModal(el.dataset.zid)));
     }
@@ -486,6 +493,7 @@ async function vZiyaretler() {
 
     main().innerHTML = `
       <button class="saha-cta" id="yeni-ziyaret">＋ Yeni Ziyaret</button>
+      <input class="giris" id="ziy-filtre" placeholder="🔍 Ara — firma, şehir, not…" autocomplete="off">
       ${filtreBandi}
       ${repSecEl}
       <div id="ziyaret-liste"></div>`;
@@ -494,6 +502,11 @@ async function vZiyaretler() {
     main().querySelector("#yeni-ziyaret").addEventListener("click", () => musteriSecModal(z => ziyaretFormModal(z, "kaydet")));
     main().querySelector("#filtre-kaldir")?.addEventListener("click", () => loadView("ziyaretler"));
     main().querySelector("#rep-filtre")?.addEventListener("change", function() { renderListe(this.value); });
+    let _zt = null;
+    main().querySelector("#ziy-filtre")?.addEventListener("input", () => {
+      clearTimeout(_zt);
+      _zt = setTimeout(() => renderListe(main().querySelector("#rep-filtre")?.value || ""), 200);
+    });
   } catch (e) { main().innerHTML = hata(e); }
 }
 
@@ -1247,9 +1260,9 @@ async function vMusteriler() {
   S.birlestirSecim = null; // null = normal mod; Set = birleştirme modu
   main().innerHTML = `
     <button class="saha-cta" id="yeni-musteri">＋ Müşteri</button>
+    <input class="giris" id="mus-filtre" placeholder="🔍 Ara — firma, şehir, ilçe, ERP kodu, vergi no" autocomplete="off">
     <div id="kontrol-paneli"></div>
     ${S.role !== "rep" ? `<div id="bakim-paneli"></div>` : ""}
-    <input class="giris" id="mus-filtre" placeholder="Müşteri ara…" autocomplete="off">
     <div id="mus-liste"><div class="saha-load">Yükleniyor…</div></div>`;
   if (S.role !== "rep") bakimPaneliYukle();
   kontrolPaneliYukle();

@@ -26300,10 +26300,24 @@ async function handleSahaApi(request, response, url, deps) {
       const q = (url.searchParams.get("q") || "").trim();
       if (tip)   { params.push(tip);        sql += ` AND m.tip = $${params.length}`; }
       if (durum) { params.push(durum);      sql += ` AND m.durum = $${params.length}`; }
-      if (q)     { params.push(`%${q}%`);   sql += ` AND m.firma ILIKE $${params.length}`; }
-      sql += ` ORDER BY sz.son_ziyaret DESC NULLS LAST, m.firma ASC LIMIT 200`;
+      if (q) {
+        params.push(`%${q}%`);
+        const qi = params.length;
+        sql += ` AND (m.firma ILIKE $${qi} OR m.il ILIKE $${qi} OR m.ilce ILIKE $${qi}
+                      OR m.musteri_kodu ILIKE $${qi} OR m.vergi_no ILIKE $${qi})`;
+      }
+      // honour limit/offset (the client always sent them; we were ignoring both)
+      let _lim = parseInt(url.searchParams.get("limit") || "50", 10);
+      if (!Number.isFinite(_lim) || _lim < 1) _lim = 50;
+      if (_lim > 200) _lim = 200;
+      let _off = parseInt(url.searchParams.get("offset") || "0", 10);
+      if (!Number.isFinite(_off) || _off < 0) _off = 0;
+      params.push(_lim + 1); const _li = params.length;   // +1 row = "is there more?"
+      params.push(_off);     const _oi = params.length;
+      sql += ` ORDER BY sz.son_ziyaret DESC NULLS LAST, m.firma ASC LIMIT $${_li} OFFSET $${_oi}`;
       const result = await query(sql, params);
-      sendJson(response, 200, { musteriler: result.rows });
+      const hasMore = result.rows.length > _lim;
+      sendJson(response, 200, { musteriler: hasMore ? result.rows.slice(0, _lim) : result.rows, hasMore });
       return;
     }
 
