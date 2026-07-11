@@ -26293,7 +26293,7 @@ async function handleSahaApi(request, response, url, deps) {
       if (tip)   { params.push(tip);        sql += ` AND m.tip = $${params.length}`; }
       if (durum) { params.push(durum);      sql += ` AND m.durum = $${params.length}`; }
       if (q)     { params.push(`%${q}%`);   sql += ` AND m.firma ILIKE $${params.length}`; }
-      sql += ` ORDER BY m.firma LIMIT 200`;
+      sql += ` ORDER BY sz.son_ziyaret DESC NULLS LAST, m.firma ASC LIMIT 200`;
       const result = await query(sql, params);
       sendJson(response, 200, { musteriler: result.rows });
       return;
