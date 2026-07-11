@@ -26588,6 +26588,26 @@ async function handleSahaApi(request, response, url, deps) {
           SET checkin_at = now(), checkin_lat = $3, checkin_lng = $4, updated_at = now()
           WHERE tenant_id = $1 AND id = $2 RETURNING *
         `, [session.tenantId, m[1], p.lat ?? null, p.lng ?? null]);
+        // İLK check-in bugünkü başlangıç noktasını belirler (Asistan rota önerisi için).
+        // Müşterinin şehri zaten kayıtlı — geocoding gerekmez. Sonraki check-in'ler
+        // başlangıcı DEĞİŞTİRMEZ: başlangıç, gününe nereden başladığındır.
+        try {
+          const _z = result.rows[0];
+          if (_z) {
+            const _mc = await pool.query(
+              "SELECT il, ilce FROM saha_musteri WHERE tenant_id=$1 AND id=$2",
+              [session.tenantId, _z.musteri_id]);
+            const _il   = _mc.rows[0] ? _mc.rows[0].il   : null;
+            const _ilce = _mc.rows[0] ? _mc.rows[0].ilce : null;
+            if (_il || p.lat != null) {
+              await pool.query(
+                `INSERT INTO saha_rep_gunluk_baslangic (tenant_id, rep_id, tarih, sehir, ilce, lat, lng, kaynak)
+                 VALUES ($1,$2,CURRENT_DATE,$3,$4,$5,$6,'OTOMATIK')
+                 ON CONFLICT (rep_id, tarih) DO NOTHING`,
+                [session.tenantId, session.userId, _il, _ilce, p.lat ?? null, p.lng ?? null]);
+            }
+          }
+        } catch (e) { console.error("[gunluk-baslangic/checkin]", e && e.message); }
       } else if (action === "tamamla") {
         result = await query(`
           UPDATE saha_ziyaret

@@ -314,6 +314,39 @@ function tabBadge(v, sayi) {
   }
 }
 
+// ── GÜNLÜK BAŞLANGIÇ NOKTASI ────────────────────────────────────────────────
+// Sadece gösterim: ilk check-in bunu otomatik belirler. Rota önerisi buradan başlar.
+async function baslangicStripYukle() {
+  const box = document.getElementById("bugun-baslangic");
+  if (!box) return;
+  let d = {};
+  try { d = await api("/api/saha/gunluk-baslangic"); } catch { box.innerHTML = ""; return; }
+  const b = d.bugun, merkez = d.merkez;
+
+  if (b) {
+    const yer = [b.sehir, b.ilce].filter(Boolean).join(" / ") || (b.lat ? `${b.lat}, ${b.lng}` : "—");
+    box.innerHTML = `
+      <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:8px 12px;margin-bottom:14px;display:flex;align-items:center;gap:8px;font-size:12px;color:#065f46">
+        <span>📍</span>
+        <span style="flex:1"><b>Bugünkü başlangıç:</b> ${esc(yer)}${b.kaynak === "OTOMATIK" ? ` <span style="color:#059669">· ilk check-in'den</span>` : ""}</span>
+        <button class="btn kucuk cizgili" id="bs-sifirla" style="font-size:11px;padding:3px 8px">Sıfırla</button>
+      </div>`;
+    document.getElementById("bs-sifirla")?.addEventListener("click", async () => {
+      try {
+        await api("/api/saha/gunluk-baslangic", { method: "DELETE" });
+        uyari("✓ Sıfırlandı — merkez konumun kullanılacak.", true);
+        baslangicStripYukle();
+      } catch (e) { uyari(e.message); }
+    });
+  } else {
+    const merkezYer = merkez && (merkez.base_adres || (merkez.base_lat ? "kayıtlı merkez konum" : null));
+    box.innerHTML = `
+      <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:8px 12px;margin-bottom:14px;font-size:12px;color:#64748b">
+        📍 Başlangıç: <b>${merkezYer ? esc(merkezYer) : "ayarlanmamış"}</b> — bugünün ilk <b>check-in</b>'inde otomatik güncellenir.
+      </div>`;
+  }
+}
+
 // ── BUGÜN (home) ─────────────────────────────────────────────────────────────
 async function vBugun() {
   try {
@@ -398,13 +431,16 @@ async function vBugun() {
 
     main().innerHTML = `
       <div style="padding:2px 0 24px">
-        <div style="font-size:17px;font-weight:700;color:#0f172a;margin-bottom:18px;text-transform:capitalize">${tarihStr}</div>
+        <div style="font-size:17px;font-weight:700;color:#0f172a;margin-bottom:10px;text-transform:capitalize">${tarihStr}</div>
+        <div id="bugun-baslangic"></div>
         ${hatirlatmalar.length ? secBlock("⏰", "Hatırlatmalar", hatirlatmalar.length, "#7c3aed", hatirlatmaHtml) : ""}
         ${secBlock("📅", "Bugünün Ziyaretleri", ziyaretler.length || null, "#0ea5e9", ziyaretHtml)}
         ${secBlock("📢", "Okunmamış Duyurular", duyurular_okunmamis.length || null, "#dc2626", duyuruHtml)}
         ${secBlock("💬", "Mesajlar", mesaj_okunmamis || null, "#0284c7", mesajHtml)}
         ${secBlock("💰", "Bekleyen Teklifler", teklifler.length || null, "#d97706", teklifHtml)}
       </div>`;
+
+    baslangicStripYukle();
 
     // check-in (rep only)
     main().querySelectorAll("[data-checkin]").forEach(btn =>
