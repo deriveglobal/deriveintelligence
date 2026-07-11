@@ -28876,6 +28876,18 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       const body = await readJson(request);
       const mesaj = (body.mesaj || body.message || '').toString().trim();
       if (!mesaj) { sendJson(response, 400, { error: 'mesaj zorunlu' }); return; }
+      if (body.is_greeting) {
+        try {
+          const _rg = await pool.query("SELECT content FROM agent_greeting_cache WHERE user_id=$1 AND agent='rep' AND greet_date=CURRENT_DATE", [session.userId]);
+          if (_rg.rows[0]) {
+            response.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no" });
+            response.write("data: " + JSON.stringify({ text: _rg.rows[0].content }) + "\n\n");
+            response.write("data: [DONE]\n\n");
+            response.end();
+            return;
+          }
+        } catch (e) {}
+      }
       // Sohbet geçmişini kaydet
       await pool.query(
         `INSERT INTO saha_rep_conversations (tenant_id, rep_id, role, content)
@@ -28989,6 +29001,9 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
          VALUES ($1,$2,'assistant',$3)`,
         [session.tenantId, session.userId, yanit]
       );
+      if (body.is_greeting && yanit && !yanit.startsWith('Hata:') && yanit !== 'Şu an yanıt veremiyorum, lütfen tekrar dene.') {
+        try { await pool.query("INSERT INTO agent_greeting_cache (tenant_id,user_id,agent,greet_date,content) VALUES ($1,$2,'rep',CURRENT_DATE,$3) ON CONFLICT (user_id,agent,greet_date) DO UPDATE SET content=EXCLUDED.content, created_at=now()", [session.tenantId, session.userId, yanit]); } catch (e) {}
+      }
       response.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no" });
       response.write("data: " + JSON.stringify({ text: yanit }) + "\n\n");
       response.write("data: [DONE]\n\n");
