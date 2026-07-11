@@ -13,7 +13,8 @@ BEGIN
     'bi_ekonomik_parametreler'
   ]
   LOOP
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name=t) THEN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+               WHERE n.nspname='public' AND c.relname=t AND c.relkind='r') THEN
       EXECUTE format('ALTER TABLE public.%I DISABLE ROW LEVEL SECURITY', t);
       EXECUTE format('DROP POLICY IF EXISTS tenant_isolation ON public.%I', t);
       RAISE NOTICE 'SHARED (RLS off): %', t;
