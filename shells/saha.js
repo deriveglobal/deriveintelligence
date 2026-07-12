@@ -4791,11 +4791,34 @@ function uyari(mesaj, basari = false) {
 // ── RAKIP FIYATLAR (SAHA_RAKIP_V2) ───────────────────────────────────────────
 // UST SEVIYE olmali — dispatch (satir ~294) sadece kolon-0 fonksiyonlari gorur.
 // V1'de bunu Rapor closure'ina koydum: "Can't find variable: vRakip" -> kabuk olmustu.
+// TAZELIK_V1 — "ne zaman cekildi" her fiyatin YANINDA olmali.
+function rkTazelik(ts) {
+  if (!ts) return '<span style="color:#9ca3af">tarih yok</span>';
+  const t = new Date(ts).getTime();
+  if (isNaN(t)) return '<span style="color:#9ca3af">tarih yok</span>';
+  const dk = Math.floor((Date.now() - t) / 60000);
+  let metin, renk;
+  if (dk < 60)          { metin = dk + " dk önce";              renk = "#059669"; }
+  else if (dk < 1440)   { metin = Math.floor(dk / 60) + " saat önce"; renk = "#059669"; }
+  else {
+    const g = Math.floor(dk / 1440);
+    metin = g + " gün önce";
+    renk = g <= 1 ? "#059669" : (g <= 3 ? "#d97706" : "#dc2626");
+  }
+  const uyari = dk > 4320 ? ' ⚠' : '';   // 3 gunden eski
+  return '<span style="color:' + renk + ';font-weight:600">🕐 ' + metin + uyari + '</span>';
+}
+
 async function vRakip() {
   const m = main();
   m.innerHTML = `
     <div style="padding:10px 12px">
-      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#1e40af">
+      <div style="display:flex;gap:4px;margin-bottom:10px;overflow-x:auto">
+        <button class="rkt on" data-t="ara"   style="white-space:nowrap;padding:7px 12px;border:1px solid #3b82f6;background:#3b82f6;color:#fff;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">🔍 Fiyat Ara</button>
+        <button class="rkt"    data-t="trend" style="white-space:nowrap;padding:7px 12px;border:1px solid #e5e7eb;background:#f9fafb;color:#6b7280;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">📈 Trend</button>
+        <button class="rkt"    data-t="dot"   style="white-space:nowrap;padding:7px 12px;border:1px solid #e5e7eb;background:#f9fafb;color:#6b7280;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">📅 Eski Üretim</button>
+      </div>
+      <div id="rk-bilgi" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#1e40af">
         <b>İnternet piyasası.</b> Müşterinin telefonunda gördüğü fiyat. Marka veya ebat girin.
       </div>
       <div style="display:flex;gap:6px;margin-bottom:8px">
@@ -4852,6 +4875,13 @@ async function vRakip() {
         if (!fs.length) return "";
         const enUcuz = fs[0], enPahali = fs[fs.length - 1], medyan = fs[Math.floor(fs.length / 2)];
         const kaynak = Object.keys(g.ilan.reduce(function(a, x) { a[x.kaynak] = 1; return a; }, {}));
+        // TAZELIK_V1: bu urunun fiyatlari NE ZAMAN cekildi?
+        const zamanlar = g.ilan.map(function(x) { return x.scraped_at; })
+          .filter(Boolean).map(function(z) { return new Date(z).getTime(); })
+          .filter(function(z) { return !isNaN(z); }).sort(function(a, b) { return b - a; });
+        const enTaze = zamanlar.length ? zamanlar[0] : null;
+        const enEski = zamanlar.length ? zamanlar[zamanlar.length - 1] : null;
+        const bayat  = enTaze && (Date.now() - enTaze) > 3 * 86400000;
         const eski = g.ilan.filter(function(x) { return x.uretim_yili && x.uretim_yili <= 2023; });
         const ucuzIlan = g.ilan.filter(function(x) { return parseFloat(x.fiyat) === enUcuz; })[0] || {};
         return '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:8px">'
@@ -4874,6 +4904,14 @@ async function vRakip() {
           +   '<span>en yüksek <b style="color:#374151">' + tl(enPahali) + '</b></span>'
           +   '<span>' + fs.length + ' ilan · ' + kaynak.length + ' pazaryeri</span>'
           + '</div>'
+          + '<div style="margin-top:6px;padding-top:6px;border-top:1px dashed #e5e7eb;font-size:11px;display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap">'
+          +   '<span>' + rkTazelik(enTaze ? new Date(enTaze).toISOString() : null) + '</span>'
+          +   (enEski && enTaze && (enTaze - enEski) > 86400000
+                ? '<span style="color:#9ca3af">en eski ilan: ' + rkTazelik(new Date(enEski).toISOString()) + '</span>' : '')
+          + '</div>'
+          + (bayat
+              ? '<div style="margin-top:6px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:5px 8px;font-size:11px;color:#b91c1c">'
+                + '⚠ <b>Bu fiyat 3 günden eski.</b> Müşteriye söylemeden önce ilanı açıp doğrulayın.</div>' : '')
           + (eski.length
               ? '<div style="margin-top:6px;background:#fef2f2;border-radius:6px;padding:5px 8px;font-size:11px;color:#b91c1c">⚠ '
                 + eski.length + ' ilan <b>' + Math.min.apply(null, eski.map(function(x) { return x.uretim_yili; }))
@@ -4890,11 +4928,140 @@ async function vRakip() {
       box.innerHTML = '<div class="saha-bos" style="color:#dc2626">Hata: ' + esc((e && e.message) || "bilinmiyor") + '</div>';
     }
   };
+  // ── TREND: son 30 gunde fiyat yukseliyor mu, dusuyor mu ──
+  const trend = async function() {
+    const ebat = ((document.getElementById("rk-ebat") || {}).value || "").trim();
+    const marka = ((document.getElementById("rk-marka") || {}).value || "").trim();
+    const box = document.getElementById("rk-sonuc");
+    if (!box) return;
+    if (!ebat) { box.innerHTML = '<div class="saha-bos">Trend için EBAT girin (örn 205/55R16).</div>'; return; }
+    box.innerHTML = '<div class="saha-load">Trend çıkarılıyor…</div>';
+    try {
+      const qs = new URLSearchParams({ ebat: ebat, gun: "30", grup: "piyasa" });
+      if (marka) qs.set("marka", marka);
+      const d = await api("/api/rakip/trend?" + qs.toString());
+      const seri = (d && (d.seri || d.noktalar || d.rows)) || [];
+      if (seri.length < 3) {
+        box.innerHTML = '<div class="saha-bos">Bu ebatta trend için yeterli gün yok.<br>'
+          + '<span style="font-size:11px;color:#94a3b8">Az veri = fiyat sabit DEĞİL. Yorum yapmayın.</span></div>';
+        return;
+      }
+      const val = function(x) { return Number(x.medyan != null ? x.medyan : (x.p50 != null ? x.p50 : x.fiyat)); };
+      const ilk = val(seri[0]), son = val(seri[seri.length - 1]);
+      const pct = Math.round((son - ilk) / ilk * 100);
+      const yon = pct > 3 ? { t: "YÜKSELİYOR", c: "#dc2626", i: "↗" }
+                : pct < -3 ? { t: "DÜŞÜYOR", c: "#059669", i: "↘" }
+                : { t: "YATAY", c: "#6b7280", i: "→" };
+      const fs = seri.map(val).filter(function(x) { return !isNaN(x); });
+      const mn = Math.min.apply(null, fs), mx = Math.max.apply(null, fs);
+      const W = 300, H = 70;
+      const pts = fs.map(function(v, i) {
+        const x = (i / Math.max(fs.length - 1, 1)) * W;
+        const y = H - ((v - mn) / Math.max(mx - mn, 1)) * H;
+        return x.toFixed(0) + "," + y.toFixed(0);
+      }).join(" ");
+      const tl = function(n) { return Number(n).toLocaleString("tr-TR", { maximumFractionDigits: 0 }) + " ₺"; };
+      box.innerHTML = '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:12px">'
+        + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+        +   '<div style="font-weight:700;font-size:14px">' + esc(ebat) + (marka ? " · " + esc(marka) : "") + '</div>'
+        +   '<div style="font-size:15px;font-weight:800;color:' + yon.c + '">' + yon.i + " %" + Math.abs(pct) + '</div>'
+        + '</div>'
+        + '<div style="font-size:12px;color:' + yon.c + ';font-weight:600;margin-bottom:8px">Son 30 gün: fiyat ' + yon.t + '</div>'
+        + '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:70px">'
+        +   '<polyline points="' + pts + '" fill="none" stroke="' + yon.c + '" stroke-width="2"/>'
+        + '</svg>'
+        + '<div style="display:flex;justify-content:space-between;font-size:11px;color:#6b7280;margin-top:6px">'
+        +   '<span>' + tl(ilk) + ' <span style="color:#9ca3af">(30 gün önce)</span></span>'
+        +   '<span><b style="color:#111">' + tl(son) + '</b> bugün</span>'
+        + '</div>'
+        + '<div style="margin-top:10px;font-size:11px;color:#6b7280;background:#f9fafb;border-radius:6px;padding:7px 9px">'
+        +   (pct > 3 ? 'Fiyat yükseliyor — müşteriye "şimdi alın" demek için gerçek bir gerekçeniz var.'
+             : pct < -3 ? 'Fiyat düşüyor — müşteri beklemek isteyebilir. Buna hazır olun.'
+             : 'Fiyat yatay — acele ettirecek bir hareket yok.')
+        + '</div></div>';
+    } catch (e) {
+      box.innerHTML = '<div class="saha-bos" style="color:#dc2626">Hata: ' + esc((e && e.message) || "?") + '</div>';
+    }
+  };
+
+  // ── ESKI URETIM (DOT): rakip eski stok bosaltiyor mu ──
+  const dot = async function() {
+    const marka = ((document.getElementById("rk-marka") || {}).value || "").trim();
+    const ebat  = ((document.getElementById("rk-ebat")  || {}).value || "").trim();
+    const box = document.getElementById("rk-sonuc");
+    if (!box) return;
+    box.innerHTML = '<div class="saha-load">Eski üretim taranıyor…</div>';
+    try {
+      const qs = new URLSearchParams({ min_indirim: "20" });
+      if (marka) qs.set("marka", marka);
+      if (ebat)  qs.set("ebat", ebat);
+      const d = await api("/api/rakip/dot?" + qs.toString());
+      const f = (d && d.firsatlar) || [];
+      if (!f.length) {
+        box.innerHTML = '<div class="saha-bos">Bu aramada eski üretim indirimi bulunamadı.</div>';
+        return;
+      }
+      const tl = function(n) { return Number(n).toLocaleString("tr-TR", { maximumFractionDigits: 0 }) + " ₺"; };
+      box.innerHTML = '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:11.5px;color:#92400e">'
+        + '<b>Rakip eski üretim stoğunu indirimle boşaltıyor.</b> Müşteri bu fiyatı görüp size gelebilir. '
+        + 'Fark üretim yılından — bunu <b>anlatın</b>, bizim lastiğimiz yeniyse bu bir <b>avantaj</b>.</div>'
+        + f.slice(0, 20).map(function(r) {
+          return '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:8px">'
+            + '<div style="font-weight:700;font-size:13.5px">' + esc(r.marka) + ' <span style="color:#6b7280;font-weight:500">' + esc(r.desen || "") + '</span></div>'
+            + '<div style="font-family:monospace;font-size:12px;color:#6b7280;margin:2px 0 8px">' + esc(r.ebat) + '</div>'
+            + '<div style="display:flex;align-items:center;gap:8px;font-size:12px">'
+            +   '<span style="background:#fee2e2;color:#b91c1c;border-radius:5px;padding:2px 7px;font-weight:700">' + r.eski_yil + '</span>'
+            +   '<b style="color:#b91c1c">' + tl(r.eski_fiyat) + '</b>'
+            +   '<span style="color:#9ca3af">→</span>'
+            +   '<span style="background:#dcfce7;color:#166534;border-radius:5px;padding:2px 7px;font-weight:700">' + r.yeni_yil + '</span>'
+            +   '<b style="color:#166534">' + tl(r.yeni_fiyat) + '</b>'
+            +   '<span style="margin-left:auto;font-weight:800;color:#dc2626">−%' + r.indirim + '</span>'
+            + '</div>'
+            + '<div style="margin-top:6px;font-size:11px;color:#6b7280">' + esc(r.eski_kaynak || "") + ' üzerinde'
+            + (r.eski_url ? ' · <a href="' + esc(r.eski_url) + '" target="_blank" rel="noopener noreferrer" style="color:#2563eb;text-decoration:none">ilanı aç ↗</a>' : "")
+            + '</div>'
+            + '<div style="margin-top:4px;font-size:11px">' + rkTazelik(r.scraped_at || r.son_gorulme) + '</div>'
+            + '</div>';
+        }).join("");
+    } catch (e) {
+      box.innerHTML = '<div class="saha-bos" style="color:#dc2626">Hata: ' + esc((e && e.message) || "?") + '</div>';
+    }
+  };
+
+  // ── alt sekme gecisi ──
+  let mod = "ara";
+  const bilgiler = {
+    ara:   '<b>İnternet piyasası.</b> Müşterinin telefonunda gördüğü fiyat. Marka veya ebat girin.',
+    trend: '<b>Fiyat trendi.</b> Son 30 günde yükseliyor mu, düşüyor mu? <b>Ebat girin.</b>',
+    dot:   '<b>Eski üretim.</b> Rakip 2023 ve öncesi stoğu indirimle boşaltıyor mu? Marka/ebat opsiyonel.'
+  };
+  const calistir = function() {
+    if (mod === "trend") trend();
+    else if (mod === "dot") dot();
+    else ara();
+  };
+  Array.prototype.forEach.call(document.querySelectorAll(".rkt"), function(b) {
+    b.addEventListener("click", function() {
+      mod = b.getAttribute("data-t");
+      Array.prototype.forEach.call(document.querySelectorAll(".rkt"), function(x) {
+        const on = x === b;
+        x.style.background = on ? "#3b82f6" : "#f9fafb";
+        x.style.color = on ? "#fff" : "#6b7280";
+        x.style.borderColor = on ? "#3b82f6" : "#e5e7eb";
+      });
+      const bi = document.getElementById("rk-bilgi");
+      if (bi) bi.innerHTML = bilgiler[mod];
+      const box = document.getElementById("rk-sonuc");
+      if (box) box.innerHTML = "";
+      if (mod === "dot") calistir();
+    });
+  });
+
   const btn = document.getElementById("rk-ara");
-  if (btn) btn.addEventListener("click", ara);
+  if (btn) btn.addEventListener("click", calistir);
   ["rk-marka", "rk-ebat"].forEach(function(id) {
     const el = document.getElementById(id);
-    if (el) el.addEventListener("keydown", function(ev) { if (ev.key === "Enter") ara(); });
+    if (el) el.addEventListener("keydown", function(ev) { if (ev.key === "Enter") calistir(); });
   });
 }
 
