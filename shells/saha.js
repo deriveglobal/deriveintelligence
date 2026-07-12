@@ -4865,8 +4865,17 @@ async function vRakip() {
         if (!grup[k]) grup[k] = { marka: r.marka, ebat: eb, model: r.model, segment: r.segment, ilan: [] };
         grup[k].ilan.push(r);
       });
+      // SIRALAMA_V1: EN YENI cekilen urun en ustte. (Once ilan sayisina gore siralaniyordu;
+      // temsilci en taze fiyati gormeli — bayat bir urun cok ilanli diye ustte kalmamali.)
+      const _sonCekim = function(g) {
+        const z = g.ilan.map(function(x) { return x.scraped_at ? new Date(x.scraped_at).getTime() : 0; });
+        return Math.max.apply(null, z.length ? z : [0]);
+      };
       const liste = Object.keys(grup).map(function(k) { return grup[k]; })
-        .sort(function(a, b) { return b.ilan.length - a.ilan.length; }).slice(0, 25);
+        .sort(function(a, b) {
+          const d = _sonCekim(b) - _sonCekim(a);
+          return d !== 0 ? d : (b.ilan.length - a.ilan.length);
+        }).slice(0, 25);
       const tl = function(n) { return Number(n).toLocaleString("tr-TR", { maximumFractionDigits: 0 }) + " ₺"; };
 
       box.innerHTML = liste.map(function(g) {

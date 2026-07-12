@@ -20437,7 +20437,8 @@ async function requireTenantAdmin(request) {
       'SELECT kaynak, marka, model, ebat, genislik, profil, cap, fiyat, stok, url,' +
       ' satici_sayisi, yorum_sayisi, puan, scraped_at, segment' +
       ' FROM bi_rakip_fiyat_son ' + clause +
-      ' ORDER BY ebat, marka, fiyat LIMIT $' + vals.length,
+      // SIRALAMA_V1: EN TAZE ONCE. Limit de en tazeleri korusun (alfabetik degil).
+      ' ORDER BY scraped_at DESC NULLS LAST, marka, fiyat LIMIT $' + vals.length,
       vals
     );
     // LIMIT_V2: toplam kac ilan var? (kesilme kullaniciya GORUNSUN)
