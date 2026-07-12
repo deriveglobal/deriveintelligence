@@ -25142,7 +25142,26 @@ function buildDeptSystemPrompt(dept, context, session) {
         if (messages[messages.length - 1].content !== userMsg || messages[messages.length - 1].role !== 'user') {
           messages.push({ role: 'user', content: userMsg });
         }
-        const systemPrompt = await _buildBrainPrompt(tenantId);
+        let systemPrompt = await _buildBrainPrompt(tenantId);
+        // CEO_DURUSTLUK_V1 — Fatih Bilen'in "yalan soyluyor" sikayetinin davranissal yarisi.
+        // (Teknik yarisi: max_tokens=1024 yaniti kesiyordu, arac hic cagrilmiyordu.)
+        systemPrompt += `
+
+## EYLEM DURUSTLUGU — EN ONEMLI KURAL
+- Bir eylemi YAPMADAN ONCE "gonderiyorum / olusturuyorum / kaydediyorum / yolluyorum" DEME.
+  Dogru sira: ONCE araci cagir -> sonucu gor -> SONRA bildir.
+- Onay gerekiyorsa: "Sunu gondereyim mi?" diye SOR ve DUR.
+  Kullanici "evet" dediginde, O TURDA HEMEN araci cagir. "Simdi gonderiyorum" deyip
+  cumleyi bitirme — cumleyi bitirirsen eylem GERCEKLESMEZ.
+- Bir aracin sonucunu GORMEDEN "yapildi / gonderildi / kaydedildi" ASLA deme.
+- Eylemi yapamadiysan bunu ACIKCA soyle. Yapmis gibi konusmak en agir hatadir;
+  kullanicinin sana guveni tam olarak buna baglidir.
+
+## VERI DURUSTLUGU
+- Rakamlari YALNIZCA araclardan al. Aracin dondurmedigi marka/fiyat/sayi UYDURMA.
+- Veri yoksa "bu konuda verim yok" de. Tahmini gercek gibi sunma.
+- Ticari (kamyon/otobus/van) veri, binek veriden ~90 kat DARDIR (292 vs 68.729 ilan).
+  Az ilanli markalar icin kesin hukum verme; kapsam sinirini yorumunda belirt.`;
         response.writeHead(200, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
@@ -25151,10 +25170,14 @@ function buildDeptSystemPrompt(dept, context, session) {
         });
         let fullResp = '';
         let loopMsgs = [...messages];
-        for (let iter = 0; iter < 6; iter++) {
+        let _kesildi = false;   // CEO_LOOP_V2: max_tokens ile kesildi mi?
+        for (let iter = 0; iter < 8; iter++) {
           const aiResp = await anthropic.messages.create({
             model: 'claude-opus-4-8',
-            max_tokens: 1024,
+            // CEO_LOOP_V2: 1024 cok azdi. Model uzun analizi yazarken token bitiyor,
+            // stop_reason='max_tokens' donuyor, dongu break ediyor ve ARAC HIC CAGRILMIYOR.
+            // "gonderiyorum" deyip gondermemesinin sebebi buydu.
+            max_tokens: 4000,
             system: systemPrompt,
             tools: _BRAIN_TOOLS,
             messages: loopMsgs,
@@ -25183,6 +25206,12 @@ function buildDeptSystemPrompt(dept, context, session) {
             try { tu.input = JSON.parse(inputBufs[tu.id] || '{}'); } catch { tu.input = {}; }
             return tu;
           });
+          // CEO_LOOP_V2: token bitti mi? Sessizce bitirmek YASAK — kullanici
+          // yarim kalmis cumleyi tamamlanmis sanip eylemin yapildigini zanneder.
+          if (stopReason === 'max_tokens') {
+            _kesildi = true;
+            console.error('[brain] YANIT KESILDI (max_tokens). iter=' + iter);
+          }
           if (stopReason !== 'tool_use' || !toolUses.length) break;
           for (const tu of toolUses) {
             response.write('data: ' + JSON.stringify({ tool: tu.name, tool_input: tu.input }) + '\n\n');
@@ -25199,6 +25228,11 @@ function buildDeptSystemPrompt(dept, context, session) {
             toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(res) });
           }
           loopMsgs.push({ role: 'user', content: toolResults });
+        }
+        if (_kesildi) {
+          const _uyari = '\n\n⚠ *Yanıtım uzunluk sınırına takıldı ve kesildi. Eğer bir işlem (e-posta, teklif, görev) yapacağımı söylediysem, **yapamamış olabilirim** — lütfen "yaptın mı?" diye sorun ya da isteğinizi daha küçük parçalara bölün.*';
+          fullResp += _uyari;
+          response.write('data: ' + JSON.stringify({ text: _uyari }) + '\n\n');
         }
         if (fullResp.trim()) {
           await query('INSERT INTO brain_conversations (tenant_id, role, content) VALUES ($1,$2,$3)', [tenantId, 'assistant', fullResp.trim()]);
