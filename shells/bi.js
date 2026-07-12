@@ -5177,6 +5177,9 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       const qs = new URLSearchParams();
       if (marka) qs.set('marka', marka);
       if (ebat)  qs.set('ebat', ebat);
+      // SEGMENT_SERVERSIDE_V1: cap'ten ONCE sunucuda filtrele
+      const _sg = window._rfSegment || 'TUMU';
+      if (_sg !== 'TUMU') qs.set('segment', _sg);
       qs.set('limit', '500');
       try {
         const data = await rfApi('/api/rakip/piyasa?' + qs.toString());
@@ -5299,7 +5302,12 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
         res.innerHTML = html;
         };
         window._rfRawDraw = draw;
-        window.rfSegSec = function(k) { window._rfSegment = k; if (window._rfRawDraw) window._rfRawDraw(); };
+        window.rfSegSec = function(k) {
+          window._rfSegment = k;
+          // sunucu tarafi filtre: yeniden SORGULA (yalnizca yeniden cizmek cap sorununu cozmez)
+          if (typeof window.rfPiyasaAra === 'function') { window.rfPiyasaAra(); return; }
+          if (window._rfRawDraw) window._rfRawDraw();
+        };
         draw();
       } catch (e) { res.innerHTML = '<div style="color:#e53e3e;padding:20px">Hata: ' + (e && e.message) + '</div>'; }
     };
@@ -5376,7 +5384,9 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       if(!marka && !ebat){ alert('Lütfen marka veya ebat girin.'); return; }
       var res=document.getElementById('rf-akilli-result');
       res.innerHTML='<div style="color:#778;padding:20px">Eşleştiriliyor...</div>';
-      var qs=new URLSearchParams(); if(marka)qs.set('marka',marka); if(ebat)qs.set('ebat',ebat); qs.set('limit','500');
+      var qs=new URLSearchParams(); if(marka)qs.set('marka',marka); if(ebat)qs.set('ebat',ebat);
+      var _sg=window._rfSegment||'TUMU'; if(_sg!=='TUMU') qs.set('segment',_sg);  // SEGMENT_SERVERSIDE_V1
+      qs.set('limit','500');
       try{
         var data=await rfApi('/api/rakip/piyasa?'+qs.toString());
         if(!data.rows||!data.rows.length){ res.innerHTML='<div style="color:#778;padding:20px">Sonuç bulunamadı.</div>'; return; }
