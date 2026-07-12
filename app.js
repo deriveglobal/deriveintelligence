@@ -12499,9 +12499,17 @@ async function initPlatformSession() {
       await loadTenantAdminSurface(me);
     }
 
+    // REP_LANDING_V1 — Saha temsilcisi (moduleRole 'rep') BI kabugunu YUKLEMEZ.
+    // Ona 'rakip' departmani API erisimi icin verildi; piyasa verisini Saha'daki
+    // "🏷 Rakip Fiyatlar" sekmesinden goruyor. 485KB'lik masaustu kabugu mobilde
+    // acmak yanlis — ustelik hideAllSurfacesExcept onu BI'da baslatiyordu.
+    const _sahaSub = (me.subscriptions || []).find(x => x.moduleId === "saha");
+    const _sahaRep = _sahaSub && _sahaSub.moduleRole === "rep";
+
     // Load module shells for each active subscription
     for (const sub of me.subscriptions || []) {
       if (sub.moduleId === "intelligence") {
+        if (_sahaRep) continue;          // temsilci: BI kabugu YOK
         await loadBiSurface(me, sub);
       } else if (sub.moduleId === "saha") {
         await loadSahaSurface(me, sub);
@@ -12510,7 +12518,9 @@ async function initPlatformSession() {
     }
 
     // Birden fazla modül varsa: BI varsayılan görünür, sağ altta modül geçiş düğmesi
-    const moduleIds = (me.subscriptions || []).map(s => s.moduleId);
+    const moduleIds = (me.subscriptions || [])
+      .filter(s => !(_sahaRep && s.moduleId === "intelligence"))   // REP_LANDING_V1
+      .map(s => s.moduleId);
     if (moduleIds.includes("intelligence") && moduleIds.includes("saha")) {
       hideAllSurfacesExcept("bi-surface");
       const biEl = document.getElementById("bi-surface");
