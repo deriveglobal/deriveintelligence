@@ -20189,6 +20189,24 @@ async function ensurePlatformSchema() {
 // ─── Auth helpers ─────────────────────────────────────────────────────────────
 
 // Full module access check: valid session + active tenant subscription + user membership
+// YETKI_MATRIS_V1 — BI sekme (departman) yetkilendirmesi.
+// Departmanlar: sales | pricing | warehouse | orders | it | rakip | brand-analysis | price-list
+// Her sekme ayri yetkidir. tenant_user_modules.permissions_json.departments[] icinde tutulur.
+async function requireBiDept(request, dept) {
+  const session = await requireModuleAccess(request, "intelligence");
+  // platform_owner ve modul admin'i her sekmeyi gorur
+  if (normalizeRole(session.role) === "platform_owner") return session;
+  if (session.moduleRole === "admin") return session;
+  const perms = session.permissions || {};
+  const depts = Array.isArray(perms.departments) ? perms.departments : [];
+  if (!depts.includes(dept)) {
+    throw Object.assign(
+      new Error("Bu bölüm için yetkiniz yok: " + dept),
+      { statusCode: 403 });
+  }
+  return session;
+}
+
 async function requireModuleAccess(request, moduleId) {
   await ensurePlatformSchema();
   const session = await getSessionUser(request);
@@ -20286,6 +20304,17 @@ async function requireTenantAdmin(request) {
 
   // =========================================================================
   // Rakip Fiyat İzleme API — /api/rakip/*
+  // YETKI_MATRIS_V1: burasi ONCEDEN ACIKTI — oturum acan HERKES okuyabiliyordu.
+  // Artik 'rakip' departmani zorunlu. Saha temsilcilerine bu departman verilir;
+  // satis/marj/stok sekmelerine ERISEMEZLER.
+  if (url.pathname.startsWith('/api/rakip/')) {
+    try {
+      await requireBiDept(request, 'rakip');
+    } catch (e) {
+      sendJson(response, e.statusCode || 403, { error: e.message || 'Yetkiniz yok.' });
+      return;
+    }
+  }
   // =========================================================================
 
   // POST /api/ai/chat — AI_CHAT_V1

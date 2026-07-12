@@ -34,7 +34,9 @@ export function initBiSurface(container, me, sub, callbacks) {
   // Delay call so container.innerHTML has been set before we query it
   setTimeout(_fixMobileHeight, 50);
   window.addEventListener('resize', _fixMobileHeight, { passive: true });
-  const allowedDepts = _depts.includes("brand-analysis") ? _depts : _depts.concat(["brand-analysis","price-list","rakip"]);
+  // YETKI_MATRIS_V1: eskiden "rakip","brand-analysis","price-list" HERKESE zorla eklenirdi
+  // -> departman yetkisi anlamsizdi. Artik permissions.departments NE DIYORSA O.
+  const allowedDepts = _depts;
 
   const OFFICERS = [
     { id: "sales",     label: "Satış",          name: "Satış Direktörü",       emoji: "👩‍💼", color: "#2563eb", bg: "linear-gradient(160deg,#0f1f4a 0%,#0a0a1e 100%)" },
