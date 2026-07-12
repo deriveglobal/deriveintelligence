@@ -99,6 +99,62 @@ add("dq.future_export_date", "data_quality", "Gelecek tarihli veri (hatali)", "w
 r = psql("SELECT count(*) FROM system_error_logs WHERE severity='ERROR' "
          "AND message ILIKE '%chk_iskonto_arac_tipi%' AND timestamp>now()-interval '24 hours'")
 n = int(r[0][0]) if r else 0
+# ─── SAHA HATA LOGU (HATA_MONITOR_V1) ───────────────────────────────────────
+# Temsilcinin ekraninda patlayan her sey. Bildirmesini BEKLEME.
+hw = float(ayar("saha_hata_warn", "1")); hc = float(ayar("saha_hata_crit", "5"))
+
+# 1) 404 — arayuzde olan ama sunucuda OLMAYAN ozellik. Temsilci tiklar, hicbir sey olmaz.
+r = psql("SELECT COALESCE(endpoint,'?'), count(*) FROM saha_hata_log "
+         "WHERE http_status = 404 AND ts > now() - interval '48 hours' "
+         "GROUP BY 1 ORDER BY count(*) DESC LIMIT 1")
+n404 = psql("SELECT count(*) FROM saha_hata_log WHERE http_status=404 AND ts > now() - interval '48 hours'")
+c404 = int(n404[0][0]) if n404 and n404[0] else 0
+ornek404 = (r[0][0] if r and r[0] else "-")
+st = "crit" if c404 >= hc else ("warn" if c404 >= hw else "ok")
+add("app.saha_404", "app", "Eksik endpoint (temsilci tikladi, karsilik yok)", st,
+    "%d" % c404,
+    "Arayuzde VAR ama sunucuda YOK olan ozellikler. Temsilci fark etmez, sessizce vazgecer. "
+    "En cok: %s" % ornek404, c404)
+
+# 2) 500 — sunucu cokmesi. Ornek: Huseyin'in 'bildir' butonu (request.json is not a function).
+n500 = psql("SELECT count(*) FROM saha_hata_log WHERE http_status >= 500 AND ts > now() - interval '48 hours'")
+c500 = int(n500[0][0]) if n500 and n500[0] else 0
+r5 = psql("SELECT COALESCE(endpoint,'?') || ' :: ' || COALESCE(hata_mesaji,'') FROM saha_hata_log "
+          "WHERE http_status >= 500 AND ts > now() - interval '48 hours' ORDER BY ts DESC LIMIT 1")
+add("app.saha_500", "app", "Sunucu hatasi (temsilci ekraninda)", "crit" if c500 > 0 else "ok",
+    "%d" % c500,
+    "500 = islem HIC gerceklesmedi. Son: %s" % ((r5[0][0] if r5 and r5[0] else "-")), c500)
+
+# 3) JS hatasi — ekran kirildi, temsilci bos sayfa gordu.
+njs = psql("SELECT count(*) FROM saha_hata_log WHERE tip='JS_HATA' AND ts > now() - interval '48 hours'")
+cjs = int(njs[0][0]) if njs and njs[0] else 0
+rjs = psql("SELECT COALESCE(view_adi,'?') || ' :: ' || COALESCE(hata_mesaji,'') FROM saha_hata_log "
+           "WHERE tip='JS_HATA' AND ts > now() - interval '48 hours' ORDER BY ts DESC LIMIT 1")
+add("app.saha_js", "app", "Arayuz (JS) hatasi", "crit" if cjs >= hc else ("warn" if cjs >= hw else "ok"),
+    "%d" % cjs, "Son: %s" % ((rjs[0][0] if rjs and rjs[0] else "-")), cjs)
+
+# 4) EN KRITIGI — YASANAN ama BILDIRILMEYEN hata.
+#    Temsilci hatayi yasadi; ayni gun HIC geri bildirim acmadi.
+#    Bu, "sorun yok" DEGIL; "sorunu bize soyleyemedi/soylemedi" demektir.
+sessiz = psql("""
+  SELECT COALESCE(u.full_name,'?'), count(*)
+    FROM saha_hata_log h
+    LEFT JOIN users u ON u.id = h.user_id
+   WHERE h.ts > now() - interval '7 days'
+     AND h.user_id IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM saha_oneri o
+        WHERE o.user_id = h.user_id
+          AND o.ts::date = h.ts::date)
+   GROUP BY 1 ORDER BY count(*) DESC LIMIT 3""")
+tsz = sum(int(x[1]) for x in sessiz) if sessiz else 0
+kimler = ", ".join("%s(%s)" % (x[0], x[1]) for x in sessiz) if sessiz else "-"
+add("app.sessiz_hata", "app", "Yasanan ama BILDIRILMEYEN hata (7g)",
+    "crit" if tsz >= 10 else ("warn" if tsz > 0 else "ok"),
+    "%d" % tsz,
+    "Temsilci hatayi yasadi ama o gun geri bildirim acmadi. Sessizlik = 'sorun yok' DEGIL. "
+    "Huseyin'in bildir butonu 06.07'de 500 veriyordu; hic bildiremedi. Kimler: %s" % kimler, tsz)
+
 # EBAT_MONITOR_V1 — parser'in okuyamadigi ebat formati belirirse HABER VER.
 #   Ebatsiz ilan = Smart Matched'e, trend'e, DOT'a, master'a GIREMEZ. Sessizce kaybolur.
 ew = float(ayar("ebat_warn_pct", "2")); ec = float(ayar("ebat_crit_pct", "5"))
