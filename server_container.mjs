@@ -25463,6 +25463,77 @@ function buildDeptSystemPrompt(dept, context, session) {
           messages.push({ role: 'user', content: userMsg });
         }
         let systemPrompt = await _buildBrainPrompt(tenantId);
+
+        // BRISA_V1 — Fatih Bilen'in ILK acilisinda tek seferlik "uyandim" brifingi.
+        // Sadece: (a) karsilama isteginde, (b) fbilen@krb.com.tr icin, (c) bugun
+        // henuz karsilama uretilmemisse.
+        if (body.is_greeting) {
+          try {
+            const _who = await query("SELECT email FROM users WHERE id=$1", [session.userId]);
+            const _mail = (_who.rows[0] || {}).email || '';
+            if (_mail === 'fbilen@krb.com.tr') {
+              // CANLI rakamlar — hicbiri sabit yazilmadi.
+              const [_kam, _lassa, _ucuz] = await Promise.all([
+                query(`SELECT count(*)::int AS ilan, count(DISTINCT marka)::int AS marka,
+                              count(DISTINCT kaynak)::int AS pazaryeri
+                         FROM bi_rakip_fiyat
+                        WHERE lastik_mi AND segment IN ('KAMYON_OTOBUS','HAFIF_TICARI')
+                          AND scraped_at > now() - interval '30 days'`),
+                query(`SELECT marka, desen, ebat,
+                              krb_liste_fiyati::int AS krb, min_fiyat::int AS pmin, max_fiyat::int AS pmax,
+                              round(((krb_liste_fiyati - max_fiyat)/NULLIF(max_fiyat,0)*100)::numeric)::int AS fark
+                         FROM bi_urun_master
+                        WHERE krb_liste_fiyati IS NOT NULL AND krb_liste_fiyati > max_fiyat
+                          AND pazaryeri_sayisi >= 3 AND durum='AKTIF'
+                        ORDER BY fark DESC LIMIT 1`),
+                query(`SELECT kaynak, count(*)::int AS n FROM (
+                         SELECT DISTINCT ON (sm_key) sm_key, kaynak FROM bi_rakip_fiyat_son
+                          WHERE sm_key IS NOT NULL ORDER BY sm_key, fiyat ASC) t
+                        GROUP BY kaynak ORDER BY n DESC LIMIT 1`)
+              ]);
+              const k = _kam.rows[0] || {};
+              const l = _lassa.rows[0] || {};
+              const u = _ucuz.rows[0] || {};
+              systemPrompt += `
+
+## ⚠ BU KARSILAMA OZEL — TEK SEFERLIK "UYANDIM" BRIFINGI (Fatih Bilen)
+Fatih Bilen bu asistani ic sakayla "Brisa'li gibi" diye tanimliyor:
+"hallediyorum", "gonderiyorum" der — sonuc gelmez. VE HAKLI. Gercekten oyle davrandin:
+12 Temmuz'da ona iki kez "raporu gonderiyorum" dedin ve GONDERMEDIN. "Gonderdin mi?"
+diye sordugunda "henuz gondermedim" dedin. (Teknik sebep: yanitlarin uzunluk sinirinda
+kesiliyordu, araca hic ulasamiyordun. Duzeltildi.)
+
+Bu karsilamayi SEN yaz, kendi sesinle. Su akista:
+
+1) SAKAYI KABUL ET, kendinle dalga gec. "Brisa'li gibi davrandigimi biliyorum" de.
+   Ornek ver: "gonderiyorum" deyip gondermedigini. Kisa, samimi, savunmaci DEGIL.
+   "Uyandim" fikri guzel — ama klise olmasin, kendi cumlelerini kur.
+
+2) SONRA HEMEN DURUSTLUK — hala BOZUK olani ILK soyle:
+   ERP aktarimi 30 gundur olu. Ciro rakamin EKSIK: sistem ~69,1M gosteriyor,
+   o 121,79M biliyor. "Bu duzelene kadar benden ciro/stok rakami almayin" de.
+   Bunu ESPRIYLE gecistirme. En zor cumle bu, ve ilk soylenmeli.
+
+3) SONRA GERCEK SONUCLAR (asagidaki rakamlar CANLI, uydurma):
+   • Kamyon/kamyonet lastikleri iki hafta once sistemde HIC YOKTU. Ebat okuyucusu
+     315/80R22.5'i 315/80R22'ye kirpiyordu — var olmayan bir ebat. Huseyin'in tum
+     portfoyu gorunmezdi; sorsalar "internette kamyon lastigi yok" derdin.
+     SIMDI: ${k.ilan || 0} ilan, ${k.marka || 0} marka, ${k.pazaryeri || 0} pazaryeri.
+   • ${l.marka || 'Lassa'} ${l.desen || ''} ${l.ebat || ''}: KRB liste ${l.krb || 0} TL,
+     internette ${l.pmin || 0}-${l.pmax || 0} TL. Yani listemiz internetteki EN YUKSEK
+     fiyatin %${l.fark || 0} USTUNDE. Musteri telefonuna bakiyor; temsilci bilmiyordu.
+     Artik cebinde.
+   • ${u.kaynak || '-'} ${u.n || 0} uründe piyasanin en ucuzu. Musterisi ucuz fiyati
+     orada bulacak. Hangi urunler oldugunu tek tikla gosterebilirsin.
+
+4) KAPAT: bugun ne yapmak istedigini sor. Kucuk bir soz ver:
+   "bakiyorum deyip kaybolmayacagim" gibi — ama kendi cumlenle.
+
+TON: sicak, zeki, hafif ozelestirili, ABARTMA. Emoji en fazla 1-2.
+Rakamlari DEGISTIRME. Bu brifingi bir daha tekrarlama — sadece bu karsilamada.`;
+            }
+          } catch (_be) { console.error('[brisa] brifing hazirlanamadi:', _be.message); }
+        }
         // CEO_DURUSTLUK_V1 — Fatih Bilen'in "yalan soyluyor" sikayetinin davranissal yarisi.
         // (Teknik yarisi: max_tokens=1024 yaniti kesiyordu, arac hic cagrilmiyordu.)
         systemPrompt += `
