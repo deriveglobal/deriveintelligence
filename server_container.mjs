@@ -20315,6 +20315,43 @@ async function requireTenantAdmin(request) {
       return;
     }
   }
+
+  // YETKI_MATRIS_V2 — /api/bi/* MERKEZI DEPARTMAN KAPISI.
+  // Bu kapi OLMADAN 'intelligence' modulu verilen herkes TUM BI verisine erisiyordu
+  // (marj, finansal, siparis). Temsilcilere rakip sekmesi icin modul verilince
+  // ANINDA marj gorunur oldu. Kapi ONCE kurulmali.
+  if (url.pathname.startsWith('/api/bi/')) {
+    const _p = url.pathname;
+    const _dept =
+        _p.startsWith('/api/bi/pricing/')    ? 'pricing'
+      : _p.startsWith('/api/bi/orders/')     ? 'orders'
+      : _p.startsWith('/api/bi/analytics/')  ? 'sales'
+      : _p.startsWith('/api/bi/it/')         ? 'it'
+      : _p.startsWith('/api/bi/warehouse/')  ? 'warehouse'
+      : _p.startsWith('/api/bi/stok')        ? 'warehouse'
+      : _p.startsWith('/api/bi/morning-briefing') ? 'sales'
+      : _p.startsWith('/api/bi/market/')     ? 'sales'
+      : _p.startsWith('/api/bi/health')      ? 'it'
+      : _p.startsWith('/api/bi/ingest')      ? 'it'
+      : 'sales';   // TANIMSIZ /api/bi/* -> EN KISITLI varsayilan (acik birakma)
+    try {
+      await requireBiDept(request, _dept);
+    } catch (e) {
+      sendJson(response, e.statusCode || 403,
+               { error: e.message || 'Yetkiniz yok.', gereken_yetki: _dept });
+      return;
+    }
+  }
+
+  // Fiyat listeleri — ayri departman
+  if (url.pathname.startsWith('/api/fiyat')) {
+    try {
+      await requireBiDept(request, 'price-list');
+    } catch (e) {
+      sendJson(response, e.statusCode || 403, { error: e.message || 'Yetkiniz yok.' });
+      return;
+    }
+  }
   // =========================================================================
 
   // POST /api/ai/chat — AI_CHAT_V1
