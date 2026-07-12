@@ -24716,11 +24716,16 @@ function buildDeptSystemPrompt(dept, context, session) {
             properties: {
               query_type: {
                 type: 'string',
-                enum: ['ozet', 'piyasa', 'marka', 'alarm'],
-                description: 'ozet=genel istatistik, piyasa=marka bazlı fiyat özeti, marka=belirli marka/ebat fiyatları, alarm=okunmamış fiyat alarmları'
+                enum: ['ozet', 'piyasa', 'marka', 'alarm', 'marka_gorunum'],
+                description: 'ozet=genel istatistik, piyasa=marka bazlı fiyat özeti, marka=belirli marka/ebat fiyatları, alarm=okunmamış alarmlar, marka_gorunum=markaların internetteki GORUNURLUGU (kac urun, kac ilan, kac pazaryeri, fiyat araligi) — "hangi marka en cok listeleniyor", "markalarin gorunumunu yorumla" sorularinda BUNU kullan'
               },
-              marka: { type: 'string', description: 'Marka adı filtresi (opsiyonel, marka sorgusu için)' },
-              ebat:  { type: 'string', description: 'Lastik ebatı filtresi (opsiyonel)' }
+              segment: {
+                type: 'string',
+                enum: ['TUKETICI', 'TICARI', 'KAMYON_OTOBUS', 'HAFIF_TICARI'],
+                description: 'Lastik segmenti. KAMYON/OTOBUS/TIR sorulari icin KAMYON_OTOBUS; kamyonet/minibus/van icin HAFIF_TICARI; ikisi birden icin TICARI; binek/otomobil icin TUKETICI. Kamyon-otobus-ticari lastik sorulari MUTLAKA segment ile sorulmali — aksi halde 68.000 binek ilani sonucu bogar.'
+              },
+              marka: { type: 'string', description: 'Marka adı filtresi (opsiyonel)' },
+              ebat:  { type: 'string', description: 'Ebat, orn. 205/55R16 veya 215/75R17.5 (opsiyonel)' }
             },
             required: ['query_type']
           }
@@ -24947,9 +24952,51 @@ function buildDeptSystemPrompt(dept, context, session) {
           } catch(e) { return { error: e.message }; }
         }
         if (toolName === 'query_rakip_fiyat') {
-          const { query_type, marka, ebat } = input;
+          const { query_type, marka, ebat, segment } = input;
           const rtid = tenantId;
+          // CEO_RAKIP_V2: segment -> SQL kosulu
+          const _sg = (segment || '').toUpperCase();
+          const _segSql =
+              _sg === 'TUKETICI'      ? " AND segment = 'BINEK'"
+            : _sg === 'TICARI'        ? " AND segment IN ('KAMYON_OTOBUS','HAFIF_TICARI')"
+            : _sg === 'KAMYON_OTOBUS' ? " AND segment = 'KAMYON_OTOBUS'"
+            : _sg === 'HAFIF_TICARI'  ? " AND segment = 'HAFIF_TICARI'"
+            : "";
+          // ebat DAIMA genislik/profil/cap'ten uretilir — 'ebat' kolonu kesik BASLIK tutuyor.
+          const _ebatSql = "(CASE WHEN profil IS NULL THEN CONCAT(genislik,'R',cap) ELSE CONCAT(genislik,'/',profil,'R',cap) END)";
           try {
+            // markalarin INTERNETTEKI GORUNURLUGU (segment bazli)
+            if (query_type === 'marka_gorunum') {
+              const r = await query(`
+                SELECT marka,
+                       COUNT(DISTINCT sm_key)  AS urun_sayisi,
+                       COUNT(*)                AS ilan_sayisi,
+                       COUNT(DISTINCT kaynak)  AS pazaryeri_sayisi,
+                       ROUND(MIN(fiyat)::numeric,0) AS min_fiyat,
+                       ROUND(percentile_cont(0.5) WITHIN GROUP (ORDER BY fiyat)::numeric,0) AS medyan_fiyat,
+                       ROUND(MAX(fiyat)::numeric,0) AS max_fiyat,
+                       COUNT(DISTINCT ${_ebatSql}) AS ebat_sayisi
+                  FROM bi_rakip_fiyat
+                 WHERE tenant_id=$1 AND lastik_mi IS NOT FALSE
+                   AND scraped_at > now() - interval '30 days'${_segSql}
+                 GROUP BY marka
+                 ORDER BY ilan_sayisi DESC LIMIT 20
+              `, [rtid]);
+              const kaps = await query(`
+                SELECT COUNT(*) AS ilan, COUNT(DISTINCT marka) AS marka, COUNT(DISTINCT kaynak) AS pazaryeri
+                  FROM bi_rakip_fiyat
+                 WHERE tenant_id=$1 AND lastik_mi IS NOT FALSE
+                   AND scraped_at > now() - interval '30 days'${_segSql}
+              `, [rtid]);
+              return {
+                segment: _sg || 'TUMU',
+                kapsam: kaps.rows[0],
+                markalar: r.rows,
+                not: _sg && _sg !== 'TUKETICI'
+                  ? 'TICARI segment verisi binek segmentinden DAHA DARDIR (binek ~68.000 ilan, ticari ~750). Yorumlarken bu kapsam farkini belirt; az ilanli markalar icin kesin hukum verme.'
+                  : null
+              };
+            }
             if (query_type === 'ozet') {
               const [tot, izle, alarm] = await Promise.all([
                 query('SELECT COUNT(*) AS toplam, COUNT(DISTINCT marka) AS markalar, COUNT(DISTINCT ebat) AS ebatlar, MAX(scraped_at) AS son_tarama FROM bi_rakip_fiyat WHERE tenant_id=$1', [rtid]),
@@ -24971,21 +25018,26 @@ function buildDeptSystemPrompt(dept, context, session) {
                        ROUND(MIN(fiyat)::numeric,0) AS min_fiyat,
                        ROUND(MAX(fiyat)::numeric,0) AS max_fiyat,
                        ROUND(AVG(fiyat)::numeric,0) AS ort_fiyat,
-                       COUNT(DISTINCT ebat)         AS sku_sayisi,
+                       COUNT(DISTINCT sm_key)       AS urun_sayisi,
                        COUNT(DISTINCT kaynak)       AS kaynak_sayisi
-                FROM bi_rakip_fiyat_son WHERE tenant_id=$1
-                GROUP BY marka ORDER BY sku_sayisi DESC LIMIT 15
+                FROM bi_rakip_fiyat_son
+                WHERE tenant_id=$1 AND lastik_mi IS NOT FALSE${_segSql}
+                GROUP BY marka ORDER BY urun_sayisi DESC LIMIT 15
               `, [rtid]);
-              return { markalar: r.rows };
+              return { segment: _sg || 'TUMU', markalar: r.rows };
             }
             if (query_type === 'marka') {
-              let sql = 'SELECT marka, ebat, kaynak, fiyat, scraped_at FROM bi_rakip_fiyat_son WHERE tenant_id=$1';
+              let sql = `SELECT marka, sm_desen AS desen, ${_ebatSql} AS ebat, segment,
+                                kaynak, fiyat, uretim_yili, scraped_at
+                           FROM bi_rakip_fiyat_son
+                          WHERE tenant_id=$1 AND lastik_mi IS NOT FALSE${_segSql}`;
               const params = [rtid];
-              if (marka) { params.push('%'+marka+'%'); sql += ` AND LOWER(marka) LIKE LOWER(${params.length})`; }
-              if (ebat)  { params.push(ebat); sql += ` AND ebat=${params.length}`; }
-              sql += ' ORDER BY marka, ebat, fiyat ASC LIMIT 50';
+              if (marka) { params.push('%'+marka+'%'); sql += ` AND marka ILIKE $${params.length}`; }
+              // ebat KOLONU kesik baslik tutuyor -> DAIMA genislik/profil/cap'ten uret
+              if (ebat)  { params.push('%'+ebat+'%');  sql += ` AND ${_ebatSql} ILIKE $${params.length}`; }
+              sql += ' ORDER BY marka, fiyat ASC LIMIT 60';
               const r = await query(sql, params);
-              return { satirlar: r.rows, toplam: r.rows.length };
+              return { segment: _sg || 'TUMU', satirlar: r.rows, toplam: r.rows.length };
             }
             if (query_type === 'alarm') {
               const r = await query(`
