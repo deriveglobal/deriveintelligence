@@ -20192,6 +20192,27 @@ async function ensurePlatformSchema() {
 // YETKI_MATRIS_V1 — BI sekme (departman) yetkilendirmesi.
 // Departmanlar: sales | pricing | warehouse | orders | it | rakip | brand-analysis | price-list
 // Her sekme ayri yetkidir. tenant_user_modules.permissions_json.departments[] icinde tutulur.
+// EBAT_ARAMA_V1 — "205 55 16", "205-55-16", "20555R16", "205/55R16" hepsi ayni ebat.
+// Temsilci ayiraci nasil yazarsa yazsin bulmali.
+function _ebatCoz(t) {
+  if (!t) return null;
+  const x = String(t).toLowerCase().replace(',', '.').trim();
+  // tam kalip: 205/55R16 | 205 55 16 | 205-55-16 | 215/75R17.5
+  let m = x.match(/(\d{3})\D{0,3}(\d{2,3})\D{0,3}(\d{2}(?:\.5)?)/);
+  if (m) {
+    const g = +m[1], p = +m[2], c = parseFloat(m[3]);
+    if (g >= 100 && g <= 400 && p >= 20 && p <= 90 && c >= 10 && c <= 26)
+      return { g: g, p: p, c: c };
+  }
+  // profilsiz van: 195R14 | 195 14 | 195R14C
+  m = x.match(/(\d{3})\s*[rc]?\s*(\d{2})\s*c?\b/);
+  if (m) {
+    const g = +m[1], c = +m[2];
+    if (g >= 100 && g <= 400 && c >= 10 && c <= 24) return { g: g, p: null, c: c };
+  }
+  return null;
+}
+
 async function requireBiDept(request, dept) {
   const session = await requireModuleAccess(request, "intelligence");
   // platform_owner ve modul admin'i her sekmeyi gorur
@@ -20396,7 +20417,20 @@ async function requireTenantAdmin(request) {
     if (seg === 'TUKETICI') where.push("segment = 'BINEK'");
     else if (seg === 'TICARI') where.push("segment IN ('KAMYON_OTOBUS','HAFIF_TICARI','IS_MAKINESI')");
     if (marka) { vals.push('%' + marka + '%'); where.push('marka ILIKE $' + vals.length); }
-    if (ebat)  { vals.push("%" + ebat + "%"); where.push("(ebat ILIKE $" + vals.length + " OR (CASE WHEN profil IS NULL THEN CONCAT(genislik,'R',cap) ELSE CONCAT(genislik,'/',profil,'R',cap) END) ILIKE $" + vals.length + ")"); } // EBAT_CONCAT_V1
+    // EBAT_ARAMA_V1: "205 55 16" gibi serbest yazimi da bul.
+    if (ebat) {
+      const _e = _ebatCoz(ebat);
+      if (_e && _e.p != null) {
+        vals.push(_e.g); vals.push(_e.p); vals.push(_e.c);
+        where.push("(genislik = $" + (vals.length - 2) + " AND profil = $" + (vals.length - 1) + " AND cap = $" + vals.length + ")");
+      } else if (_e) {
+        vals.push(_e.g); vals.push(_e.c);
+        where.push("(genislik = $" + (vals.length - 1) + " AND profil IS NULL AND cap = $" + vals.length + ")");
+      } else {
+        vals.push('%' + ebat + '%');
+        where.push("(ebat ILIKE $" + vals.length + " OR model ILIKE $" + vals.length + ")");
+      }
+    }
         const clause = where.length ? 'WHERE ' + where.join(' AND ') : '';
     vals.push(limit);
     const { rows } = await pool.query(
