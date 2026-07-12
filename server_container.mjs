@@ -20288,19 +20288,23 @@ async function requireTenantAdmin(request) {
   // Rakip Fiyat İzleme API — /api/rakip/*
   // =========================================================================
 
-  // GET /api/rakip/piyasa?marka=&ebat=&limit=200
+  // GET /api/rakip/piyasa?marka=&ebat=&segment=&limit=200   [SEGMENT_V1]
+  //   segment: TUKETICI (binek) | TICARI (kamyon/otobus + hafif ticari) | bos=tumu
   if (request.method === 'GET' && url.pathname === '/api/rakip/piyasa') {
     const marka = (url.searchParams.get('marka') || '').trim();
     const ebat  = (url.searchParams.get('ebat')  || '').trim();
+    const seg   = (url.searchParams.get('segment') || '').trim().toUpperCase();
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '200', 10), 500);
     const where = []; const vals = [];
+    if (seg === 'TUKETICI') where.push("segment = 'BINEK'");
+    else if (seg === 'TICARI') where.push("segment IN ('KAMYON_OTOBUS','HAFIF_TICARI','IS_MAKINESI')");
     if (marka) { vals.push('%' + marka + '%'); where.push('marka ILIKE $' + vals.length); }
     if (ebat)  { vals.push("%" + ebat + "%"); where.push("(ebat ILIKE $" + vals.length + " OR CONCAT(genislik,'/',profil,'R',cap) ILIKE $" + vals.length + ")"); } // EBAT_CONCAT_V1
         const clause = where.length ? 'WHERE ' + where.join(' AND ') : '';
     vals.push(limit);
     const { rows } = await pool.query(
       'SELECT kaynak, marka, model, ebat, genislik, profil, cap, fiyat, stok, url,' +
-      ' satici_sayisi, yorum_sayisi, puan, scraped_at' +
+      ' satici_sayisi, yorum_sayisi, puan, scraped_at, segment' +
       ' FROM bi_rakip_fiyat_son ' + clause +
       ' ORDER BY ebat, marka, fiyat LIMIT $' + vals.length,
       vals
@@ -20390,6 +20394,7 @@ async function requireTenantAdmin(request) {
     const gorunum = (url.searchParams.get('gorunum') || 'bosluk').trim();
     const marka   = (url.searchParams.get('marka')   || '').trim();
     const ebat    = (url.searchParams.get('ebat')    || '').trim();
+    const seg     = (url.searchParams.get('segment') || '').trim().toUpperCase();
     let minSite = parseInt(url.searchParams.get('min_site') || '3', 10);
     if (!Number.isFinite(minSite) || minSite < 1) minSite = 3;
     let gun = parseInt(url.searchParams.get('gun') || '7', 10);
@@ -20399,6 +20404,9 @@ async function requireTenantAdmin(request) {
     const f = ["durum = 'AKTIF'"];
     if (marka) { vals.push('%' + marka + '%'); f.push(`marka ILIKE $${vals.length}`); }
     if (ebat)  { vals.push('%' + ebat + '%');  f.push(`ebat ILIKE $${vals.length}`); }
+    // ticari jant caplari yarim inctir (17.5/19.5/22.5) — binek asla degildir
+    if (seg === 'TUKETICI')    f.push("cap NOT IN (16.5,17.5,19.5,22.5)");
+    else if (seg === 'TICARI') f.push("cap IN (16.5,17.5,19.5,22.5)");
 
     let sql;
     if (gorunum === 'fiyat') {

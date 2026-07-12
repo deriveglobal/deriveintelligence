@@ -4802,6 +4802,8 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
         const qs = new URLSearchParams({ gorunum: g });
         if (marka) qs.set('marka', marka);
         if (ebat)  qs.set('ebat', ebat);
+        const _s = window._rfSegment || 'TUMU';
+        if (_s !== 'TUMU') qs.set('segment', _s);
         d = await rfApi('/api/rakip/urun-master?' + qs.toString());
       } catch (e) {
         liste.innerHTML = '<div style="color:#e53e3e;padding:30px">Hata: ' + (e && e.message) + '</div>';
@@ -5238,10 +5240,33 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
         const th  = (t, extra) => '<th style="padding:9px 10px;border-bottom:2px solid rgba(255,255,255,0.15);' + (extra || '') + '">' + t + '</th>';
         const thS = (t, col, extra) => '<th onclick="window._rfRawSortBy(\'' + col + '\')" title="S\u0131rala" style="cursor:pointer;user-select:none;padding:9px 10px;border-bottom:2px solid rgba(255,255,255,0.15);' + (extra || '') + '">' + t + arrow(col) + '</th>';
         const draw = () => {
-        const rows = data.rows.slice().sort(cmp);
-        let html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
+        // ── SEGMENT_UI_V1: Tüketici / Ticari ayrimi ──
+        const _seg = window._rfSegment || 'TUMU';
+        const _isTicari = r => ['KAMYON_OTOBUS','HAFIF_TICARI','IS_MAKINESI'].indexOf(r.segment) >= 0;
+        const _tumRows = data.rows.slice();
+        const _nT = _tumRows.filter(r => r.segment === 'BINEK').length;
+        const _nC = _tumRows.filter(_isTicari).length;
+        const rows = _tumRows.filter(r =>
+            _seg === 'TUKETICI' ? r.segment === 'BINEK'
+          : _seg === 'TICARI'   ? _isTicari(r)
+          : true).sort(cmp);
+
+        const _segBtn = (k, etiket, n) => {
+          const aktif = (_seg === k);
+          return '<button onclick="rfSegSec(\'' + k + '\')" style="padding:6px 14px;border:1px solid '
+            + (aktif ? '#3182ce' : 'rgba(255,255,255,0.15)') + ';background:' + (aktif ? '#3182ce' : 'rgba(255,255,255,0.06)')
+            + ';border-radius:6px;color:#e2e8f0;font-size:12.5px;font-weight:600;cursor:pointer;margin-right:6px">'
+            + etiket + ' <span style="opacity:.7;font-weight:400">' + n + '</span></button>';
+        };
+        let html = '<div style="margin-bottom:12px;display:flex;align-items:center;flex-wrap:wrap">'
+          + _segBtn('TUMU','Tümü', _tumRows.length)
+          + _segBtn('TUKETICI','🚗 Tüketici', _nT)
+          + _segBtn('TICARI','🚚 Ticari', _nC)
+          + '<span style="font-size:11px;color:#667;margin-left:8px">Ticari = kamyon/otobüs (R17.5·19.5·22.5) + hafif ticari (C)</span>'
+          + '</div>';
+        html += '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
           + '<thead><tr style="background:rgba(255,255,255,0.06);font-weight:600;text-align:left">'
-          + thS('Kaynak','kaynak') + thS('Marka','marka') + thS('Ebat','ebat') + th('Model')
+          + thS('Kaynak','kaynak') + thS('Marka','marka') + th('Segment') + thS('Ebat','ebat') + th('Model')
           + thS('Fiyat','fiyat','text-align:right') + thS('Birim (₺/adet)','birim','text-align:right')
           + thS('Satıcı','satici') + thS('Puan','puan') + thS('Son Çekim','tarih') + th('')
           + '</tr></thead><tbody>';
@@ -5258,6 +5283,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.06)">'
             + '<td style="padding:8px 10px;color:#94a3b8;white-space:nowrap">' + esc(r.kaynak) + '</td>'
             + '<td style="padding:8px 10px;font-weight:600;white-space:nowrap">' + esc(r.marka) + '</td>'
+            + '<td style="padding:8px 10px;white-space:nowrap">' + segRozet(r.segment) + '</td>'
             + '<td style="padding:8px 10px;color:#9ab;font-family:monospace;white-space:nowrap">' + esc(sizeOf(r)) + '</td>'
             + '<td style="padding:8px 10px;max-width:360px;word-break:break-word;color:#cbd5e1">' + esc(r.model) + badge + '</td>'
             + '<td style="padding:8px 10px;text-align:right;font-weight:700;' + (set ? 'color:#f59e0b' : 'color:#e2e8f0') + ';white-space:nowrap">' + money(fy) + trendBadge(r.url, fy) + '</td>'
@@ -5273,6 +5299,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
         res.innerHTML = html;
         };
         window._rfRawDraw = draw;
+        window.rfSegSec = function(k) { window._rfSegment = k; if (window._rfRawDraw) window._rfRawDraw(); };
         draw();
       } catch (e) { res.innerHTML = '<div style="color:#e53e3e;padding:20px">Hata: ' + (e && e.message) + '</div>'; }
     };
@@ -5295,6 +5322,18 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       var prev=null; while(prev!==t){ prev=t; t=t.replace(SM_NOISE,' '); }
       return t.replace(/[^a-z0-9]+/g,' ').split(' ').filter(Boolean).join('');
     }
+    function segRozet(sg) {
+      const M = {
+        BINEK:         ['🚗 Tüketici',  '#63b3ed', 'rgba(99,179,237,0.12)'],
+        KAMYON_OTOBUS: ['🚚 Kamyon',    '#fbbf24', 'rgba(251,191,36,0.14)'],
+        HAFIF_TICARI:  ['🚐 Hafif Tic.', '#4ade80', 'rgba(74,222,128,0.12)'],
+        IS_MAKINESI:   ['🚜 İş Mak.',   '#f87171', 'rgba(248,113,113,0.12)']
+      };
+      const m = M[sg];
+      if (!m) return '<span style="color:#556;font-size:11px">—</span>';
+      return '<span style="background:' + m[2] + ';color:' + m[1] + ';border-radius:5px;padding:2px 7px;font-size:10.5px;font-weight:700;white-space:nowrap">' + m[0] + '</span>';
+    }
+
     function smKey(marka,title,g,p,c){
       var t=smDeacc(title), ls=smLoadSpeed(t);
       return smDeacc(marka)+'|'+smPattern(marka,title,g,p,c)+'|'+g+'/'+p+'R'+c+'|'+ls[0]+ls[1]+'|'+smSeason(t)+'|'+(smIsSet(t)?'SET':'')+(smRunflat(t)?'RF':'');
