@@ -4797,14 +4797,19 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           kart('En ucuz (bugün)', enUcuz ? rfTL(enUcuz.v) : '—', '#4ade80', enUcuz ? enUcuz.ad : '')
         + (degisim != null ? kart('Değişim (' + rfGunEt(ilkGun) + '→)', (degisim > 0 ? '▲ ' : '▼ ') + Math.abs(degisim).toFixed(1) + '%', degisim > 0 ? '#f87171' : '#4ade80', 'en ucuz kaynakta') : '')
         + (enUcuz && enPahali && enUcuz.ad !== enPahali.ad ? kart('Pazaryeri farkı', rfTL(enPahali.v - enUcuz.v), '#fbbf24', enUcuz.ad + ' ↔ ' + enPahali.ad) : '')
-        + kart('Veri', gunler.length + ' gün · ' + seri.length + ' seri', '#94a3b8', tumNokta.reduce((a,p) => a + p.adet, 0).toLocaleString('tr-TR') + ' ilan');
+        + kart('Veri', gunler.length + ' gün · ' + seri.length + ' seri', '#94a3b8', tumNokta.reduce((a,p) => a + p.adet, 0).toLocaleString('tr-TR') + ' ilan (setler hariç)');
 
       // ── grafik ──
       const W = Math.max(900, gunler.length * 90), H = 400;
       const ML = 70, MR = 150, MT = 16, MB = 46;
       const iw = W - ML - MR, ih = H - MT - MB;
+      const tamSite = d.tam_site || 0;
+      const eksikGun = g => {
+        const k = (d.kapsama || []).filter(x => x.gun === g)[0];
+        return (k && tamSite && k.site < tamSite) ? k.site : 0;   // 0 = tam kapsama
+      };
       const vals = [];
-      seri.forEach(s => s.noktalar.forEach(p => { vals.push(p.min); if (grup === 'piyasa') { vals.push(p.ort, p.max); } }));
+      seri.forEach(s => s.noktalar.forEach(p => { vals.push(p.min); if (grup === 'piyasa') { vals.push(p.p10, p.p50, p.p90); } }));
       let ymin = Math.min.apply(null, vals), ymax = Math.max.apply(null, vals);
       const pad = (ymax - ymin) * 0.12 || (ymax * 0.1) || 1;
       ymin = Math.max(0, ymin - pad); ymax = ymax + pad;
@@ -4826,13 +4831,21 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       });
       svg += '<text x="' + (ML - 52) + '" y="' + (MT + ih / 2) + '" transform="rotate(-90 ' + (ML - 52) + ' ' + (MT + ih / 2) + ')" text-anchor="middle" font-size="11" fill="#667">Fiyat (₺)</text>';
 
-      // piyasa modunda min-max bandı
+      // piyasa modunda p10–p90 bandı (min/max degil: tek bir hatali ilan bandi mahvediyordu)
       if (grup === 'piyasa' && seri[0]) {
         const pts = seri[0].noktalar.slice().sort((a,b) => a.gun.localeCompare(b.gun));
-        const ust = pts.map(p => X(p.gun) + ',' + Y(p.max)).join(' ');
-        const alt = pts.slice().reverse().map(p => X(p.gun) + ',' + Y(p.min)).join(' ');
+        const ust = pts.map(p => X(p.gun) + ',' + Y(p.p90)).join(' ');
+        const alt = pts.slice().reverse().map(p => X(p.gun) + ',' + Y(p.p10)).join(' ');
         svg += '<polygon points="' + ust + ' ' + alt + '" fill="rgba(56,189,248,0.10)" stroke="none"/>';
       }
+      // eksik kapsamalı günleri tara (fiyat hareketi değil, veri eksiği)
+      gunler.forEach(g => {
+        const eks = eksikGun(g);
+        if (!eks) return;
+        const x = X(g), yarim = gunler.length > 1 ? (iw / (gunler.length - 1)) / 2 : 30;
+        svg += '<rect x="' + (x - Math.min(yarim, 34)) + '" y="' + MT + '" width="' + (Math.min(yarim, 34) * 2) + '" height="' + ih + '" fill="rgba(251,191,36,0.07)"/>';
+        svg += '<text x="' + x + '" y="' + (MT + 12) + '" text-anchor="middle" font-size="9" fill="#fbbf24">eksik veri</text>';
+      });
 
       // seriler
       seri.forEach((sr, si) => {
@@ -4844,11 +4857,17 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
                + (dash ? ' stroke-dasharray="4 3" opacity="0.75"' : '') + ' stroke-linejoin="round"/>';
         };
         svg += cizgi('min');
-        if (grup === 'piyasa') { svg += cizgi('ort', true); svg += cizgi('max', true); }
+        if (grup === 'piyasa') { svg += cizgi('p50', true); }
         pts.forEach(p => {
-          svg += '<circle cx="' + X(p.gun) + '" cy="' + Y(p.min) + '" r="4" fill="' + renk + '" stroke="#0b1220" stroke-width="1.5">'
-               + '<title>' + sr.ad + ' — ' + rfGunEt(p.gun) + '\nEn ucuz: ' + rfTL(p.min)
-               + '\nOrtalama: ' + rfTL(p.ort) + '\nEn yüksek: ' + rfTL(p.max) + '\n' + p.adet + ' ilan</title></circle>';
+          const eks = eksikGun(p.gun);
+          svg += '<circle cx="' + X(p.gun) + '" cy="' + Y(p.min) + '" r="4" fill="' + (eks ? '#0b1220' : renk) + '" stroke="' + renk + '" stroke-width="' + (eks ? 2 : 1.5) + '"' + (eks ? ' stroke-dasharray="2 1"' : '') + '>'
+               + '<title>' + sr.ad + ' — ' + rfGunEt(p.gun)
+               + '\nEn ucuz: ' + rfTL(p.min)
+               + '\nMedyan: ' + rfTL(p.p50)
+               + '\np10–p90: ' + rfTL(p.p10) + ' – ' + rfTL(p.p90)
+               + '\n' + p.adet + ' ilan'
+               + (eks ? '\n\n⚠ EKSİK VERİ: bu gün sadece ' + eks + '/' + tamSite + ' pazaryeri çekildi.\nFiyat hareketi değil, kapsama boşluğu olabilir.' : '')
+               + '</title></circle>';
         });
         // son değer etiketi
         const son = pts[pts.length - 1];
@@ -4867,9 +4886,14 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       svg += '</svg>';
       chart.innerHTML = svg;
 
+      const eksikler = gunler.filter(g => eksikGun(g));
       notEl.innerHTML = 'Kesintisiz çizgi = <b>o gün o kaynaktaki en ucuz ilan</b>'
-        + (grup === 'piyasa' ? '; kesikli çizgiler = ortalama ve en yüksek; gölgeli alan = min–max aralığı' : '')
-        + '. Noktaların üzerine gelin. · Veri ' + rfGunEt(ilkGun) + ' – ' + rfGunEt(sonGun) + ' arası'
+        + (grup === 'piyasa' ? '; kesikli çizgi = <b>medyan</b>; gölgeli alan = <b>p10–p90</b> (aykırı ilanlara dayanıklı)' : '')
+        + '. 4\'lü setler hariç tutuldu. Noktaların üzerine gelin.'
+        + '<br>Veri ' + rfGunEt(ilkGun) + ' – ' + rfGunEt(sonGun)
+        + (eksikler.length
+            ? ' · <span style="color:#fbbf24">⚠ Taralı günlerde tüm pazaryerleri çekilmedi (' + eksikler.map(rfGunEt).join(', ') + ') — oradaki sıçrama fiyat hareketi değil, veri eksiği olabilir.</span>'
+            : '')
         + (gunler.length < 7 ? ' · <span style="color:#fbbf24">Geçmiş veri henüz ' + gunler.length + ' gün — her gün derinleşiyor.</span>' : '');
     };
 

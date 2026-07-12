@@ -20322,6 +20322,9 @@ async function requireTenantAdmin(request) {
 
     const vals = [gun];
     const where = ["scraped_at > now() - ($1::int * interval '1 day')", "fiyat IS NOT NULL", "fiyat > 0"];
+    // 4'lu SETLERI DISLA: bir set 4x fiyattir, tek lastikle kiyaslanamaz.
+    // (205/55R16'da 20.290 TL'lik "max" bir set idi; ortalamayi 2.500 -> 3.946 cekiyordu.)
+    where.push("COALESCE(model,'') !~* '(4 *l[uü]|4 *adet|tak[iı]m|set olarak)'");
     // Ebat DAIMA genislik/profil/cap'ten — ham `ebat` kolonu kirli (kirpilmis baslik).
     if (ebat)   { vals.push('%' + ebat + '%');  where.push(`CONCAT(genislik,'/',profil,'R',cap) ILIKE $${vals.length}`); }
     if (marka)  { vals.push('%' + marka + '%'); where.push(`marka ILIKE $${vals.length}`); }
@@ -20329,12 +20332,18 @@ async function requireTenantAdmin(request) {
     const w = 'WHERE ' + where.join(' AND ');
 
     const col = grup === 'kaynak' ? 'kaynak' : (grup === 'marka' ? 'marka' : "'Piyasa'::text");
+    // PERCENTILLER: min/ort/max tek bir hatali ilana teslim olur. p10/p50/p90 olmaz.
+    // site_sayisi: o gun kac pazaryeri veri verdi -> eksik kapsamayi fiyat hareketi
+    // sanmayalim diye.
     const sql =
       `SELECT ${col} AS ad, scraped_at::date AS gun,
-              MIN(fiyat)::int  AS min_f,
-              ROUND(AVG(fiyat))::int AS ort_f,
-              MAX(fiyat)::int  AS max_f,
-              COUNT(*)::int    AS adet
+              MIN(fiyat)::int AS min_f,
+              percentile_cont(0.10) WITHIN GROUP (ORDER BY fiyat)::int AS p10,
+              percentile_cont(0.50) WITHIN GROUP (ORDER BY fiyat)::int AS p50,
+              percentile_cont(0.90) WITHIN GROUP (ORDER BY fiyat)::int AS p90,
+              MAX(fiyat)::int AS max_f,
+              COUNT(*)::int   AS adet,
+              COUNT(DISTINCT kaynak)::int AS site
          FROM bi_rakip_fiyat ${w}
         GROUP BY 1, 2
         HAVING COUNT(*) > 0
@@ -20346,15 +20355,30 @@ async function requireTenantAdmin(request) {
       if (!map.has(r.ad)) map.set(r.ad, []);
       map.get(r.ad).push({
         gun: (r.gun instanceof Date) ? r.gun.toISOString().slice(0, 10) : String(r.gun).slice(0, 10),
-        min: r.min_f, ort: r.ort_f, max: r.max_f, adet: r.adet
+        min: r.min_f, p10: r.p10, p50: r.p50, p90: r.p90, max: r.max_f,
+        ort: r.p50,                       // geriye donuk uyumluluk: "ort" artik MEDYAN
+        adet: r.adet, site: r.site
       });
     }
+
+    // Gunluk toplam pazaryeri kapsamasi (hangi gunler eksik?)
+    const kapsamaSql =
+      `SELECT scraped_at::date AS gun, COUNT(DISTINCT kaynak)::int AS site
+         FROM bi_rakip_fiyat
+        WHERE scraped_at > now() - ($1::int * interval '1 day')
+        GROUP BY 1 ORDER BY 1`;
+    const kap = await pool.query(kapsamaSql, [gun]);
+    const kapsama = kap.rows.map(r => ({
+      gun: (r.gun instanceof Date) ? r.gun.toISOString().slice(0, 10) : String(r.gun).slice(0, 10),
+      site: r.site
+    }));
+    const tamSite = kapsama.length ? Math.max(...kapsama.map(k => k.site)) : 0;
     // en cok veri olan seriyi one al
     const seri = [...map.entries()]
       .map(([ad, noktalar]) => ({ ad, noktalar }))
       .sort((a, b) => b.noktalar.length - a.noktalar.length);
 
-    sendJson(response, 200, { grup, gun, ebat, marka, kaynak, seri });
+    sendJson(response, 200, { grup, gun, ebat, marka, kaynak, seri, kapsama, tam_site: tamSite });
     return;
   }
 
