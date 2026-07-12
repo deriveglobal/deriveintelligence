@@ -12517,6 +12517,11 @@ async function initPlatformSession() {
       if (biEl) biEl.style.display = "block";
       addSahaModuleToggle();
     }
+    // ADMIN_PANEL_V1 — Yonetim paneli DOM'a yuklendi ama hideAllSurfacesExcept onu
+    // gizliyordu ve ona gidecek dugme YOKTU. Tenant admin icin gecis dugmesi ekle.
+    if (me.tenantRole === "tenant_admin" || me.tenantRole === "platform_owner") {
+      addTenantAdminToggle();
+    }
 
     // If no module subscriptions, user is in the platform but no modules yet
     if (!me.subscriptions?.length && me.tenantRole !== "tenant_admin" && me.tenantRole !== "platform_owner") {
@@ -12607,6 +12612,37 @@ function addSahaModuleToggle() {
     if (!document.getElementById("saha-module-toggle")) {
       document.body.appendChild(btn);
     }
+  }).observe(document.body, { childList: true });
+}
+
+// ADMIN_PANEL_V1 — Yonetim paneline gecis dugmesi (tenant_admin / platform_owner)
+function addTenantAdminToggle() {
+  if (document.getElementById("tenant-admin-toggle")) return;
+  const btn = document.createElement("button");
+  btn.id = "tenant-admin-toggle";
+  btn.textContent = "👤 Yönetim";
+  btn.style.cssText = "position:fixed;right:16px;bottom:70px;z-index:2000;padding:10px 16px;"
+    + "border-radius:24px;border:1px solid #e2b04a;background:#1a1a2e;color:#e2b04a;"
+    + "font-size:13px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35)";
+  btn.addEventListener("click", function() {
+    const ta = document.getElementById("tenant-admin-surface");
+    const acik = ta && ta.style.display !== "none" && ta.style.display !== "";
+    if (acik) {
+      // Yonetimden CIK -> BI'ya don
+      hideAllSurfacesExcept("bi-surface");
+      const bi = document.getElementById("bi-surface");
+      if (bi) bi.style.display = "block";
+      btn.textContent = "👤 Yönetim";
+    } else {
+      hideAllSurfacesExcept("tenant-admin-surface");
+      if (ta) ta.style.display = "block";
+      btn.textContent = "← Geri";
+    }
+  });
+  document.body.appendChild(btn);
+  // Baska bir async islem dugmeyi silerse geri koy
+  new MutationObserver(function() {
+    if (!document.getElementById("tenant-admin-toggle")) document.body.appendChild(btn);
   }).observe(document.body, { childList: true });
 }
 
