@@ -99,6 +99,24 @@ add("dq.future_export_date", "data_quality", "Gelecek tarihli veri (hatali)", "w
 r = psql("SELECT count(*) FROM system_error_logs WHERE severity='ERROR' "
          "AND message ILIKE '%chk_iskonto_arac_tipi%' AND timestamp>now()-interval '24 hours'")
 n = int(r[0][0]) if r else 0
+# EBAT_MONITOR_V1 — parser'in okuyamadigi ebat formati belirirse HABER VER.
+#   Ebatsiz ilan = Smart Matched'e, trend'e, DOT'a, master'a GIREMEZ. Sessizce kaybolur.
+ew = float(ayar("ebat_warn_pct", "2")); ec = float(ayar("ebat_crit_pct", "5"))
+r = psql("SELECT count(*) FILTER (WHERE genislik IS NULL), count(*), "
+         "COALESCE((array_agg(left(model,44) ORDER BY scraped_at DESC) "
+         "  FILTER (WHERE genislik IS NULL))[1],'-') "
+         "FROM bi_rakip_fiyat WHERE lastik_mi IS NOT FALSE "
+         "  AND scraped_at > now() - interval '7 days'")
+if r and r[0]:
+    eb = int(r[0][0] or 0); tp = int(r[0][1] or 0); ornek = r[0][2] or "-"
+    oran = (100.0 * eb / tp) if tp else 0.0
+    st = "crit" if oran > ec else ("warn" if oran > ew else "ok")
+    add("dq.ebat_parse", "data_quality", "Ebat okunamayan ilanlar (7g)", st,
+        "%.1f%% (%d/%d)" % (oran, eb, tp),
+        "Parser'in bilmedigi bir ebat formati ciktiysa bu oran YUKSELIR. "
+        "Ebatsiz ilan urun eslesmesine giremez — segment sessizce kaybolur. Ornek: %s" % ornek,
+        oran)
+
 add("dq.iskonto_reject", "data_quality", "Fiyat listesi iskonto reddi (24s)", "warn" if n > 0 else "ok",
     "%d" % n, "chk_iskonto_arac_tipi ihlali; iskonto satirlari reddediliyor.", n)
 
