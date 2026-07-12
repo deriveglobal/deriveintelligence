@@ -4752,6 +4752,21 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
         const esc = s => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         const isSet = m => /(4\s*['`´]?\s*l[üu]|4\s*adet|takım|takim|set olarak)/i.test(m || '');
         const money = n => (n == null || isNaN(n)) ? '—' : Number(n).toLocaleString('tr-TR', { maximumFractionDigits: 0 }) + ' ₺';
+        // Veri ne kadar taze? Ölü bir siteden gelen 4 günlük fiyat, canlı fiyat gibi görünmemeli.
+        const taze = ts => {
+          if (!ts) return '<span style="color:#556">—</span>';
+          const d = new Date(ts);
+          if (isNaN(d)) return '<span style="color:#556">—</span>';
+          const saat = (Date.now() - d.getTime()) / 3600000;
+          const gun  = Math.floor(saat / 24);
+          const kisa = saat < 24
+            ? d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })
+            : d.toLocaleDateString('tr-TR', { day: '2-digit', month: '2-digit' });
+          let renk = '#8899aa', ek = '';
+          if (saat >= 72)      { renk = '#f87171'; ek = ' · ' + gun + 'g'; }
+          else if (saat >= 24) { renk = '#fbbf24'; ek = ' · ' + gun + 'g'; }
+          return '<span title="' + esc(d.toLocaleString('tr-TR')) + '" style="color:' + renk + ';white-space:nowrap">' + kisa + ek + '</span>';
+        };
         const sizeOf = r => (r.genislik && r.profil && r.cap) ? (r.genislik + '/' + r.profil + 'R' + r.cap) : (r.ebat || '');
         window._rfRawSort = window._rfRawSort || { col: 'default', dir: 1 };
         const state = window._rfRawSort;
@@ -4762,7 +4777,8 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           fiyat:  r => (parseFloat(r.fiyat) || 0),
           birim:  r => (isSet(r.model) && parseFloat(r.fiyat)) ? parseFloat(r.fiyat) / 4 : (parseFloat(r.fiyat) || 0),
           satici: r => (parseInt(r.satici_sayisi, 10) || 0),
-          puan:   r => (parseFloat(r.puan) || 0)
+          puan:   r => (parseFloat(r.puan) || 0),
+          tarih:  r => (r.scraped_at ? +new Date(r.scraped_at) : 0)
         };
         const defaultCmp = (a,b) => sizeOf(a).localeCompare(sizeOf(b)) || (a.marka || '').localeCompare(b.marka || '') || ((parseFloat(a.fiyat) || 0) - (parseFloat(b.fiyat) || 0));
         const cmp = (a,b) => {
@@ -4782,7 +4798,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           + '<thead><tr style="background:rgba(255,255,255,0.06);font-weight:600;text-align:left">'
           + thS('Kaynak','kaynak') + thS('Marka','marka') + thS('Ebat','ebat') + th('Model')
           + thS('Fiyat','fiyat','text-align:right') + thS('Birim (₺/adet)','birim','text-align:right')
-          + thS('Satıcı','satici') + thS('Puan','puan') + th('')
+          + thS('Satıcı','satici') + thS('Puan','puan') + thS('Son Çekim','tarih') + th('')
           + '</tr></thead><tbody>';
         let setCount = 0;
         for (const r of rows) {
@@ -4803,6 +4819,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
             + '<td style="padding:8px 10px;text-align:right;white-space:nowrap;color:' + (birim ? '#38a169' : '#556') + '">' + (birim ? money(birim) : '—') + '</td>'
             + '<td style="padding:8px 10px;color:#8899aa;white-space:nowrap">' + (r.satici_sayisi ? ('🏪' + r.satici_sayisi) : '') + '</td>'
             + '<td style="padding:8px 10px;color:#8899aa;white-space:nowrap">' + (r.puan ? ('⭐' + r.puan) : '') + '</td>'
+            + '<td style="padding:8px 10px">' + taze(r.scraped_at) + '</td>'
             + '<td style="padding:8px 10px;white-space:nowrap">' + izleBtn + ' ' + link + '</td>'
             + '</tr>';
         }
