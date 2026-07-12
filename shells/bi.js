@@ -5180,7 +5180,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       // SEGMENT_SERVERSIDE_V1: cap'ten ONCE sunucuda filtrele
       const _sg = window._rfSegment || 'TUMU';
       if (_sg !== 'TUMU') qs.set('segment', _sg);
-      qs.set('limit', '500');
+      qs.set('limit', '5000');   // LIMIT_V2: 500 kesiyordu
       try {
         const data = await rfApi('/api/rakip/piyasa?' + qs.toString());
         if (!data.rows?.length) { res.innerHTML = '<div style="color:#778;padding:20px">Sonuç bulunamadı.</div>'; return; }
@@ -5298,7 +5298,13 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
             + '</tr>';
         }
         html += '</tbody></table></div>';
-        html += '<div style="margin-top:10px;font-size:12px;color:#667;text-align:right">' + rows.length + ' ilan (ham veri)' + (setCount ? (' · ' + setCount + ' set 4\'lü — birim = fiyat/4') : '') + '</div>';
+        var _tp = (data.toplam != null) ? data.toplam : rows.length;
+        var _kesik = data.kesildi && (_seg === 'TUMU');
+        html += '<div style="margin-top:10px;font-size:12px;text-align:right;color:' + (_kesik ? '#f87171' : '#667') + '">'
+          + rows.length + ' ilan gösteriliyor'
+          + ((_tp > rows.length) ? (' · <b>toplam ' + _tp.toLocaleString('tr-TR') + '</b> — liste kesildi, aramanızı daraltın') : ' (tümü)')
+          + (setCount ? (' · ' + setCount + ' set 4\'lü — birim = fiyat/4') : '')
+          + '</div>';
         res.innerHTML = html;
         };
         window._rfRawDraw = draw;
@@ -5386,7 +5392,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       res.innerHTML='<div style="color:#778;padding:20px">Eşleştiriliyor...</div>';
       var qs=new URLSearchParams(); if(marka)qs.set('marka',marka); if(ebat)qs.set('ebat',ebat);
       var _sg=window._rfSegment||'TUMU'; if(_sg!=='TUMU') qs.set('segment',_sg);  // SEGMENT_SERVERSIDE_V1
-      qs.set('limit','500');
+      qs.set('limit','5000');   // LIMIT_V2
       try{
         var data=await rfApi('/api/rakip/piyasa?'+qs.toString());
         if(!data.rows||!data.rows.length){ res.innerHTML='<div style="color:#778;padding:20px">Sonuç bulunamadı.</div>'; return; }

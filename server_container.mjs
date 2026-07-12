@@ -20294,7 +20294,7 @@ async function requireTenantAdmin(request) {
     const marka = (url.searchParams.get('marka') || '').trim();
     const ebat  = (url.searchParams.get('ebat')  || '').trim();
     const seg   = (url.searchParams.get('segment') || '').trim().toUpperCase();
-    const limit = Math.min(parseInt(url.searchParams.get('limit') || '200', 10), 500);
+    const limit = Math.min(parseInt(url.searchParams.get('limit') || '5000', 10), 20000);
     const where = []; const vals = [];
     if (seg === 'TUKETICI') where.push("segment = 'BINEK'");
     else if (seg === 'TICARI') where.push("segment IN ('KAMYON_OTOBUS','HAFIF_TICARI','IS_MAKINESI')");
@@ -20309,7 +20309,12 @@ async function requireTenantAdmin(request) {
       ' ORDER BY ebat, marka, fiyat LIMIT $' + vals.length,
       vals
     );
-    sendJson(response, 200, { rows }); return;
+    // LIMIT_V2: toplam kac ilan var? (kesilme kullaniciya GORUNSUN)
+    const cvals = vals.slice(0, vals.length - 1);
+    const cnt = await pool.query(
+      'SELECT count(*)::int AS toplam FROM bi_rakip_fiyat_son ' + clause, cvals);
+    const toplam = (cnt.rows[0] || {}).toplam || rows.length;
+    sendJson(response, 200, { rows, toplam, kesildi: toplam > rows.length }); return;
   }
 
   // GET /api/rakip/trend — gunluk fiyat serisi (RAKIP_TREND_V1)
