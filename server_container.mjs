@@ -24589,6 +24589,17 @@ function buildDeptSystemPrompt(dept, context, session) {
 
       const _BRAIN_TOOLS = [
         {
+          name: 'pilot_durum',
+          description: 'SAHA PILOTUNUN (test sureci) durumu: Eftal Yildiz ve Huseyin Bilgi uygulamayi ' +
+            'gercekten kullaniyor mu (ziyaret/teklif/geri bildirim sayilari, son kullanim), actiklari ' +
+            'geri bildirim/hata kayitlari ve bunlarin cozum durumu, ve sistemin BILINEN SORUNLARI. ' +
+            'Fatih Bilen "test nasil gidiyor", "cocuklar kullaniyor mu", "hangi hatalar var", ' +
+            '"pilot durumu", "Eftal/Huseyin ne yapti", "neler duzeldi" diye sordugunda MUTLAKA bunu cagir.',
+          input_schema: { type: 'object', properties: {
+            gun: { type: 'number', description: 'Kac gun geriye bakilsin (varsayilan 14)' }
+          } }
+        },
+        {
           name: 'saha_faaliyet_ozet',
           description: 'Sahadaki TUM insan-girisi icerigi okur: temsilci ziyaret notlari, kisisel notlar, teklifler, rakip fiyat girisleri, cikarilan sinyaller (risk/firsat/takip/teklif_talep), duyurular ve mesajlar. Owner "sahada neler oluyor", "riskli musteriler", "bu hafta ozeti", "bekleyen isler", "duyurularda ne var", "rakip haberleri" gibi sorularda kullan.',
           input_schema: { type: 'object', properties: {
@@ -24826,6 +24837,115 @@ function buildDeptSystemPrompt(dept, context, session) {
           } catch(e) {
             return { dept: input.dept, error: e.message };
           }
+        }
+        if (toolName === 'pilot_durum') {   // PILOT_V1
+          const _gun = parseInt(input && input.gun, 10) > 0 ? parseInt(input.gun, 10) : 14;
+          try {
+            // 1) Temsilciler gercekten kullaniyor mu?
+            const reps = await query(`
+              SELECT u.full_name, u.email,
+                     (SELECT count(*) FROM saha_ziyaret z WHERE z.rep_id=u.id)::int AS toplam_ziyaret,
+                     (SELECT count(*) FROM saha_ziyaret z WHERE z.rep_id=u.id
+                        AND z.ziyaret_tarihi > CURRENT_DATE - $2::int)::int AS son_donem_ziyaret,
+                     (SELECT max(z.ziyaret_tarihi) FROM saha_ziyaret z WHERE z.rep_id=u.id) AS son_ziyaret,
+                     (SELECT count(*) FROM saha_oneri o WHERE o.user_id=u.id)::int AS geri_bildirim
+                FROM users u
+               WHERE u.email IN ('eyildiz@krb.com.tr','hbilgi@krb.com.tr')
+               ORDER BY u.email`, [tenantId, _gun]);
+
+            // 2) Geri bildirim / hata kayitlari — TAM KONUSMA ile (sayilar degil, SOZLER)
+            const tickets = await query(`
+              SELECT o.id, o.baslik, o.kategori, o.durum, o.ts::date AS acilis,
+                     COALESCE(u.full_name, '?') AS acan, o.mesaj AS ilk_mesaj,
+                     o.yonetici_notu,
+                     COALESCE((
+                       SELECT json_agg(json_build_object(
+                                'kim',    COALESCE(mu.full_name, 'sistem'),
+                                'ne',     m.mesaj,
+                                'tip',    m.tip,
+                                'zaman',  to_char(m.ts, 'DD.MM HH24:MI'))
+                              ORDER BY m.ts)
+                         FROM saha_oneri_mesaj m
+                         LEFT JOIN users mu ON mu.id = m.user_id
+                        WHERE m.oneri_id = o.id), '[]'::json) AS konusma
+                FROM saha_oneri o LEFT JOIN users u ON u.id=o.user_id
+               WHERE o.tenant_id=$1
+               ORDER BY o.ts DESC LIMIT 25`, [tenantId]);
+
+            const ozet = await query(`
+              SELECT durum, count(*)::int AS n FROM saha_oneri WHERE tenant_id=$1 GROUP BY durum`, [tenantId]);
+
+            // 3) DUYURULAR + yorumlar (yazan_adi/user_adi kolonda GOMULU)
+            let duyurular = { rows: [] };
+            try {
+              duyurular = await query(`
+                SELECT d.baslik, d.icerik, d.tip, d.onem, d.created_at::date AS tarih,
+                       d.yazan_adi,
+                       COALESCE((
+                         SELECT json_agg(json_build_object(
+                                  'kim', y.user_adi, 'rol', y.rol, 'ne', y.icerik) ORDER BY y.id)
+                           FROM saha_duyuru_yorum y
+                          WHERE y.duyuru_id = d.id), '[]'::json) AS yorumlar
+                  FROM saha_duyuru d
+                 WHERE d.tenant_id=$1
+                 ORDER BY d.created_at DESC LIMIT 15`, [tenantId]);
+            } catch (_de) { duyurular = { rows: [{ hata: 'duyurular okunamadi: ' + _de.message }] }; }
+
+            // 4) UYGULAMA HATALARI (temsilcinin ekraninda patlayanlar)
+            let hatalar = { rows: [] };
+            try {
+              hatalar = await query(`
+                SELECT area, action, message, severity, count(*)::int AS kez,
+                       max(timestamp)::date AS son
+                  FROM saha_hata_log
+                 WHERE timestamp > now() - ($1::int || ' days')::interval
+                 GROUP BY area, action, message, severity
+                 ORDER BY kez DESC LIMIT 15`, [_gun]);
+            } catch (_he) {
+              try {
+                hatalar = await query(`
+                  SELECT area, action, message, severity, count(*)::int AS kez,
+                         max(timestamp)::date AS son
+                    FROM system_error_logs
+                   WHERE timestamp > now() - ($1::int || ' days')::interval
+                   GROUP BY area, action, message, severity
+                   ORDER BY kez DESC LIMIT 15`, [_gun]);
+              } catch (_he2) { hatalar = { rows: [{ hata: 'hata loglari okunamadi: ' + _he2.message }] }; }
+            }
+
+            return {
+              pilot: {
+                tenant: 'KRB (Kardesler Rot Balans)',
+                canli_tarih: 'Pazartesi — Eftal Yildiz (TUKETICI) + Huseyin Bilgi (TICARI)',
+                gozlem_penceresi_gun: _gun
+              },
+              temsilciler: reps.rows,
+              geri_bildirim_ozeti: ozet.rows,
+              // TAM konusmalar — sayilarla degil, temsilcinin KENDI SOZLERIYLE cevap ver.
+              geri_bildirimler: tickets.rows,
+              duyurular: duyurular.rows,
+              uygulama_hatalari: hatalar.rows,
+              OKUMA_TALIMATI:
+                'geri_bildirimler[].konusma ve duyurular[].yorumlar TAM METINDIR. Fatih Bilen ' +
+                '"Eftal ne demis / ne sikayet etmisler / duyurularda ne var" diye sorarsa ONLARIN ' +
+                'KENDI CUMLELERINI aktar, ozetleyip yumusatma. uygulama_hatalari = temsilcinin ' +
+                'ekraninda GERCEKTEN patlayan hatalar; bunlari kucumseme.',
+              BILINEN_SORUNLAR: [
+                'ERP AKTARIMI 29 GUNDUR OLU. Ciro/stok/bakiye rakamlari EKSIK. ' +
+                'Fatih Bilen 09.07\'de "haziran cirosu 121.79M" dedi; sistem 69.1M gosteriyor (~yarisi). ' +
+                'Bu, pilotun 1 numarali riskidir — temsilciler Pazartesi bir aylik eski bakiye/stok gorecek.',
+                'DKIM/DMARC yayinlanmadi (deriveglobal.com) — bildirim e-postalari Junk klasorune dusuyor.',
+                'Ticari (kamyon/van) pazar verisi 12.07\'ye kadar BOZUKTU (ebat parse hatasi); duzeltildi.',
+                'Asistan yanitlari max_tokens=1024 ile KESILIYORDU; "gonderiyorum" deyip eylem yapamiyordu. ' +
+                'Duzeltildi (4000). Fatih Bilen\'in "yalan soyluyor" sikayetinin teknik sebebi buydu.'
+              ],
+              DURUSTLUK_TALIMATI:
+                'Fatih Bilen pilot hakkinda soru sorarsa: ONCE bozuk olani soyle, sonra duzeleni. ' +
+                'O bu sistemin hatalarini iki haftadir KENDI buluyor ve hakli cikiyor. ' +
+                'Kendini guvenilir gostermeye calisma; kendi hatalarini ILK SEN soyle. ' +
+                'Rakam uydurma — bilmiyorsan "bilmiyorum" de.'
+            };
+          } catch (e) { return { error: 'pilot_durum: ' + e.message }; }
         }
         if (toolName === 'send_email') {   // GUARDRAIL_V1
           const { to, subject, body = '', html } = input;
