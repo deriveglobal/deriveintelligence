@@ -21878,18 +21878,24 @@ if (request.method === "GET" && url.pathname === "/api/tenant/me") {
   try {
     const session = await requireTenantAdmin(request);
     if (!session.tenantId) { sendJson(response, 200, { tenantId: null, role: "platform_owner" }); return; }
+    // ADMIN_TEMIZ_V1: tenant_users x tenant_subscriptions KARTEZYEN carpim yapiyordu
+    // (11 kullanici x 2 abonelik = 22 abonelik karti). Abonelikler AYRI alt-sorgudan.
     const result = await query(`
       SELECT pt.*,
-             COUNT(DISTINCT tu.user_id) FILTER (WHERE tu.active) AS seats_used,
-             json_agg(json_build_object('module_id', ts.module_id, 'plan_key', mp.plan_key,
-               'status', ts.status, 'features', mp.features_json,
-               'expires', ts.current_period_end)) FILTER (WHERE ts.id IS NOT NULL) AS subscriptions
+             (SELECT COUNT(DISTINCT tu.user_id) FROM tenant_users tu
+               WHERE tu.tenant_id = pt.id AND tu.active) AS seats_used,
+             (SELECT json_agg(DISTINCT jsonb_build_object(
+                        'module_id', ts.module_id,
+                        'plan_key',  mp.plan_key,
+                        'status',    ts.status,
+                        'features',  mp.features_json,
+                        'expires',   ts.current_period_end))
+                FROM tenant_subscriptions ts
+                LEFT JOIN module_plans mp ON mp.id = ts.plan_id
+               WHERE ts.tenant_id = pt.id
+                 AND ts.status IN ('active','trial')) AS subscriptions
       FROM platform_tenants pt
-      LEFT JOIN tenant_users tu ON tu.tenant_id = pt.id
-      LEFT JOIN tenant_subscriptions ts ON ts.tenant_id = pt.id AND ts.status IN ('active','trial')
-      LEFT JOIN module_plans mp ON mp.id = ts.plan_id
-      WHERE pt.id = $1
-      GROUP BY pt.id`, [session.tenantId]);
+      WHERE pt.id = $1`, [session.tenantId]);
     sendJson(response, 200, result.rows[0] || {});
   } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
   return;

@@ -40,7 +40,7 @@ export function initTenantAdminSurface(container, me, callbacks) {
       </nav>
       <div class="ta-sidebar-footer">
         <span class="ta-tenant-badge">${esc(me.tenantName || "Şirket")}</span>
-        // [patch: admin-back-btn]
+        
         <button class="ta-back-btn" id="ta-back-btn" title="Intelligence'a Dön">
           <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>
           Intelligence
