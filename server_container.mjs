@@ -20299,7 +20299,7 @@ async function requireTenantAdmin(request) {
     if (seg === 'TUKETICI') where.push("segment = 'BINEK'");
     else if (seg === 'TICARI') where.push("segment IN ('KAMYON_OTOBUS','HAFIF_TICARI','IS_MAKINESI')");
     if (marka) { vals.push('%' + marka + '%'); where.push('marka ILIKE $' + vals.length); }
-    if (ebat)  { vals.push("%" + ebat + "%"); where.push("(ebat ILIKE $" + vals.length + " OR CONCAT(genislik,'/',profil,'R',cap) ILIKE $" + vals.length + ")"); } // EBAT_CONCAT_V1
+    if (ebat)  { vals.push("%" + ebat + "%"); where.push("(ebat ILIKE $" + vals.length + " OR (CASE WHEN profil IS NULL THEN CONCAT(genislik,'R',cap) ELSE CONCAT(genislik,'/',profil,'R',cap) END) ILIKE $" + vals.length + ")"); } // EBAT_CONCAT_V1
         const clause = where.length ? 'WHERE ' + where.join(' AND ') : '';
     vals.push(limit);
     const { rows } = await pool.query(
@@ -20330,7 +20330,7 @@ async function requireTenantAdmin(request) {
     // (205/55R16'da 20.290 TL'lik "max" bir set idi; ortalamayi 2.500 -> 3.946 cekiyordu.)
     where.push("COALESCE(model,'') !~* '(4 *l[uü]|4 *adet|tak[iı]m|set olarak)'");
     // Ebat DAIMA genislik/profil/cap'ten — ham `ebat` kolonu kirli (kirpilmis baslik).
-    if (ebat)   { vals.push('%' + ebat + '%');  where.push(`CONCAT(genislik,'/',profil,'R',cap) ILIKE $${vals.length}`); }
+    if (ebat)   { vals.push('%' + ebat + '%');  where.push(`(CASE WHEN profil IS NULL THEN CONCAT(genislik,'R',cap) ELSE CONCAT(genislik,'/',profil,'R',cap) END) ILIKE $${vals.length}`); }
     if (marka)  { vals.push('%' + marka + '%'); where.push(`marka ILIKE $${vals.length}`); }
     if (kaynak) { vals.push(kaynak);            where.push(`kaynak = $${vals.length}`); }
     const w = 'WHERE ' + where.join(' AND ');
@@ -20470,7 +20470,7 @@ async function requireTenantAdmin(request) {
     const vals = [];
     const f = [];
     if (marka) { vals.push('%' + marka + '%'); f.push(`marka ILIKE $${vals.length}`); }
-    if (ebat)  { vals.push('%' + ebat + '%');  f.push(`CONCAT(genislik,'/',profil,'R',cap) ILIKE $${vals.length}`); }
+    if (ebat)  { vals.push('%' + ebat + '%');  f.push(`(CASE WHEN profil IS NULL THEN CONCAT(genislik,'R',cap) ELSE CONCAT(genislik,'/',profil,'R',cap) END) ILIKE $${vals.length}`); }
     const ek = f.length ? ' AND ' + f.join(' AND ') : '';
     vals.push(minInd);
     const mi = vals.length;
@@ -20478,7 +20478,7 @@ async function requireTenantAdmin(request) {
     const { rows } = await pool.query(
       `WITH u AS (
          SELECT sm_key, marka, sm_desen,
-                CONCAT(genislik,'/',profil,'R',cap) AS ebat,
+                (CASE WHEN profil IS NULL THEN CONCAT(genislik,'R',cap) ELSE CONCAT(genislik,'/',profil,'R',cap) END) AS ebat,
                 uretim_yili,
                 MIN(fiyat)::int AS en_ucuz,
                 COUNT(*)::int   AS ilan,
@@ -20531,7 +20531,7 @@ async function requireTenantAdmin(request) {
   // GET /api/rakip/trend-ebatlar — en cok ilani olan ebatlar (dropdown icin)
   if (request.method === 'GET' && url.pathname === '/api/rakip/trend-ebatlar') {
     const { rows } = await pool.query(
-      `SELECT CONCAT(genislik,'/',profil,'R',cap) AS ebat, COUNT(*)::int AS ilan
+      `SELECT (CASE WHEN profil IS NULL THEN CONCAT(genislik,'R',cap) ELSE CONCAT(genislik,'/',profil,'R',cap) END) AS ebat, COUNT(*)::int AS ilan
          FROM bi_rakip_fiyat
         WHERE genislik IS NOT NULL AND profil IS NOT NULL AND cap IS NOT NULL
           AND scraped_at > now() - interval '30 days'
@@ -20546,7 +20546,7 @@ async function requireTenantAdmin(request) {
     const ebat  = (url.searchParams.get('ebat')  || '').trim();
     const where = []; const vals = [];
     if (marka) { vals.push('%' + marka + '%'); where.push('marka ILIKE $' + vals.length); }
-    if (ebat)  { vals.push('%' + ebat + '%'); where.push("(CONCAT(genislik,'/',profil,'R',cap) ILIKE $" + vals.length + ")"); }
+    if (ebat)  { vals.push('%' + ebat + '%'); where.push("((CASE WHEN profil IS NULL THEN CONCAT(genislik,'R',cap) ELSE CONCAT(genislik,'/',profil,'R',cap) END) ILIKE $" + vals.length + ")"); }
     const clause = where.length ? 'WHERE ' + where.join(' AND ') : '';
     const { rows } = await pool.query(
       'SELECT kaynak, marka, model, genislik, profil, cap, url, fiyat, gecerli_tarih' +
