@@ -20308,6 +20308,68 @@ async function requireTenantAdmin(request) {
     sendJson(response, 200, { rows }); return;
   }
 
+  // GET /api/rakip/trend — gunluk fiyat serisi (RAKIP_TREND_V1)
+  //   ?ebat=205/55R16 &marka= &kaynak= &gun=30 &grup=piyasa|kaynak|marka
+  if (request.method === 'GET' && url.pathname === '/api/rakip/trend') {
+    const ebat   = (url.searchParams.get('ebat')   || '').trim();
+    const marka  = (url.searchParams.get('marka')  || '').trim();
+    const kaynak = (url.searchParams.get('kaynak') || '').trim();
+    const grup   = ['piyasa', 'kaynak', 'marka'].includes(url.searchParams.get('grup'))
+                     ? url.searchParams.get('grup') : 'piyasa';
+    let gun = parseInt(url.searchParams.get('gun') || '30', 10);
+    if (!Number.isFinite(gun) || gun < 2) gun = 30;
+    if (gun > 90) gun = 90;
+
+    const vals = [gun];
+    const where = ["scraped_at > now() - ($1::int * interval '1 day')", "fiyat IS NOT NULL", "fiyat > 0"];
+    // Ebat DAIMA genislik/profil/cap'ten — ham `ebat` kolonu kirli (kirpilmis baslik).
+    if (ebat)   { vals.push('%' + ebat + '%');  where.push(`CONCAT(genislik,'/',profil,'R',cap) ILIKE $${vals.length}`); }
+    if (marka)  { vals.push('%' + marka + '%'); where.push(`marka ILIKE $${vals.length}`); }
+    if (kaynak) { vals.push(kaynak);            where.push(`kaynak = $${vals.length}`); }
+    const w = 'WHERE ' + where.join(' AND ');
+
+    const col = grup === 'kaynak' ? 'kaynak' : (grup === 'marka' ? 'marka' : "'Piyasa'::text");
+    const sql =
+      `SELECT ${col} AS ad, scraped_at::date AS gun,
+              MIN(fiyat)::int  AS min_f,
+              ROUND(AVG(fiyat))::int AS ort_f,
+              MAX(fiyat)::int  AS max_f,
+              COUNT(*)::int    AS adet
+         FROM bi_rakip_fiyat ${w}
+        GROUP BY 1, 2
+        HAVING COUNT(*) > 0
+        ORDER BY 1, 2`;
+
+    const { rows } = await pool.query(sql, vals);
+    const map = new Map();
+    for (const r of rows) {
+      if (!map.has(r.ad)) map.set(r.ad, []);
+      map.get(r.ad).push({
+        gun: (r.gun instanceof Date) ? r.gun.toISOString().slice(0, 10) : String(r.gun).slice(0, 10),
+        min: r.min_f, ort: r.ort_f, max: r.max_f, adet: r.adet
+      });
+    }
+    // en cok veri olan seriyi one al
+    const seri = [...map.entries()]
+      .map(([ad, noktalar]) => ({ ad, noktalar }))
+      .sort((a, b) => b.noktalar.length - a.noktalar.length);
+
+    sendJson(response, 200, { grup, gun, ebat, marka, kaynak, seri });
+    return;
+  }
+
+  // GET /api/rakip/trend-ebatlar — en cok ilani olan ebatlar (dropdown icin)
+  if (request.method === 'GET' && url.pathname === '/api/rakip/trend-ebatlar') {
+    const { rows } = await pool.query(
+      `SELECT CONCAT(genislik,'/',profil,'R',cap) AS ebat, COUNT(*)::int AS ilan
+         FROM bi_rakip_fiyat
+        WHERE genislik IS NOT NULL AND profil IS NOT NULL AND cap IS NOT NULL
+          AND scraped_at > now() - interval '30 days'
+        GROUP BY 1 ORDER BY 2 DESC LIMIT 40`);
+    sendJson(response, 200, { ebatlar: rows });
+    return;
+  }
+
   // GET /api/rakip/gecmis?marka=&ebat= — price history change-points (RAKIP_HISTORY_V1)
   if (request.method === 'GET' && url.pathname === '/api/rakip/gecmis') {
     const marka = (url.searchParams.get('marka') || '').trim();

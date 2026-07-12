@@ -4499,6 +4499,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
             style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;
                    cursor:pointer;border-bottom:3px solid #3182ce;color:#3182ce;margin-bottom:-2px">Ham Veri</button>
           <button onclick="rfTab('akilli')" id="rf-tab-akilli" style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;cursor:pointer;border-bottom:3px solid transparent;color:#778;margin-bottom:-2px">🎯 Smart Matched</button>
+          <button onclick="rfTab('trend')" id="rf-tab-trend" style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;cursor:pointer;border-bottom:3px solid transparent;color:#778;margin-bottom:-2px">📈 Fiyat Trendi</button>
           <button onclick="rfTab('izleme')" id="rf-tab-izleme"
             style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;
                    cursor:pointer;border-bottom:3px solid transparent;color:#778;margin-bottom:-2px">İzleme</button>
@@ -4553,6 +4554,38 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           </div>
           <div id="rf-akilli-result"></div>
         </div>
+        <div id="rf-pane-trend" style="display:none">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+            <label style="font-size:12px;color:#9ab">Ebat
+              <input id="rf-tr-ebat" list="rf-tr-ebatlar" placeholder="205/55R16"
+                     style="display:block;margin-top:4px;padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#e2e8f0;font-size:13px;width:140px">
+              <datalist id="rf-tr-ebatlar"></datalist>
+            </label>
+            <label style="font-size:12px;color:#9ab">Marka
+              <input id="rf-tr-marka" placeholder="(tümü)"
+                     style="display:block;margin-top:4px;padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#e2e8f0;font-size:13px;width:130px">
+            </label>
+            <label style="font-size:12px;color:#9ab">Görünüm
+              <select id="rf-tr-grup" style="display:block;margin-top:4px;padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#e2e8f0;font-size:13px">
+                <option value="kaynak">Pazaryeri karşılaştırma</option>
+                <option value="piyasa">Piyasa (min / ort / max)</option>
+                <option value="marka">Marka karşılaştırma</option>
+              </select>
+            </label>
+            <label style="font-size:12px;color:#9ab">Dönem
+              <select id="rf-tr-gun" style="display:block;margin-top:4px;padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#e2e8f0;font-size:13px">
+                <option value="14">Son 14 gün</option>
+                <option value="30" selected>Son 30 gün</option>
+                <option value="60">Son 60 gün</option>
+              </select>
+            </label>
+            <button onclick="rfYukleTrend()" style="padding:8px 18px;background:#3182ce;border:none;border-radius:6px;color:#fff;font-size:13px;font-weight:600;cursor:pointer">Göster</button>
+          </div>
+          <div id="rf-tr-ozet" style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px"></div>
+          <div id="rf-tr-chart" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px;overflow-x:auto"></div>
+          <div id="rf-tr-not" style="margin-top:10px;font-size:11px;color:#667"></div>
+        </div>
+
         <div id="rf-pane-izleme" style="display:none">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
             <div id="rf-izle-limit-info" style="font-size:13px;color:#9ab"></div>
@@ -4679,7 +4712,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
     `;
 
     window.rfTab = function(tab) {
-      ['piyasa','akilli','izleme','alarmlar','ayarlar'].forEach(t => {
+      ['piyasa','akilli','trend','izleme','alarmlar','ayarlar'].forEach(t => {
         const pane = document.getElementById('rf-pane-' + t);
         const btn  = document.getElementById('rf-tab-'  + t);
         if (!pane || !btn) return;
@@ -4688,9 +4721,156 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
         btn.style.color = t === tab ? '#3182ce' : '#888';
       });
       if (tab === 'piyasa')   rfYuklePiyasaOzet();
+      if (tab === 'trend')    rfYukleTrend();
       if (tab === 'izleme')   rfYukleIzle();
       if (tab === 'alarmlar') rfYukleAlarm();
       if (tab === 'ayarlar')  { rfYukleStats(); rfYukleAyarlar(); }
+    };
+
+    // ═══ FIYAT TRENDI (RAKIP_TREND_V1) ═══════════════════════════════════════
+    const RF_RENK = { akakce:'#f59e0b', n11:'#8b5cf6', trendyol:'#f97316', pttavm:'#10b981',
+                      kolayoto:'#3b82f6', lastikborsasi:'#ef4444', lastiksiparis:'#06b6d4',
+                      hepsiburada:'#eab308', Piyasa:'#38bdf8' };
+    const RF_PALET = ['#38bdf8','#f59e0b','#a78bfa','#34d399','#f472b6','#fb923c','#22d3ee','#facc15'];
+    const rfTL = n => (n == null || isNaN(n)) ? '—' : Number(n).toLocaleString('tr-TR', {maximumFractionDigits:0}) + ' ₺';
+    const rfGunEt = g => { const d = new Date(g + 'T00:00:00'); return d.toLocaleDateString('tr-TR', {day:'2-digit', month:'short'}); };
+
+    window.rfYukleTrend = async function() {
+      const ebat  = (document.getElementById('rf-tr-ebat')  || {}).value || '';
+      const marka = (document.getElementById('rf-tr-marka') || {}).value || '';
+      const grup  = (document.getElementById('rf-tr-grup')  || {}).value || 'kaynak';
+      const gun   = (document.getElementById('rf-tr-gun')   || {}).value || '30';
+      const chart = document.getElementById('rf-tr-chart');
+      const ozetEl = document.getElementById('rf-tr-ozet');
+      const notEl = document.getElementById('rf-tr-not');
+      if (!chart) return;
+      chart.innerHTML = '<div style="color:#778;padding:40px;text-align:center">Yükleniyor…</div>';
+
+      // ebat listesi (bir kez)
+      try {
+        const dl = document.getElementById('rf-tr-ebatlar');
+        if (dl && !dl.children.length) {
+          const e = await rfApi('/api/rakip/trend-ebatlar');
+          dl.innerHTML = (e.ebatlar || []).map(x => '<option value="' + x.ebat + '">' + x.ebat + ' (' + x.ilan + ')</option>').join('');
+        }
+      } catch (e) {}
+
+      let d;
+      try {
+        const qs = new URLSearchParams({ grup, gun });
+        if (ebat)  qs.set('ebat', ebat);
+        if (marka) qs.set('marka', marka);
+        d = await rfApi('/api/rakip/trend?' + qs.toString());
+      } catch (e) {
+        chart.innerHTML = '<div style="color:#e53e3e;padding:30px">Hata: ' + (e && e.message) + '</div>';
+        return;
+      }
+
+      const seri = (d.seri || []).filter(s => s.noktalar && s.noktalar.length);
+      if (!seri.length) {
+        chart.innerHTML = '<div style="color:#778;padding:40px;text-align:center">Bu filtre için veri yok.</div>';
+        ozetEl.innerHTML = ''; notEl.textContent = '';
+        return;
+      }
+
+      // ── özet kartları ──
+      const kart = (baslik, deger, renk, alt) =>
+        '<div style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:10px 14px;min-width:150px">'
+        + '<div style="font-size:11px;color:#778;margin-bottom:3px">' + baslik + '</div>'
+        + '<div style="font-size:18px;font-weight:700;color:' + (renk || '#e2e8f0') + '">' + deger + '</div>'
+        + (alt ? '<div style="font-size:11px;color:#667;margin-top:2px">' + alt + '</div>' : '')
+        + '</div>';
+
+      const tumNokta = seri.flatMap(s => s.noktalar);
+      const gunler = [...new Set(tumNokta.map(p => p.gun))].sort();
+      const sonGun = gunler[gunler.length - 1], ilkGun = gunler[0];
+      const sonlar = seri.map(s => { const p = s.noktalar.filter(x => x.gun === sonGun)[0]; return p ? { ad: s.ad, v: p.min } : null; }).filter(Boolean);
+      const enUcuz = sonlar.length ? sonlar.reduce((a,b) => a.v < b.v ? a : b) : null;
+      const enPahali = sonlar.length ? sonlar.reduce((a,b) => a.v > b.v ? a : b) : null;
+      // ilk güne göre değişim (en ucuz seri)
+      let degisim = null;
+      if (enUcuz) {
+        const sIlk = seri.filter(s => s.ad === enUcuz.ad)[0].noktalar.filter(x => x.gun === ilkGun)[0];
+        if (sIlk) degisim = ((enUcuz.v - sIlk.min) / sIlk.min) * 100;
+      }
+      ozetEl.innerHTML =
+          kart('En ucuz (bugün)', enUcuz ? rfTL(enUcuz.v) : '—', '#4ade80', enUcuz ? enUcuz.ad : '')
+        + (degisim != null ? kart('Değişim (' + rfGunEt(ilkGun) + '→)', (degisim > 0 ? '▲ ' : '▼ ') + Math.abs(degisim).toFixed(1) + '%', degisim > 0 ? '#f87171' : '#4ade80', 'en ucuz kaynakta') : '')
+        + (enUcuz && enPahali && enUcuz.ad !== enPahali.ad ? kart('Pazaryeri farkı', rfTL(enPahali.v - enUcuz.v), '#fbbf24', enUcuz.ad + ' ↔ ' + enPahali.ad) : '')
+        + kart('Veri', gunler.length + ' gün · ' + seri.length + ' seri', '#94a3b8', tumNokta.reduce((a,p) => a + p.adet, 0).toLocaleString('tr-TR') + ' ilan');
+
+      // ── grafik ──
+      const W = Math.max(900, gunler.length * 90), H = 400;
+      const ML = 70, MR = 150, MT = 16, MB = 46;
+      const iw = W - ML - MR, ih = H - MT - MB;
+      const vals = [];
+      seri.forEach(s => s.noktalar.forEach(p => { vals.push(p.min); if (grup === 'piyasa') { vals.push(p.ort, p.max); } }));
+      let ymin = Math.min.apply(null, vals), ymax = Math.max.apply(null, vals);
+      const pad = (ymax - ymin) * 0.12 || (ymax * 0.1) || 1;
+      ymin = Math.max(0, ymin - pad); ymax = ymax + pad;
+      const X = g => ML + (gunler.length === 1 ? iw / 2 : (gunler.indexOf(g) / (gunler.length - 1)) * iw);
+      const Y = v => MT + ih - ((v - ymin) / ((ymax - ymin) || 1)) * ih;
+
+      let svg = '<svg width="' + W + '" height="' + H + '" style="font-family:inherit">';
+      // Y ekseni + grid
+      for (let i = 0; i <= 5; i++) {
+        const v = ymin + (ymax - ymin) * i / 5, y = Y(v);
+        svg += '<line x1="' + ML + '" y1="' + y + '" x2="' + (ML + iw) + '" y2="' + y + '" stroke="rgba(255,255,255,0.07)" stroke-width="1"/>';
+        svg += '<text x="' + (ML - 10) + '" y="' + (y + 4) + '" text-anchor="end" font-size="11" fill="#778">' + Math.round(v).toLocaleString('tr-TR') + '</text>';
+      }
+      // X ekseni
+      gunler.forEach(g => {
+        const x = X(g);
+        svg += '<line x1="' + x + '" y1="' + MT + '" x2="' + x + '" y2="' + (MT + ih) + '" stroke="rgba(255,255,255,0.04)"/>';
+        svg += '<text x="' + x + '" y="' + (MT + ih + 20) + '" text-anchor="middle" font-size="11" fill="#889">' + rfGunEt(g) + '</text>';
+      });
+      svg += '<text x="' + (ML - 52) + '" y="' + (MT + ih / 2) + '" transform="rotate(-90 ' + (ML - 52) + ' ' + (MT + ih / 2) + ')" text-anchor="middle" font-size="11" fill="#667">Fiyat (₺)</text>';
+
+      // piyasa modunda min-max bandı
+      if (grup === 'piyasa' && seri[0]) {
+        const pts = seri[0].noktalar.slice().sort((a,b) => a.gun.localeCompare(b.gun));
+        const ust = pts.map(p => X(p.gun) + ',' + Y(p.max)).join(' ');
+        const alt = pts.slice().reverse().map(p => X(p.gun) + ',' + Y(p.min)).join(' ');
+        svg += '<polygon points="' + ust + ' ' + alt + '" fill="rgba(56,189,248,0.10)" stroke="none"/>';
+      }
+
+      // seriler
+      seri.forEach((sr, si) => {
+        const renk = RF_RENK[sr.ad] || RF_PALET[si % RF_PALET.length];
+        const pts = sr.noktalar.slice().sort((a,b) => a.gun.localeCompare(b.gun));
+        const cizgi = (key, dash) => {
+          const d = pts.map((p, i) => (i ? 'L' : 'M') + X(p.gun) + ' ' + Y(p[key])).join(' ');
+          return '<path d="' + d + '" fill="none" stroke="' + renk + '" stroke-width="' + (dash ? 1.4 : 2.4) + '"'
+               + (dash ? ' stroke-dasharray="4 3" opacity="0.75"' : '') + ' stroke-linejoin="round"/>';
+        };
+        svg += cizgi('min');
+        if (grup === 'piyasa') { svg += cizgi('ort', true); svg += cizgi('max', true); }
+        pts.forEach(p => {
+          svg += '<circle cx="' + X(p.gun) + '" cy="' + Y(p.min) + '" r="4" fill="' + renk + '" stroke="#0b1220" stroke-width="1.5">'
+               + '<title>' + sr.ad + ' — ' + rfGunEt(p.gun) + '\nEn ucuz: ' + rfTL(p.min)
+               + '\nOrtalama: ' + rfTL(p.ort) + '\nEn yüksek: ' + rfTL(p.max) + '\n' + p.adet + ' ilan</title></circle>';
+        });
+        // son değer etiketi
+        const son = pts[pts.length - 1];
+        if (son) {
+          svg += '<text x="' + (X(son.gun) + 9) + '" y="' + (Y(son.min) + 4) + '" font-size="11" font-weight="700" fill="' + renk + '">' + rfTL(son.min) + '</text>';
+        }
+      });
+
+      // legend
+      seri.forEach((sr, si) => {
+        const renk = RF_RENK[sr.ad] || RF_PALET[si % RF_PALET.length];
+        const ly = MT + 14 + si * 20;
+        svg += '<rect x="' + (ML + iw + 28) + '" y="' + (ly - 8) + '" width="10" height="10" rx="2" fill="' + renk + '"/>';
+        svg += '<text x="' + (ML + iw + 44) + '" y="' + (ly + 1) + '" font-size="12" fill="#cbd5e1">' + sr.ad + '</text>';
+      });
+      svg += '</svg>';
+      chart.innerHTML = svg;
+
+      notEl.innerHTML = 'Kesintisiz çizgi = <b>o gün o kaynaktaki en ucuz ilan</b>'
+        + (grup === 'piyasa' ? '; kesikli çizgiler = ortalama ve en yüksek; gölgeli alan = min–max aralığı' : '')
+        + '. Noktaların üzerine gelin. · Veri ' + rfGunEt(ilkGun) + ' – ' + rfGunEt(sonGun) + ' arası'
+        + (gunler.length < 7 ? ' · <span style="color:#fbbf24">Geçmiş veri henüz ' + gunler.length + ' gün — her gün derinleşiyor.</span>' : '');
     };
 
     async function rfApi(path, method, body) {
