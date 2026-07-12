@@ -5170,10 +5170,22 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
             alert('"' + marka + ' ' + ebat + '" izlemeye eklendi (3x/gün).' + hedefTxt);
           } catch(e) { alert('Hata: ' + e.message); }
         };
-        window.rfPiyasaAra = async function() { // RAKIP_RAWDATA_V1 (flat per-listing; replaces pivot)
+        // CHIP_FILTRE_V1 — mevsim/kaynak rozetine tiklayinca Ham Veri'yi doldur.
+    window._rfChip = null;
+    window.rfChipFiltre = function(tip, deger) {
+      window._rfChip = { tip: tip, deger: deger };
+      const mk = document.getElementById('rf-marka'); if (mk) mk.value = '';
+      const eb = document.getElementById('rf-ebat');  if (eb) eb.value = '';
+      window.rfPiyasaAra();
+      const res = document.getElementById('rf-piyasa-result');
+      if (res) res.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+
+    window.rfPiyasaAra = async function() { // RAKIP_RAWDATA_V1 (flat per-listing; replaces pivot)
       const marka = (document.getElementById('rf-marka')?.value || '').trim();
       const ebat  = (document.getElementById('rf-ebat')?.value  || '').trim();
-      if (!marka && !ebat) { alert('Lütfen marka veya ebat girin.'); return; }
+      const _chip = window._rfChip;
+      if (!marka && !ebat && !_chip) { alert('Lütfen marka veya ebat girin.'); return; }
       const res = document.getElementById('rf-piyasa-result');
       res.innerHTML = '<div style="color:#778;padding:20px">Yükleniyor...</div>';
       const qs = new URLSearchParams();
@@ -5182,6 +5194,8 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       // SEGMENT_SERVERSIDE_V1: cap'ten ONCE sunucuda filtrele
       const _sg = window._rfSegment || 'TUMU';
       if (_sg !== 'TUMU') qs.set('segment', _sg);
+      // CHIP_FILTRE_V1
+      if (_chip) { qs.set(_chip.tip, _chip.deger); window._rfChip = null; }
       qs.set('limit', '5000');   // LIMIT_V2: 500 kesiyordu
       try {
         const data = await rfApi('/api/rakip/piyasa?' + qs.toString());
@@ -5756,16 +5770,24 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           const mEl = document.getElementById('rf-mevsim-list');
           const mBar = document.getElementById('rf-mevsim-bar');
           if (mEl && mBar) {
-            const mvRenk = { YAZLIK:'#f59e0b', KISLIK:'#3b82f6', DORTMEVSIM:'#10b981' };
+            const mvRenk = { 'Yaz':'#f59e0b', 'Kış':'#3b82f6', '4 Mevsim':'#10b981' };
+            const mvKod  = { 'Yaz':'yaz', 'Kış':'kis', '4 Mevsim':'4mevsim' };
             const total = data.mevsimler.reduce((s,m)=>s+m.sayi,0);
-            mEl.innerHTML = data.mevsimler.map(m =>
-              `<div style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.05);
-                   border-radius:6px;padding:5px 10px;font-size:12px">
+            // CHIP_FILTRE_V1: tikla -> o mevsimin urunleri
+            mEl.innerHTML = data.mevsimler.map(m => {
+              const kod = mvKod[m.mevsim];
+              const tiklanir = !!kod;
+              return `<div ${tiklanir ? `onclick="rfChipFiltre('mevsim','${kod}')"` : ''}
+                   title="${tiklanir ? 'Tıkla: bu mevsimin ürünlerini gör' : ''}"
+                   style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.05);
+                   border-radius:6px;padding:5px 10px;font-size:12px;${tiklanir ? 'cursor:pointer;border:1px solid rgba(255,255,255,0.08)' : ''}"
+                   ${tiklanir ? `onmouseenter="this.style.background='rgba(255,255,255,0.11)'" onmouseleave="this.style.background='rgba(255,255,255,0.05)'"` : ''}>
                 <div style="width:8px;height:8px;border-radius:50%;background:${mvRenk[m.mevsim]||'#94a3b8'};flex-shrink:0"></div>
                 <span style="color:#cbd5e0">${m.mevsim||'Bilinmiyor'}</span>
                 <span style="color:#94a3b8;font-weight:600">${Math.round(m.sayi/total*100)}%</span>
-              </div>`
-            ).join('');
+                <span style="color:#64748b;font-size:10px">(${m.sayi.toLocaleString('tr-TR')})</span>
+              </div>`;
+            }).join('');
             mBar.style.display = 'block';
           }
         }
@@ -5776,10 +5798,17 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           const kBar = document.getElementById('rf-kaynak-matrix');
           if (kEl && kBar) {
             const total = data.kaynak_kazanc.reduce((s,k)=>s+k.kazanc,0);
+            // CHIP_FILTRE_V1: tikla -> bu pazaryerinin EN UCUZ oldugu urunler.
+            // (Musterinin daha ucuza bulabilecegi urunler — en degerli liste.)
             kEl.innerHTML = data.kaynak_kazanc.map(k =>
-              `<div style="background:rgba(255,255,255,0.05);border-radius:6px;padding:5px 12px;font-size:12px;color:#cbd5e0">
+              `<div onclick="rfChipFiltre('en_ucuz_kaynak','${k.kaynak}')"
+                 title="Tıkla: ${k.kaynak} üzerinde EN UCUZ olan ürünleri gör"
+                 onmouseenter="this.style.background='rgba(255,255,255,0.11)'"
+                 onmouseleave="this.style.background='rgba(255,255,255,0.05)'"
+                 style="background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:5px 12px;font-size:12px;color:#cbd5e0;cursor:pointer">
                 <span style="font-weight:600">${k.kaynak}</span>
                 <span style="color:#64748b;margin-left:6px">en ucuz: ${Math.round(k.kazanc/total*100)}%</span>
+                <span style="color:#475569;font-size:10px;margin-left:4px">(${k.kazanc.toLocaleString('tr-TR')})</span>
               </div>`
             ).join('');
             kBar.style.display = 'block';

@@ -20412,10 +20412,25 @@ async function requireTenantAdmin(request) {
     const marka = (url.searchParams.get('marka') || '').trim();
     const ebat  = (url.searchParams.get('ebat')  || '').trim();
     const seg   = (url.searchParams.get('segment') || '').trim().toUpperCase();
+    // CHIP_FILTRE_V1: mevsim + "bu kaynakta en ucuz" filtreleri
+    const mev   = (url.searchParams.get('mevsim') || '').trim().toLowerCase();
+    const ucuzK = (url.searchParams.get('en_ucuz_kaynak') || '').trim();
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '5000', 10), 20000);
     const where = []; const vals = [];
     if (seg === 'TUKETICI') where.push("segment = 'BINEK'");
     else if (seg === 'TICARI') where.push("segment IN ('KAMYON_OTOBUS','HAFIF_TICARI','IS_MAKINESI')");
+    // CHIP_FILTRE_V1
+    if (mev === 'yaz' || mev === 'kis' || mev === '4mevsim') {
+      vals.push(mev); where.push('sm_mevsim = $' + vals.length);
+    }
+    if (ucuzK) {
+      // Bu kaynagin EN UCUZ oldugu urunler: sm_key bazinda en dusuk fiyat bu kaynakta mi?
+      vals.push(ucuzK);
+      where.push(`sm_key IN (
+        SELECT DISTINCT ON (sm_key) sm_key FROM bi_rakip_fiyat_son
+         WHERE sm_key IS NOT NULL ORDER BY sm_key, fiyat ASC
+      ) AND kaynak = $${vals.length}`);
+    }
     if (marka) { vals.push('%' + marka + '%'); where.push('marka ILIKE $' + vals.length); }
     // EBAT_ARAMA_V1: "205 55 16" gibi serbest yazimi da bul.
     if (ebat) {
