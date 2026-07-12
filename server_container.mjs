@@ -29807,6 +29807,21 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
         { name: 'gorev_olustur', description: 'Görev/hatırlatma oluştur (saha_rep_not).', input_schema: { type:'object', properties:{ icerik:{type:'string'}, hatirlatma_tarihi:{type:'string', description:'YYYY-MM-DD'} }, required:['icerik'] } },
         { name: 'rakip_teklif_ekle', description: 'Gerçek piyasa rakip teklifini kaydet.', input_schema: { type:'object', properties:{ rakip_marka:{type:'string'}, rakip_model:{type:'string'}, ebat:{type:'string'}, rakip_fiyat:{type:'number'}, kaynak:{type:'string', enum:['ZIYARET','TELEFON','MANUEL']}, musteri_id:{type:'string'}, notlar:{type:'string'} }, required:['rakip_marka','ebat','rakip_fiyat'] } },
         { name: 'rakip_fiyat', description: 'Bir ebat (ops. marka) icin TUM fiyat kaynaklari: internet/e-ticaret piyasa, KRB kendi guncel fiyat listemiz (liste/bayi/net) ve saha manuel piyasa fiyatlari. Fiyatla ilgili HER soruda bunu kullan; ebati 205/55R16 gibi ver.', input_schema: { type:'object', properties:{ ebat:{type:'string'}, marka:{type:'string'} }, required:['ebat'] } },
+        { name: 'pazar_analiz', description: 'INTERNET PAZARI — rakip fiyat katmaninin TAMAMI. '
+          + 'mod=fiyat: bir urunun pazardaki fiyati (pazaryeri bazinda en ucuz/medyan/en pahali). '
+          + 'mod=trend: son 30 gunde fiyat yukseliyor mu dusuyor mu (musteriye "simdi al" demek icin). '
+          + 'mod=dot: rakipler ESKI URETIM (2023 ve oncesi) stogu indirimle bosaltiyor mu — musterinin '
+          + 'karsisina cikabilecek ucuz teklif. mod=marka: bir markanin internetteki gorunurlugu. '
+          + 'mod=bosluk: pazarin sattigi ama bizde olmayan urunler. '
+          + 'Musteri "internette daha ucuz" derse, "su marka nasil" derse, "fiyat dusecek mi" derse KULLAN. '
+          + 'KAMYON/OTOBUS/VAN sorularinda segment vermeyi UNUTMA.',
+          input_schema: { type:'object', properties:{
+            mod: { type:'string', enum:['fiyat','trend','dot','marka','bosluk'], description:'Analiz tipi' },
+            ebat: { type:'string', description:'Ebat, orn 205/55R16 veya 215/75R17.5 (fiyat/trend icin)' },
+            marka: { type:'string', description:'Marka (opsiyonel)' },
+            segment: { type:'string', enum:['TUKETICI','TICARI','KAMYON_OTOBUS','HAFIF_TICARI'],
+                       description:'Kamyon/otobus/van sorulari icin ZORUNLU — yoksa 68.000 binek ilani sonucu bogar' }
+          }, required:['mod'] } },
         { name: 'rep_ozet', description: 'Temsilcinin KENDI performansi/durumu: donemdeki ziyaretler, teklifler (durum+tutar), bekleyen hatirlatmalar, ihmal edilen musteriler.', input_schema: { type:'object', properties:{ gun:{type:'number', description:'kac gun geriye (varsayilan 7)'} } } }
       ];
       async function _runRepTool(nm, inp) {
@@ -29838,6 +29853,123 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
             uyari: 'Musterilerde GPS koordinati yok; sehir/ilce metnine ve kendi cografya bilgine gore grupla ve sirala. Km tahmini verme.',
             aday_sayisi: r.rowCount,
             adaylar: r.rows
+          };
+        }
+        if (nm === 'pazar_analiz') {   // REP_PAZAR_V1
+          const mod = String(inp.mod || 'fiyat');
+          const _sg = String(inp.segment || '').toUpperCase();
+          const segSql =
+              _sg === 'TUKETICI'      ? " AND segment='BINEK'"
+            : _sg === 'TICARI'        ? " AND segment IN ('KAMYON_OTOBUS','HAFIF_TICARI')"
+            : _sg === 'KAMYON_OTOBUS' ? " AND segment='KAMYON_OTOBUS'"
+            : _sg === 'HAFIF_TICARI'  ? " AND segment='HAFIF_TICARI'"
+            : "";
+          const EB = "(CASE WHEN profil IS NULL THEN CONCAT(genislik,'R',cap) ELSE CONCAT(genislik,'/',profil,'R',cap) END)";
+          const p = [], f = ["lastik_mi IS NOT FALSE"];
+          if (inp.ebat)  { p.push('%' + String(inp.ebat).trim() + '%');  f.push(`${EB} ILIKE $${p.length}`); }
+          if (inp.marka) { p.push('%' + String(inp.marka).trim() + '%'); f.push(`marka ILIKE $${p.length}`); }
+          const W = f.join(' AND ') + segSql;
+          const KURAL = 'Veri azsa "rakip zayif / fiyat esnekligimiz var" DEME. Az veri = bizim taramamizin '
+                      + 'dar oldugu demektir. Ilan sayisi 5in altindaysa yorum yapma, "bu urunde yeterli '
+                      + 'pazar verim yok" de.';
+
+          if (mod === 'trend') {
+            const r = await pool.query(
+              `SELECT scraped_at::date AS gun,
+                      percentile_cont(0.5) WITHIN GROUP (ORDER BY fiyat)::int AS medyan,
+                      min(fiyat)::int AS en_ucuz, count(*)::int AS ilan
+                 FROM bi_rakip_fiyat
+                WHERE ${W} AND scraped_at > now() - interval '30 days'
+                GROUP BY 1 HAVING count(*) >= 2 ORDER BY 1`, p);
+            const d = r.rows;
+            let yon = null;
+            if (d.length >= 2) {
+              const ilk = d[0].medyan, son = d[d.length-1].medyan;
+              const pct = Math.round((son - ilk) / ilk * 100);
+              yon = { degisim_yuzde: pct, yorum: pct > 3 ? 'Fiyat YUKSELIYOR' : (pct < -3 ? 'Fiyat DUSUYOR' : 'Fiyat yatay') };
+            }
+            return { mod, segment: _sg || 'TUMU', gun_sayisi: d.length, seri: d, ozet: yon,
+                     KURAL: d.length < 3 ? 'Yetersiz gun sayisi — trend yorumu YAPMA.' : KURAL };
+          }
+
+          if (mod === 'dot') {
+            const r = await pool.query(
+              `WITH u AS (
+                 SELECT sm_key, marka, sm_desen, ${EB} AS ebat, uretim_yili,
+                        min(fiyat)::int AS fiyat, count(*)::int AS ilan,
+                        (array_agg(kaynak))[1] AS kaynak, (array_agg(url ORDER BY fiyat))[1] AS url
+                   FROM bi_rakip_fiyat
+                  WHERE ${W} AND uretim_yili IS NOT NULL AND sm_key IS NOT NULL
+                    AND sm_set IS NOT TRUE AND scraped_at > now() - interval '30 days'
+                  GROUP BY 1,2,3,4,5)
+               SELECT e.marka, e.sm_desen AS desen, e.ebat,
+                      e.uretim_yili AS eski_yil, e.fiyat AS eski_fiyat, e.kaynak AS eski_kaynak, e.url,
+                      y.uretim_yili AS yeni_yil, y.fiyat AS yeni_fiyat,
+                      round((y.fiyat - e.fiyat)::numeric / NULLIF(y.fiyat,0) * 100)::int AS indirim
+                 FROM u e JOIN u y ON y.sm_key = e.sm_key AND y.uretim_yili > e.uretim_yili
+                WHERE (y.fiyat - e.fiyat)::numeric / NULLIF(y.fiyat,0) > 0.15
+                ORDER BY indirim DESC LIMIT 10`, p);
+            return { mod, segment: _sg || 'TUMU', firsatlar: r.rows,
+                     ANLAMI: 'Rakip ESKI URETIM stogu indirimle bosaltiyor. Musteri bu fiyati gorup sana '
+                           + 'gelebilir. Eski uretim = daha eski lastik; musteriye BUNU anlat, fiyat farkinin '
+                           + 'sebebi budur. Bizim urunumuz yeni uretimse bu bir AVANTAJ.',
+                     KURAL };
+          }
+
+          if (mod === 'marka') {
+            const r = await pool.query(
+              `SELECT marka, count(DISTINCT sm_key)::int AS urun, count(*)::int AS ilan,
+                      count(DISTINCT kaynak)::int AS pazaryeri,
+                      min(fiyat)::int AS en_ucuz,
+                      percentile_cont(0.5) WITHIN GROUP (ORDER BY fiyat)::int AS medyan,
+                      max(fiyat)::int AS en_pahali
+                 FROM bi_rakip_fiyat
+                WHERE ${W} AND scraped_at > now() - interval '30 days'
+                GROUP BY marka ORDER BY ilan DESC LIMIT 15`, p);
+            const rows = r.rows.map(x => Object.assign({}, x, {
+              veri_guvenilirligi: (x.ilan >= 20 && x.pazaryeri >= 3) ? 'YETERLI' : (x.ilan >= 8 ? 'ZAYIF' : 'YETERSIZ')
+            }));
+            return { mod, segment: _sg || 'TUMU', markalar: rows, KURAL };
+          }
+
+          if (mod === 'bosluk') {
+            const bp = [];
+            const bf = ["durum='AKTIF'", "krb_kalem_kodu IS NULL", "pazaryeri_sayisi >= 3"];
+            if (inp.marka) { bp.push('%' + String(inp.marka).trim() + '%'); bf.push(`marka ILIKE $${bp.length}`); }
+            if (inp.ebat)  { bp.push('%' + String(inp.ebat).trim() + '%');  bf.push(`ebat ILIKE $${bp.length}`); }
+            if (_sg === 'TICARI' || _sg === 'KAMYON_OTOBUS') bf.push("cap IN (16.5,17.5,19.5,22.5)");
+            if (_sg === 'TUKETICI') bf.push("cap NOT IN (16.5,17.5,19.5,22.5)");
+            const r = await pool.query(
+              `SELECT marka, desen, ebat, pazaryeri_sayisi, ilan_sayisi,
+                      min_fiyat::int AS min_fiyat, medyan_fiyat::int AS medyan
+                 FROM bi_urun_master WHERE ${bf.join(' AND ')}
+                ORDER BY pazaryeri_sayisi DESC, ilan_sayisi DESC LIMIT 15`, bp);
+            return { mod, urunler: r.rows,
+                     ANLAMI: 'Pazarda satiliyor, bizim SKU listemizde karsiligi bulunamadi. '
+                           + 'DIKKAT: eslesme orani %36 — burada cikan bir urun aslinda BIZDE OLABILIR '
+                           + '(SAP tanimi farkli yazilmis olabilir). Musteriye "bizde yok" DEME; once stok/'
+                           + 'fiyat listesinden kontrol et.' };
+          }
+
+          // mod === 'fiyat'
+          const r = await pool.query(
+            `SELECT marka, sm_desen AS desen, ${EB} AS ebat, kaynak, fiyat::int, uretim_yili, segment, url
+               FROM bi_rakip_fiyat_son
+              WHERE ${W}
+              ORDER BY fiyat ASC LIMIT 25`, p);
+          const ist = await pool.query(
+            `SELECT count(*)::int AS ilan, count(DISTINCT kaynak)::int AS pazaryeri,
+                    min(fiyat)::int AS en_ucuz,
+                    percentile_cont(0.5) WITHIN GROUP (ORDER BY fiyat)::int AS medyan,
+                    max(fiyat)::int AS en_pahali
+               FROM bi_rakip_fiyat_son WHERE ${W}`, p);
+          const st = ist.rows[0] || {};
+          return {
+            mod, segment: _sg || 'TUMU', ozet: st, ilanlar: r.rows,
+            KURAL: (st.ilan || 0) < 5
+              ? 'BU URUNDE YETERLI PAZAR VERISI YOK (' + (st.ilan||0) + ' ilan). Fiyat yorumu/tavsiyesi YAPMA. '
+                + '"Bu ebatta internette yeterli veri yok" de.'
+              : KURAL
           };
         }
         if (nm === 'musteri_ara') {
