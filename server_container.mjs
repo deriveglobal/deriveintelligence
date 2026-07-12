@@ -20799,13 +20799,23 @@ async function requireTenantAdmin(request) {
              ROUND(AVG(fiyat)::numeric,0) AS ort_fiyat, COUNT(DISTINCT ebat) AS sku_sayisi,
              COUNT(DISTINCT kaynak) AS kaynak_sayisi
            FROM bi_rakip_fiyat_son${tWhere} GROUP BY marka ORDER BY sku_sayisi DESC LIMIT 20`),
-        pool.query(`SELECT COALESCE(mevsim,'BELİRSİZ') AS mevsim, COUNT(DISTINCT (marka||'|'||ebat)) AS sayi
-           FROM bi_rakip_fiyat_son${tWhere} GROUP BY mevsim ORDER BY sayi DESC`),
+        // PIYASA_OZET_V2: 'mevsim' kolonu OLU (%100 NULL). Gercek veri sm_mevsim'de.
+        pool.query(`SELECT CASE sm_mevsim
+                             WHEN 'yaz'     THEN 'Yaz'
+                             WHEN 'kis'     THEN 'Kış'
+                             WHEN '4mevsim' THEN '4 Mevsim'
+                             ELSE 'Belirsiz' END AS mevsim,
+                           COUNT(DISTINCT sm_key) AS sayi
+           FROM bi_rakip_fiyat_son${tWhere}${tWhere ? ' AND' : ' WHERE'} sm_key IS NOT NULL
+           GROUP BY 1 ORDER BY sayi DESC`),
+        // PIYASA_OZET_V2: DISTINCT ON (marka,ebat) idi — 'ebat' KESIK BASLIK tutuyor,
+        // her ilan ayri "urun" sayiliyordu -> oranlar %0. Dogrusu sm_key.
         pool.query(`SELECT kaynak, COUNT(*) AS kazanc FROM (
-             SELECT DISTINCT ON (marka,ebat) marka, ebat, kaynak
-               FROM bi_rakip_fiyat_son${tWhere} ORDER BY marka, ebat, fiyat ASC
+             SELECT DISTINCT ON (sm_key) sm_key, kaynak
+               FROM bi_rakip_fiyat_son${tWhere}${tWhere ? ' AND' : ' WHERE'} sm_key IS NOT NULL
+              ORDER BY sm_key, fiyat ASC
            ) t GROUP BY kaynak ORDER BY kazanc DESC`),
-        pool.query(`SELECT COUNT(DISTINCT (marka||'|'||ebat)) AS toplam_sku,
+        pool.query(`SELECT COUNT(DISTINCT sm_key) AS toplam_sku,
              COUNT(DISTINCT kaynak) AS kaynak_sayisi, MAX(scraped_at) AS son_tarama
            FROM bi_rakip_fiyat_son${tWhere}`),
       ]);
