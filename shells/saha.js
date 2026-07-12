@@ -178,6 +178,7 @@ function layout() {
     ["ziyaretler", "📋", "Ziyaretler"], ["plan", "🗓️", "Plan"],
     ["musteriler", "🏪", "Müşteri"], ["iskonto", "💰", "Teklif"], ["rapor", "📊", "Rapor"], ["piyasa", "🏷️", "Piyasa"],
     ["notlarim", "📝", "Notlarım"], ["rep-brain", "🤖", "Asistan"],
+    ["rakip", "🏷", "Rakip Fiyatlar"],
     ["duyurular", "📢", "Duyurular"], ["mesajlar", "💬", "Mesajlar"], ["oneriler", "💡", "Öneriler"],
     ...(["manager","admin"].includes(S.role) ? [["temsilciler", "👥", "Temsilci"]] : []),
     ...(S.isOwner ? [["sistem", "🔧", "Sistem"]] : [])
@@ -291,7 +292,7 @@ function loadView(v) {
   const m = main();
   m.scrollTop = 0; // reset scroll position when switching tabs
   m.innerHTML = `<div class="saha-load">Yükleniyor…</div>`;
-  return ({ bugun: vBugun, ziyaretler: vZiyaretler, plan: vPlan, musteriler: vMusteriler, iskonto: vIskonto, rapor: vRapor, temsilciler: vTemsilciler, notlarim: vNotlarim, 'rep-brain': vRepBrain, piyasa: vPiyasa, duyurular: vDuyurular, mesajlar: vMesajlar, oneriler: vOneriler, sistem: vSistem }[v] || vBugun)();
+  return ({ bugun: vBugun, ziyaretler: vZiyaretler, plan: vPlan, musteriler: vMusteriler, iskonto: vIskonto, rapor: vRapor, temsilciler: vTemsilciler, notlarim: vNotlarim, 'rep-brain': vRepBrain, piyasa: vPiyasa, rakip: vRakip, duyurular: vDuyurular, mesajlar: vMesajlar, oneriler: vOneriler, sistem: vSistem }[v] || vBugun)();
 }
 function tipQS() { return S.semsiye ? `&tip=${S.semsiye}` : ""; }
 
@@ -4787,6 +4788,116 @@ function uyari(mesaj, basari = false) {
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 3500);
 }
+// ── RAKIP FIYATLAR (SAHA_RAKIP_V2) ───────────────────────────────────────────
+// UST SEVIYE olmali — dispatch (satir ~294) sadece kolon-0 fonksiyonlari gorur.
+// V1'de bunu Rapor closure'ina koydum: "Can't find variable: vRakip" -> kabuk olmustu.
+async function vRakip() {
+  const m = main();
+  m.innerHTML = `
+    <div style="padding:10px 12px">
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#1e40af">
+        <b>İnternet piyasası.</b> Müşterinin telefonunda gördüğü fiyat. Marka veya ebat girin.
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <input id="rk-marka" class="giris" placeholder="Marka (Lassa…)" style="flex:1;font-size:16px">
+        <input id="rk-ebat" class="giris" placeholder="Ebat (205/55R16)" style="flex:1;font-size:16px">
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:10px">
+        <select id="rk-seg" class="giris" style="flex:1;font-size:15px">
+          <option value="">Tümü</option>
+          <option value="TUKETICI">🚗 Binek</option>
+          <option value="TICARI">🚚 Ticari (kamyon/van)</option>
+        </select>
+        <button class="btn" id="rk-ara" style="flex-shrink:0">Ara</button>
+      </div>
+      <div id="rk-sonuc"></div>
+    </div>`;
+
+  const ara = async () => {
+    const marka = (document.getElementById("rk-marka") || {}).value || "";
+    const ebat  = (document.getElementById("rk-ebat")  || {}).value || "";
+    const seg   = (document.getElementById("rk-seg")   || {}).value || "";
+    const box   = document.getElementById("rk-sonuc");
+    if (!box) return;
+    if (!marka.trim() && !ebat.trim()) { box.innerHTML = '<div class="saha-bos">Marka veya ebat girin.</div>'; return; }
+    box.innerHTML = '<div class="saha-load">Aranıyor…</div>';
+    try {
+      const qs = new URLSearchParams({ limit: "300" });
+      if (marka.trim()) qs.set("marka", marka.trim());
+      if (ebat.trim())  qs.set("ebat", ebat.trim());
+      if (seg)          qs.set("segment", seg);
+      const d = await api("/api/rakip/piyasa?" + qs.toString());
+      const rows = (d && d.rows) || [];
+      if (!rows.length) {
+        box.innerHTML = '<div class="saha-bos">İnternette ilan bulunamadı.<br>'
+          + '<span style="font-size:11px;color:#94a3b8">Veri yok = rakip yok DEĞİL. Taramamız bu üründe dar olabilir.</span></div>';
+        return;
+      }
+      const grup = {};
+      rows.forEach(function(r) {
+        const eb = r.genislik
+          ? (r.profil == null ? r.genislik + "R" + r.cap : r.genislik + "/" + r.profil + "R" + r.cap)
+          : "—";
+        const k = (r.marka || "?") + "|" + (r.desen || "") + "|" + eb;
+        if (!grup[k]) grup[k] = { marka: r.marka, ebat: eb, model: r.model, segment: r.segment, ilan: [] };
+        grup[k].ilan.push(r);
+      });
+      const liste = Object.keys(grup).map(function(k) { return grup[k]; })
+        .sort(function(a, b) { return b.ilan.length - a.ilan.length; }).slice(0, 25);
+      const tl = function(n) { return Number(n).toLocaleString("tr-TR", { maximumFractionDigits: 0 }) + " ₺"; };
+
+      box.innerHTML = liste.map(function(g) {
+        const fs = g.ilan.map(function(x) { return parseFloat(x.fiyat); })
+          .filter(function(x) { return !isNaN(x); }).sort(function(a, b) { return a - b; });
+        if (!fs.length) return "";
+        const enUcuz = fs[0], enPahali = fs[fs.length - 1], medyan = fs[Math.floor(fs.length / 2)];
+        const kaynak = Object.keys(g.ilan.reduce(function(a, x) { a[x.kaynak] = 1; return a; }, {}));
+        const eski = g.ilan.filter(function(x) { return x.uretim_yili && x.uretim_yili <= 2023; });
+        const ucuzIlan = g.ilan.filter(function(x) { return parseFloat(x.fiyat) === enUcuz; })[0] || {};
+        return '<div style="background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;margin-bottom:8px">'
+          + '<div style="display:flex;justify-content:space-between;gap:8px">'
+          +   '<div style="min-width:0">'
+          +     '<div style="font-weight:700;font-size:14px;color:#111">' + esc(g.marka)
+          +       ' <span style="color:#6b7280;font-weight:500">' + esc((g.model || "").slice(0, 32)) + '</span></div>'
+          +     '<div style="font-family:monospace;font-size:12px;color:#6b7280;margin-top:2px">' + esc(g.ebat)
+          +       (g.segment && g.segment !== "BINEK"
+                    ? ' <span style="background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px;font-size:10px">🚚 Ticari</span>' : "")
+          +     '</div>'
+          +   '</div>'
+          +   '<div style="text-align:right;flex-shrink:0">'
+          +     '<div style="font-size:18px;font-weight:800;color:#059669">' + tl(enUcuz) + '</div>'
+          +     '<div style="font-size:10px;color:#9ca3af">en ucuz</div>'
+          +   '</div>'
+          + '</div>'
+          + '<div style="display:flex;gap:10px;margin-top:8px;font-size:11px;color:#6b7280;flex-wrap:wrap">'
+          +   '<span>medyan <b style="color:#374151">' + tl(medyan) + '</b></span>'
+          +   '<span>en yüksek <b style="color:#374151">' + tl(enPahali) + '</b></span>'
+          +   '<span>' + fs.length + ' ilan · ' + kaynak.length + ' pazaryeri</span>'
+          + '</div>'
+          + (eski.length
+              ? '<div style="margin-top:6px;background:#fef2f2;border-radius:6px;padding:5px 8px;font-size:11px;color:#b91c1c">⚠ '
+                + eski.length + ' ilan <b>' + Math.min.apply(null, eski.map(function(x) { return x.uretim_yili; }))
+                + ' üretim</b> — ucuzsa sebebi bu olabilir. Müşteriye söyleyin.</div>' : "")
+          + (fs.length < 5
+              ? '<div style="margin-top:6px;font-size:11px;color:#92400e">⚠ Az ilan (' + fs.length + ') — kesin yorum yapmayın.</div>' : "")
+          + (ucuzIlan.url
+              ? '<a href="' + esc(ucuzIlan.url) + '" target="_blank" rel="noopener noreferrer" '
+                + 'style="display:inline-block;margin-top:8px;font-size:11px;color:#2563eb;text-decoration:none">'
+                + 'En ucuz ilanı aç ↗ (' + esc(ucuzIlan.kaynak || "") + ')</a>' : "")
+          + '</div>';
+      }).join("");
+    } catch (e) {
+      box.innerHTML = '<div class="saha-bos" style="color:#dc2626">Hata: ' + esc((e && e.message) || "bilinmiyor") + '</div>';
+    }
+  };
+  const btn = document.getElementById("rk-ara");
+  if (btn) btn.addEventListener("click", ara);
+  ["rk-marka", "rk-ebat"].forEach(function(id) {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("keydown", function(ev) { if (ev.key === "Enter") ara(); });
+  });
+}
+
 // ── DUYURULAR ────────────────────────────────────────────────────────────────
 async function vPiyasa() {
   const m = main();
