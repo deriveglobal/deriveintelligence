@@ -24827,13 +24827,28 @@ function buildDeptSystemPrompt(dept, context, session) {
             return { dept: input.dept, error: e.message };
           }
         }
-        if (toolName === 'send_email') {
+        if (toolName === 'send_email') {   // GUARDRAIL_V1
           const { to, subject, body = '', html } = input;
           if (!to || !subject || (!body && !html)) return { error: 'to, subject ve body zorunlu' };
           try {
             const _inner = html ? String(html) : String(body).replace(/\n/g, '<br>');
             await sendGraphMail({ to, subject, body: '<div style="font-family:Arial,sans-serif;color:#111;font-size:14px;line-height:1.55">' + _inner + '</div>' });
-            return { success: true, message: 'E-posta gönderildi → ' + to + ' (konu: ' + subject + ')' };
+            // DENETIM IZI: asistanin gonderdigi HER e-posta kayda gecer.
+            // Hata YUTULMAZ — kayit tutulamiyorsa bunu bilmeliyiz.
+            try {
+              await query(
+                `INSERT INTO saha_giden_eposta (tenant_id, alici, konu, icerik, kaynak)
+                 VALUES ($1,$2,$3,$4,'CEO_ASISTAN')`,
+                [tenantId, String(to), String(subject), String(html || body)]);
+            } catch (_ae) {
+              console.error('[send_email] ⚠ DENETIM KAYDI YAZILAMADI:', _ae.message);
+              return { success: true, uyari: 'E-posta gonderildi ANCAK denetim kaydi yazilamadi: ' + _ae.message,
+                       message: 'E-posta gönderildi → ' + to };
+            }
+            console.log('[send_email] -> ' + to + ' :: ' + subject);
+            return { success: true,
+                     message: 'E-posta gönderildi → ' + to + ' (konu: ' + subject + ')',
+                     not: 'Graph 202 doner; teslimat garanti degildir. DKIM/DMARC yayinlanmadigi icin Junk klasorune dusebilir.' };
           } catch (e) { return { error: 'E-posta gönderilemedi: ' + e.message }; }
         }
         if (toolName === 'rakip_alarm_kur') {
@@ -24948,7 +24963,10 @@ function buildDeptSystemPrompt(dept, context, session) {
               +'</body></html>';
             mkdirSync('/app/reports',{recursive:true});
             wf('/app/reports/'+id+'.html', html, 'utf8');
-            return { download_url: '/api/brain/report/'+id, message: 'Rapor hazır.' };
+            // GUARDRAIL_V1: relatif URL e-postada TIKLANAMAZ.
+            const _base = (process.env.APP_URL || 'https://krb.deriveglobal.com').replace(/\/+$/,'');
+            return { download_url: _base + '/api/brain/report/' + id,
+                     message: 'Rapor hazır. E-postaya koyarken TAM URL (download_url) kullan.' };
           } catch(e) { return { error: e.message }; }
         }
         if (toolName === 'query_rakip_fiyat') {
@@ -24988,12 +25006,29 @@ function buildDeptSystemPrompt(dept, context, session) {
                  WHERE tenant_id=$1 AND lastik_mi IS NOT FALSE
                    AND scraped_at > now() - interval '30 days'${_segSql}
               `, [rtid]);
+              // GUARDRAIL_V1: her markaya KENDI guvenilirlik etiketini bas.
+              // Aksi halde 3 ilanli Michelin "bilincli premium konumlandirma" diye yorumlanir.
+              const _rows = r.rows.map(x => {
+                const n = parseInt(x.ilan_sayisi, 10) || 0;
+                const ps = parseInt(x.pazaryeri_sayisi, 10) || 0;
+                const guven = (n >= 20 && ps >= 3) ? 'YETERLI' : (n >= 8 ? 'ZAYIF' : 'YETERSIZ');
+                return Object.assign({}, x, {
+                  veri_guvenilirligi: guven,
+                  uyari: guven === 'YETERSIZ'
+                    ? 'VERI YETERSIZ (' + n + ' ilan). Konumlandirma/strateji yorumu YAPMA. Az ilan, markanin pazarda zayif oldugu ANLAMINA GELMEZ — bizim taramamizin dar oldugu anlamina gelir.'
+                    : (guven === 'ZAYIF' ? 'Veri sinirli (' + n + ' ilan) — yorumu temkinli kur.' : null)
+                });
+              });
               return {
                 segment: _sg || 'TUMU',
                 kapsam: kaps.rows[0],
-                markalar: r.rows,
+                markalar: _rows,
+                KURAL: 'FIYAT TAVSIYESI YASAGI: Az ilan = "rakip zayif / fiyat esnekligimiz var" DEGILDIR. ' +
+                       'Az veri KENDI KORLUGUMUZDUR. Somut bir teklife (musteri+marka+ebat) fiyat tavsiyesi ' +
+                       'vermeden ONCE query_rakip_fiyat(query_type="marka", ebat="<tam ebat>") ile O EBATTA ' +
+                       'veri var mi KONTROL ET. Veri yoksa "bu ebatta pazar verim yok" de.',
                 not: _sg && _sg !== 'TUKETICI'
-                  ? 'TICARI segment verisi binek segmentinden DAHA DARDIR (binek ~68.000 ilan, ticari ~750). Yorumlarken bu kapsam farkini belirt; az ilanli markalar icin kesin hukum verme.'
+                  ? 'TICARI veri binekten ~90 KAT DARDIR (binek 68.729 ilan, kamyon 292). Bu bir PAZAR GERCEGI degil, TARAMA SINIRIMIZDIR.'
                   : null
               };
             }
@@ -25161,7 +25196,19 @@ function buildDeptSystemPrompt(dept, context, session) {
 - Rakamlari YALNIZCA araclardan al. Aracin dondurmedigi marka/fiyat/sayi UYDURMA.
 - Veri yoksa "bu konuda verim yok" de. Tahmini gercek gibi sunma.
 - Ticari (kamyon/otobus/van) veri, binek veriden ~90 kat DARDIR (292 vs 68.729 ilan).
-  Az ilanli markalar icin kesin hukum verme; kapsam sinirini yorumunda belirt.`;
+  Az ilanli markalar icin kesin hukum verme; kapsam sinirini yorumunda belirt.
+
+## KOR NOKTA KURALI (EN KRITIK — GERCEK BIR HATADAN OGRENILDI)
+- AZ VERI, "RAKIP ZAYIF" DEMEK DEGILDIR. Az veri, BIZIM TARAMAMIZIN DAR oldugu demektir.
+- Bir marka/ebat icin ilan sayisi dusukse, bunu ASLA "rekabet zayif / fiyat esnekligimiz var"
+  diye yorumlama. Bu, kendi korlugumuzu rekabet avantajina cevirmektir.
+- Somut bir teklife (musteri + marka + ebat) fiyat tavsiyesi vermeden ONCE:
+  query_rakip_fiyat(query_type='marka', ebat='<tam ebat>') ile O EBATTA veri var mi KONTROL ET.
+  * Veri VARSA: rakamlari goster, yorumla.
+  * Veri YOKSA: "Bu ebatta pazar verim YOK — fiyat tavsiyesi veremem" DE. Tahmin yurutme.
+- Gercek ornek (2026-07-12): Kumho 385/55R22.5 icin veritabaninda SIFIR ilan vardi.
+  Asistan yine de "Kumho zayif, fiyat esnekligimiz var" deyip ASLAR BETON teklifine
+  tavsiye verdi. Bu YANLISTI ve tekrarlanmamali.`;
         response.writeHead(200, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
