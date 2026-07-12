@@ -5708,7 +5708,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       }
     };
 
-        let _piyasaOzetLoaded = false;
+        var _piyasaOzetLoaded = false;  // SESSIZ_HATA_V1: 'let' TDZ hatasi veriyordu
     async function rfYuklePiyasaOzet() {
       if (_piyasaOzetLoaded) return;
       const kartiEl = document.getElementById('rf-marka-karti-listesi');

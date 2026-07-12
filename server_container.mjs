@@ -29636,6 +29636,63 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     }
 
     // ══ REP BRAIN AI ═════════════════════════════════════════════════════════
+    // SESSIZ_HATA_V1 — GET /api/saha/rep-brain?action=history
+    // Eftal 12 kez cagirdi, 12 kez 404 aldi. Tablo ve veri VARDI; route yoktu.
+    if (method === "GET" && path === "/api/saha/rep-brain") {
+      const session = await requireSahaAccess(request);
+      const action = (url.searchParams.get("action") || "").trim();
+      if (action !== "history") { sendJson(response, 400, { error: "action=history bekleniyor" }); return; }
+      const lim = Math.min(parseInt(url.searchParams.get("limit") || "40", 10) || 40, 100);
+      const r = await pool.query(
+        `SELECT role, content, created_at
+           FROM saha_rep_conversations
+          WHERE tenant_id=$1 AND rep_id=$2
+          ORDER BY created_at DESC
+          LIMIT $3`,
+        [session.tenantId, session.userId, lim]
+      );
+      sendJson(response, 200, { messages: r.rows.reverse() });
+      return;
+    }
+
+    // SESSIZ_HATA_V1 — ziyaret yorumlari (tablo + arayuz VARDI, route YOKTU)
+    if (path.startsWith("/api/saha/ziyaretler/") && path.endsWith("/yorumlar")) {
+      const session = await requireSahaAccess(request);
+      const zid = path.split("/")[4] || "";
+      if (!/^[0-9a-f-]{36}$/i.test(zid)) { sendJson(response, 400, { error: "gecersiz ziyaret id" }); return; }
+
+      if (method === "GET") {
+        const r = await pool.query(
+          `SELECT id, user_adi, rol, icerik, created_at
+             FROM saha_ziyaret_yorum
+            WHERE tenant_id=$1 AND ziyaret_id=$2
+            ORDER BY created_at ASC`,
+          [session.tenantId, zid]
+        );
+        sendJson(response, 200, { yorumlar: r.rows });
+        return;
+      }
+
+      if (method === "POST") {
+        const body = await readJson(request);
+        const icerik = String((body && body.icerik) || "").trim();
+        if (!icerik) { sendJson(response, 400, { error: "icerik zorunlu" }); return; }
+        const who = await pool.query("SELECT full_name FROM users WHERE id=$1", [session.userId]);
+        const adi = (who.rows[0] && who.rows[0].full_name) || "Kullanici";
+        const r = await pool.query(
+          `INSERT INTO saha_ziyaret_yorum (tenant_id, ziyaret_id, user_id, user_adi, rol, icerik)
+           VALUES ($1,$2,$3,$4,$5,$6)
+           RETURNING id, user_adi, rol, icerik, created_at`,
+          [session.tenantId, zid, session.userId, adi, session.sahaRole || "rep", icerik]
+        );
+        sendJson(response, 201, { yorum: r.rows[0] });
+        return;
+      }
+
+      sendJson(response, 405, { error: "yalnizca GET/POST" });
+      return;
+    }
+
     if (method === "POST" && path === "/api/saha/rep-brain") {
       const session = await requireSahaAccess(request);
       const body = await readJson(request);
