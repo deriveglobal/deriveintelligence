@@ -20794,10 +20794,12 @@ async function requireTenantAdmin(request) {
     const tWhere = pTid ? ` WHERE tenant_id='${pTid}'` : '';
     try {
       const [markaRes, mevsimRes, kaynakRes, totRes] = await Promise.all([
+        // BIGINT_V1 + 'ebat' kolonu KESIK BASLIK tutuyor -> sku_sayisi sisiyordu. sm_key dogrusu.
         pool.query(`SELECT marka,
-             ROUND(MIN(fiyat)::numeric,0) AS min_fiyat, ROUND(MAX(fiyat)::numeric,0) AS max_fiyat,
-             ROUND(AVG(fiyat)::numeric,0) AS ort_fiyat, COUNT(DISTINCT ebat) AS sku_sayisi,
-             COUNT(DISTINCT kaynak) AS kaynak_sayisi
+             ROUND(MIN(fiyat)::numeric,0)::float AS min_fiyat, ROUND(MAX(fiyat)::numeric,0)::float AS max_fiyat,
+             ROUND(AVG(fiyat)::numeric,0)::float AS ort_fiyat,
+             COUNT(DISTINCT sm_key)::int AS sku_sayisi,
+             COUNT(DISTINCT kaynak)::int AS kaynak_sayisi
            FROM bi_rakip_fiyat_son${tWhere} GROUP BY marka ORDER BY sku_sayisi DESC LIMIT 20`),
         // PIYASA_OZET_V2: 'mevsim' kolonu OLU (%100 NULL). Gercek veri sm_mevsim'de.
         pool.query(`SELECT CASE sm_mevsim
@@ -20805,18 +20807,18 @@ async function requireTenantAdmin(request) {
                              WHEN 'kis'     THEN 'Kış'
                              WHEN '4mevsim' THEN '4 Mevsim'
                              ELSE 'Belirsiz' END AS mevsim,
-                           COUNT(DISTINCT sm_key) AS sayi
+                           COUNT(DISTINCT sm_key)::int AS sayi
            FROM bi_rakip_fiyat_son${tWhere}${tWhere ? ' AND' : ' WHERE'} sm_key IS NOT NULL
            GROUP BY 1 ORDER BY sayi DESC`),
         // PIYASA_OZET_V2: DISTINCT ON (marka,ebat) idi — 'ebat' KESIK BASLIK tutuyor,
         // her ilan ayri "urun" sayiliyordu -> oranlar %0. Dogrusu sm_key.
-        pool.query(`SELECT kaynak, COUNT(*) AS kazanc FROM (
+        pool.query(`SELECT kaynak, COUNT(*)::int AS kazanc FROM (
              SELECT DISTINCT ON (sm_key) sm_key, kaynak
                FROM bi_rakip_fiyat_son${tWhere}${tWhere ? ' AND' : ' WHERE'} sm_key IS NOT NULL
               ORDER BY sm_key, fiyat ASC
            ) t GROUP BY kaynak ORDER BY kazanc DESC`),
-        pool.query(`SELECT COUNT(DISTINCT sm_key) AS toplam_sku,
-             COUNT(DISTINCT kaynak) AS kaynak_sayisi, MAX(scraped_at) AS son_tarama
+        pool.query(`SELECT COUNT(DISTINCT sm_key)::int AS toplam_sku,
+             COUNT(DISTINCT kaynak)::int AS kaynak_sayisi, MAX(scraped_at) AS son_tarama
            FROM bi_rakip_fiyat_son${tWhere}`),
       ]);
       sendJson(response, 200, {
