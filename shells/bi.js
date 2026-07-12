@@ -4500,6 +4500,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
                    cursor:pointer;border-bottom:3px solid #3182ce;color:#3182ce;margin-bottom:-2px">Ham Veri</button>
           <button onclick="rfTab('akilli')" id="rf-tab-akilli" style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;cursor:pointer;border-bottom:3px solid transparent;color:#778;margin-bottom:-2px">🎯 Smart Matched</button>
           <button onclick="rfTab('trend')" id="rf-tab-trend" style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;cursor:pointer;border-bottom:3px solid transparent;color:#778;margin-bottom:-2px">📈 Fiyat Trendi</button>
+          <button onclick="rfTab('dot')" id="rf-tab-dot" style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;cursor:pointer;border-bottom:3px solid transparent;color:#778;margin-bottom:-2px">📅 Eski Üretim (DOT)</button>
           <button onclick="rfTab('izleme')" id="rf-tab-izleme"
             style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;
                    cursor:pointer;border-bottom:3px solid transparent;color:#778;margin-bottom:-2px">İzleme</button>
@@ -4584,6 +4585,33 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           <div id="rf-tr-ozet" style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px"></div>
           <div id="rf-tr-chart" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px;overflow-x:auto"></div>
           <div id="rf-tr-not" style="margin-top:10px;font-size:11px;color:#667"></div>
+        </div>
+
+        <div id="rf-pane-dot" style="display:none">
+          <div style="background:rgba(251,191,36,0.08);border:1px solid rgba(251,191,36,0.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#fbbf24">
+            <b>Rakipler eski üretim (DOT) stoğunu indirimle boşaltıyor.</b>
+            Aynı lastiğin eski üretim yılı, güncel üretimden ne kadar ucuza satılıyor —
+            ve <b>hangi pazaryerinde</b>. Sahadaki temsilci bu teklifin içine körlemesine giriyor.
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px">
+            <label style="font-size:12px;color:#9ab">Marka
+              <input id="rf-dot-marka" placeholder="(tümü)" style="display:block;margin-top:4px;padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#e2e8f0;font-size:13px;width:130px">
+            </label>
+            <label style="font-size:12px;color:#9ab">Ebat
+              <input id="rf-dot-ebat" placeholder="(tümü)" style="display:block;margin-top:4px;padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#e2e8f0;font-size:13px;width:130px">
+            </label>
+            <label style="font-size:12px;color:#9ab">Min. indirim
+              <select id="rf-dot-ind" style="display:block;margin-top:4px;padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#e2e8f0;font-size:13px">
+                <option value="10">%10+</option>
+                <option value="20" selected>%20+</option>
+                <option value="40">%40+</option>
+                <option value="60">%60+</option>
+              </select>
+            </label>
+            <button onclick="rfYukleDot()" style="padding:8px 18px;background:#3182ce;border:none;border-radius:6px;color:#fff;font-size:13px;font-weight:600;cursor:pointer">Göster</button>
+          </div>
+          <div id="rf-dot-kanal" style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px"></div>
+          <div id="rf-dot-liste"></div>
         </div>
 
         <div id="rf-pane-izleme" style="display:none">
@@ -4712,7 +4740,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
     `;
 
     window.rfTab = function(tab) {
-      ['piyasa','akilli','trend','izleme','alarmlar','ayarlar'].forEach(t => {
+      ['piyasa','akilli','trend','dot','izleme','alarmlar','ayarlar'].forEach(t => {
         const pane = document.getElementById('rf-pane-' + t);
         const btn  = document.getElementById('rf-tab-'  + t);
         if (!pane || !btn) return;
@@ -4722,9 +4750,83 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       });
       if (tab === 'piyasa')   rfYuklePiyasaOzet();
       if (tab === 'trend')    rfYukleTrend();
+      if (tab === 'dot')      rfYukleDot();
       if (tab === 'izleme')   rfYukleIzle();
       if (tab === 'alarmlar') rfYukleAlarm();
       if (tab === 'ayarlar')  { rfYukleStats(); rfYukleAyarlar(); }
+    };
+
+    // ═══ ESKI URETIM / DOT (RAKIP_DOT_V1) ════════════════════════════════════
+    window.rfYukleDot = async function() {
+      const marka = (document.getElementById('rf-dot-marka') || {}).value || '';
+      const ebat  = (document.getElementById('rf-dot-ebat')  || {}).value || '';
+      const ind   = (document.getElementById('rf-dot-ind')   || {}).value || '20';
+      const liste = document.getElementById('rf-dot-liste');
+      const kanalEl = document.getElementById('rf-dot-kanal');
+      if (!liste) return;
+      liste.innerHTML = '<div style="color:#778;padding:40px;text-align:center">Yükleniyor…</div>';
+
+      let d;
+      try {
+        const qs = new URLSearchParams({ min_indirim: ind });
+        if (marka) qs.set('marka', marka);
+        if (ebat)  qs.set('ebat', ebat);
+        d = await rfApi('/api/rakip/dot?' + qs.toString());
+      } catch (e) {
+        liste.innerHTML = '<div style="color:#e53e3e;padding:30px">Hata: ' + (e && e.message) + '</div>';
+        return;
+      }
+
+      const esc2 = x => String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      const tl = n => (n == null || isNaN(n)) ? '—' : Number(n).toLocaleString('tr-TR', {maximumFractionDigits:0}) + ' ₺';
+
+      // kanal kartlari: hangi pazaryeri eski stok deposu?
+      kanalEl.innerHTML = (d.kanal || []).map(k => {
+        const kirmizi = k.eski_oran >= 6;
+        return '<div style="background:rgba(255,255,255,0.05);border:1px solid ' + (kirmizi ? 'rgba(248,113,113,0.35)' : 'rgba(255,255,255,0.08)') + ';border-radius:8px;padding:9px 13px;min-width:130px">'
+          + '<div style="font-size:12px;color:#cbd5e1;font-weight:600;margin-bottom:3px">' + esc2(k.kaynak) + '</div>'
+          + '<div style="font-size:17px;font-weight:700;color:' + (kirmizi ? '#f87171' : '#94a3b8') + '">%' + (k.eski_oran ?? 0) + '</div>'
+          + '<div style="font-size:10px;color:#667">2022 ve öncesi · ' + (k.eski || 0) + ' ilan</div>'
+          + '</div>';
+      }).join('');
+
+      const f = d.firsatlar || [];
+      if (!f.length) {
+        liste.innerHTML = '<div style="color:#778;padding:40px;text-align:center">Bu filtreyle eski üretim indirimi bulunamadı.</div>';
+        return;
+      }
+
+      let h = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
+        + '<thead><tr style="background:rgba(255,255,255,0.06);font-weight:600;text-align:left">'
+        + '<th style="padding:9px 10px">Marka / Desen</th>'
+        + '<th style="padding:9px 10px">Ebat</th>'
+        + '<th style="padding:9px 10px">Eski üretim</th>'
+        + '<th style="padding:9px 10px;text-align:right">Eski fiyat</th>'
+        + '<th style="padding:9px 10px">Güncel</th>'
+        + '<th style="padding:9px 10px;text-align:right">Güncel fiyat</th>'
+        + '<th style="padding:9px 10px;text-align:right">İndirim</th>'
+        + '<th style="padding:9px 10px">Eski stok nerede</th>'
+        + '<th></th></tr></thead><tbody>';
+
+      f.forEach(r => {
+        const derin = r.indirim >= 50;
+        h += '<tr style="border-bottom:1px solid rgba(255,255,255,0.06)">'
+          + '<td style="padding:8px 10px"><b>' + esc2(r.marka) + '</b> <span style="color:#9ab">' + esc2(r.desen) + '</span></td>'
+          + '<td style="padding:8px 10px;font-family:monospace;color:#9ab">' + esc2(r.ebat) + '</td>'
+          + '<td style="padding:8px 10px"><span style="background:rgba(248,113,113,0.15);color:#f87171;border-radius:5px;padding:2px 7px;font-weight:700">' + r.eski_yil + '</span> <span style="color:#667;font-size:11px">' + (r.eski_ilan || 0) + ' ilan</span></td>'
+          + '<td style="padding:8px 10px;text-align:right;font-weight:700;color:#f87171">' + tl(r.eski_fiyat) + '</td>'
+          + '<td style="padding:8px 10px"><span style="background:rgba(74,222,128,0.12);color:#4ade80;border-radius:5px;padding:2px 7px;font-weight:700">' + r.yeni_yil + '</span></td>'
+          + '<td style="padding:8px 10px;text-align:right;color:#cbd5e1">' + tl(r.yeni_fiyat) + '</td>'
+          + '<td style="padding:8px 10px;text-align:right"><span style="font-size:14px;font-weight:800;color:' + (derin ? '#f87171' : '#fbbf24') + '">−%' + r.indirim + '</span><div style="font-size:10px;color:#667">' + tl(r.fark_tl) + ' fark</div></td>'
+          + '<td style="padding:8px 10px;color:#94a3b8">' + esc2(r.eski_kaynak) + '</td>'
+          + '<td style="padding:8px 10px">' + (r.eski_url ? '<a href="' + esc2(r.eski_url) + '" target="_blank" rel="noopener noreferrer" style="color:#63b3ed;text-decoration:none">↗</a>' : '') + '</td>'
+          + '</tr>';
+      });
+      h += '</tbody></table></div>';
+      h += '<div style="margin-top:10px;font-size:11px;color:#667">'
+         + f.length + ' fırsat · Aynı ürünün (marka + desen + ebat + yük/hız) eski ve güncel üretim yılı fiyatları karşılaştırıldı. '
+         + 'Setler ve lastik olmayan ürünler hariç. <b>Tek bir satıra körü körüne güvenmeyin</b> — ilanı ↗ ile açıp doğrulayın.</div>';
+      liste.innerHTML = h;
     };
 
     // ═══ FIYAT TRENDI (RAKIP_TREND_V1) ═══════════════════════════════════════

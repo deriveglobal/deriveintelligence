@@ -20382,6 +20382,75 @@ async function requireTenantAdmin(request) {
     return;
   }
 
+  // GET /api/rakip/dot — ESKI URETIM (DOT) takibi (RAKIP_DOT_V1)
+  //   ?marka= &ebat= &min_indirim=20
+  if (request.method === 'GET' && url.pathname === '/api/rakip/dot') {
+    const marka = (url.searchParams.get('marka') || '').trim();
+    const ebat  = (url.searchParams.get('ebat')  || '').trim();
+    let minInd = parseInt(url.searchParams.get('min_indirim') || '20', 10);
+    if (!Number.isFinite(minInd) || minInd < 0) minInd = 20;
+
+    const vals = [];
+    const f = [];
+    if (marka) { vals.push('%' + marka + '%'); f.push(`marka ILIKE $${vals.length}`); }
+    if (ebat)  { vals.push('%' + ebat + '%');  f.push(`CONCAT(genislik,'/',profil,'R',cap) ILIKE $${vals.length}`); }
+    const ek = f.length ? ' AND ' + f.join(' AND ') : '';
+    vals.push(minInd);
+    const mi = vals.length;
+
+    const { rows } = await pool.query(
+      `WITH u AS (
+         SELECT sm_key, marka, sm_desen,
+                CONCAT(genislik,'/',profil,'R',cap) AS ebat,
+                uretim_yili,
+                MIN(fiyat)::int AS en_ucuz,
+                COUNT(*)::int   AS ilan,
+                string_agg(DISTINCT kaynak, ', ') AS kaynaklar,
+                (array_agg(url ORDER BY fiyat))[1] AS url
+           FROM bi_rakip_fiyat
+          WHERE lastik_mi AND uretim_yili IS NOT NULL AND sm_key IS NOT NULL
+            AND sm_set IS NOT TRUE
+            AND scraped_at > now() - interval '7 days' ${ek}
+          GROUP BY 1,2,3,4,5
+       ), y AS (
+         SELECT sm_key, marka, sm_desen, ebat,
+                MAX(uretim_yili) AS yeni_yil,
+                MIN(uretim_yili) AS eski_yil
+           FROM u GROUP BY 1,2,3,4
+         HAVING COUNT(DISTINCT uretim_yili) >= 2
+       )
+       SELECT y.marka, y.sm_desen AS desen, y.ebat,
+              y.eski_yil, ue.en_ucuz AS eski_fiyat, ue.kaynaklar AS eski_kaynak,
+              ue.ilan AS eski_ilan, ue.url AS eski_url,
+              y.yeni_yil, un.en_ucuz AS yeni_fiyat, un.kaynaklar AS yeni_kaynak,
+              ROUND((1 - ue.en_ucuz::numeric / NULLIF(un.en_ucuz,0)) * 100)::int AS indirim,
+              (un.en_ucuz - ue.en_ucuz) AS fark_tl
+         FROM y
+         JOIN u ue ON ue.sm_key = y.sm_key AND ue.uretim_yili = y.eski_yil
+         JOIN u un ON un.sm_key = y.sm_key AND un.uretim_yili = y.yeni_yil
+        WHERE un.en_ucuz > ue.en_ucuz AND un.en_ucuz > 1000 AND ue.en_ucuz > 500
+          AND ROUND((1 - ue.en_ucuz::numeric / NULLIF(un.en_ucuz,0)) * 100) >= $${mi}
+        ORDER BY indirim DESC, fark_tl DESC
+        LIMIT 120`, vals);
+
+    // pazaryeri bazinda eski stok orani
+    const { rows: kanal } = await pool.query(
+      `SELECT kaynak,
+              COUNT(*) FILTER (WHERE uretim_yili >= 2025)::int AS yeni,
+              COUNT(*) FILTER (WHERE uretim_yili BETWEEN 2023 AND 2024)::int AS orta,
+              COUNT(*) FILTER (WHERE uretim_yili <= 2022)::int AS eski,
+              ROUND(100.0 * COUNT(*) FILTER (WHERE uretim_yili <= 2022)
+                    / NULLIF(COUNT(*) FILTER (WHERE uretim_yili IS NOT NULL), 0))::int AS eski_oran
+         FROM bi_rakip_fiyat
+        WHERE lastik_mi AND scraped_at > now() - interval '7 days'
+        GROUP BY 1
+       HAVING COUNT(*) FILTER (WHERE uretim_yili IS NOT NULL) > 0
+        ORDER BY eski_oran DESC NULLS LAST`);
+
+    sendJson(response, 200, { firsatlar: rows, kanal, min_indirim: minInd });
+    return;
+  }
+
   // GET /api/rakip/trend-ebatlar — en cok ilani olan ebatlar (dropdown icin)
   if (request.method === 'GET' && url.pathname === '/api/rakip/trend-ebatlar') {
     const { rows } = await pool.query(
