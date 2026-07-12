@@ -4501,6 +4501,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           <button onclick="rfTab('akilli')" id="rf-tab-akilli" style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;cursor:pointer;border-bottom:3px solid transparent;color:#778;margin-bottom:-2px">🎯 Smart Matched</button>
           <button onclick="rfTab('trend')" id="rf-tab-trend" style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;cursor:pointer;border-bottom:3px solid transparent;color:#778;margin-bottom:-2px">📈 Fiyat Trendi</button>
           <button onclick="rfTab('dot')" id="rf-tab-dot" style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;cursor:pointer;border-bottom:3px solid transparent;color:#778;margin-bottom:-2px">📅 Eski Üretim (DOT)</button>
+          <button onclick="rfTab('master')" id="rf-tab-master" style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;cursor:pointer;border-bottom:3px solid transparent;color:#778;margin-bottom:-2px">📦 Ürün Master</button>
           <button onclick="rfTab('izleme')" id="rf-tab-izleme"
             style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;
                    cursor:pointer;border-bottom:3px solid transparent;color:#778;margin-bottom:-2px">İzleme</button>
@@ -4585,6 +4586,25 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
           <div id="rf-tr-ozet" style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:14px"></div>
           <div id="rf-tr-chart" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px;overflow-x:auto"></div>
           <div id="rf-tr-not" style="margin-top:10px;font-size:11px;color:#667"></div>
+        </div>
+
+        <div id="rf-pane-master" style="display:none">
+          <div style="background:rgba(99,179,237,0.08);border:1px solid rgba(99,179,237,0.25);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#63b3ed">
+            <b>Kendi ürün veritabanımız.</b> Her tarama pazardaki her ürünü bu listeye karşı kontrol eder;
+            yeni bir ürün görülürse listeye eklenir. KRB'nin SAP ürünleri aynı anahtarla eşleştirilir.
+            <span id="rf-m-ozet" style="color:#9ab"></span>
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+            <button onclick="rfMasterGor('bosluk')" id="rf-mg-bosluk" class="rf-mg" style="padding:7px 14px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);border-radius:6px;color:#e2e8f0;font-size:12.5px;font-weight:600;cursor:pointer">🕳 Stok Boşluğu</button>
+            <button onclick="rfMasterGor('fiyat')"  id="rf-mg-fiyat"  class="rf-mg" style="padding:7px 14px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);border-radius:6px;color:#e2e8f0;font-size:12.5px;font-weight:600;cursor:pointer">💰 Fiyat Pozisyonu</button>
+            <button onclick="rfMasterGor('yeni')"   id="rf-mg-yeni"   class="rf-mg" style="padding:7px 14px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.06);border-radius:6px;color:#e2e8f0;font-size:12.5px;font-weight:600;cursor:pointer">✨ Yeni Ürünler</button>
+            <span style="flex:1"></span>
+            <input id="rf-m-marka" placeholder="Marka" style="padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#e2e8f0;font-size:13px;width:120px">
+            <input id="rf-m-ebat" placeholder="Ebat" style="padding:7px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#e2e8f0;font-size:13px;width:110px">
+            <button onclick="rfYukleMaster()" style="padding:7px 16px;background:#3182ce;border:none;border-radius:6px;color:#fff;font-size:13px;font-weight:600;cursor:pointer">Göster</button>
+          </div>
+          <div id="rf-m-aciklama" style="font-size:11.5px;color:#8fa;margin-bottom:10px"></div>
+          <div id="rf-m-liste"></div>
         </div>
 
         <div id="rf-pane-dot" style="display:none">
@@ -4740,7 +4760,7 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
     `;
 
     window.rfTab = function(tab) {
-      ['piyasa','akilli','trend','dot','izleme','alarmlar','ayarlar'].forEach(t => {
+      ['piyasa','akilli','trend','dot','master','izleme','alarmlar','ayarlar'].forEach(t => {
         const pane = document.getElementById('rf-pane-' + t);
         const btn  = document.getElementById('rf-tab-'  + t);
         if (!pane || !btn) return;
@@ -4751,9 +4771,128 @@ if(_pv2==='rekabet'){h+=_buildRekabetContent(wrap);wrap.innerHTML=h;_piWire(wrap
       if (tab === 'piyasa')   rfYuklePiyasaOzet();
       if (tab === 'trend')    rfYukleTrend();
       if (tab === 'dot')      rfYukleDot();
+      if (tab === 'master')   rfYukleMaster();
       if (tab === 'izleme')   rfYukleIzle();
       if (tab === 'alarmlar') rfYukleAlarm();
       if (tab === 'ayarlar')  { rfYukleStats(); rfYukleAyarlar(); }
+    };
+
+    // ═══ URUN MASTER (URUN_MASTER_V1) ════════════════════════════════════════
+    window._rfMasterGorunum = 'bosluk';
+    window.rfMasterGor = function(g) { window._rfMasterGorunum = g; rfYukleMaster(); };
+
+    window.rfYukleMaster = async function() {
+      const g     = window._rfMasterGorunum || 'bosluk';
+      const marka = (document.getElementById('rf-m-marka') || {}).value || '';
+      const ebat  = (document.getElementById('rf-m-ebat')  || {}).value || '';
+      const liste = document.getElementById('rf-m-liste');
+      if (!liste) return;
+
+      ['bosluk','fiyat','yeni'].forEach(k => {
+        const b = document.getElementById('rf-mg-' + k);
+        if (b) {
+          b.style.background = (k === g) ? '#3182ce' : 'rgba(255,255,255,0.06)';
+          b.style.borderColor = (k === g) ? '#3182ce' : 'rgba(255,255,255,0.15)';
+        }
+      });
+
+      liste.innerHTML = '<div style="color:#778;padding:40px;text-align:center">Yükleniyor…</div>';
+      let d;
+      try {
+        const qs = new URLSearchParams({ gorunum: g });
+        if (marka) qs.set('marka', marka);
+        if (ebat)  qs.set('ebat', ebat);
+        d = await rfApi('/api/rakip/urun-master?' + qs.toString());
+      } catch (e) {
+        liste.innerHTML = '<div style="color:#e53e3e;padding:30px">Hata: ' + (e && e.message) + '</div>';
+        return;
+      }
+
+      const esc2 = x => String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      const tl = n => (n == null || isNaN(n)) ? '—' : Number(n).toLocaleString('tr-TR', {maximumFractionDigits:0}) + ' ₺';
+      const gun = t => { try { return new Date(t).toLocaleDateString('tr-TR'); } catch(_) { return '—'; } };
+
+      const oz = d.ozet || {};
+      const ozEl = document.getElementById('rf-m-ozet');
+      if (ozEl) ozEl.innerHTML = ' &nbsp;·&nbsp; <b>' + (oz.toplam || 0).toLocaleString('tr-TR') + '</b> ürün · '
+        + '<b>' + (oz.krb_eslesen || 0).toLocaleString('tr-TR') + '</b> KRB SKU eşleşti · '
+        + '<b>' + (oz.bosluk || 0).toLocaleString('tr-TR') + '</b> boşluk · '
+        + '<b>' + (oz.marka || 0) + '</b> marka';
+
+      const aciklama = {
+        bosluk: 'Pazarın <b>3+ pazaryerinde</b> sattığı, KRB\'de karşılık gelen SKU bulunamayan ürünler. ⚠ Eşleşme oranı %36 — bu liste <b>incelenecek aday listesidir, sipariş listesi değildir</b>. Bir satır burada çıktı diye stokta yok demek değil; SAP tanımı farklı yazılmış olabilir.',
+        fiyat:  'KRB SKU\'su pazarda bulunan ürünler. <b>Liste fiyatı</b> ile pazarın min/medyan/max\'ı karşılaştırıldı. Liste fiyatı iskonto öncesidir — bu bir marj hesabı değil, <b>müşterinin telefonunda gördüğü fiyat</b>tır.',
+        yeni:   'Son 7 günde <b>ilk kez</b> görülen ürünler. Bir marka yeni desen çıkardığında burada belirir. (Master yeni kurulduğu için ilk günlerde çoğu ürün "yeni" görünebilir.)'
+      }[g] || '';
+      const acEl = document.getElementById('rf-m-aciklama');
+      if (acEl) acEl.innerHTML = aciklama;
+
+      const r = d.satirlar || [];
+      if (!r.length) {
+        liste.innerHTML = '<div style="color:#778;padding:40px;text-align:center">Kayıt bulunamadı.</div>';
+        return;
+      }
+
+      let h = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr style="background:rgba(255,255,255,0.06);font-weight:600;text-align:left">';
+      if (g === 'fiyat') {
+        h += '<th style="padding:9px 10px">Marka / Desen</th><th style="padding:9px 10px">Ebat</th>'
+           + '<th style="padding:9px 10px">KRB SKU</th>'
+           + '<th style="padding:9px 10px;text-align:right">KRB liste</th>'
+           + '<th style="padding:9px 10px;text-align:right">Pazar min</th>'
+           + '<th style="padding:9px 10px;text-align:right">Pazar medyan</th>'
+           + '<th style="padding:9px 10px;text-align:right">Pazar max</th>'
+           + '<th style="padding:9px 10px;text-align:right">Max üstü</th>'
+           + '<th style="padding:9px 10px;text-align:center">Site</th>';
+      } else if (g === 'yeni') {
+        h += '<th style="padding:9px 10px">Marka / Desen</th><th style="padding:9px 10px">Ebat</th>'
+           + '<th style="padding:9px 10px">İlk görülme</th>'
+           + '<th style="padding:9px 10px;text-align:center">Pazaryeri</th>'
+           + '<th style="padding:9px 10px;text-align:right">Min fiyat</th>'
+           + '<th style="padding:9px 10px;text-align:center">KRB\'de</th>';
+      } else {
+        h += '<th style="padding:9px 10px">Marka / Desen</th><th style="padding:9px 10px">Ebat</th>'
+           + '<th style="padding:9px 10px">Mevsim</th>'
+           + '<th style="padding:9px 10px;text-align:center">Pazaryeri</th>'
+           + '<th style="padding:9px 10px;text-align:center">İlan</th>'
+           + '<th style="padding:9px 10px;text-align:right">Min</th>'
+           + '<th style="padding:9px 10px;text-align:right">Medyan</th>';
+      }
+      h += '</tr></thead><tbody>';
+
+      r.forEach(x => {
+        h += '<tr style="border-bottom:1px solid rgba(255,255,255,0.06)">'
+          + '<td style="padding:8px 10px"><b>' + esc2(x.marka) + '</b> <span style="color:#9ab">' + esc2(x.desen) + '</span></td>'
+          + '<td style="padding:8px 10px;font-family:monospace;color:#9ab">' + esc2(x.ebat) + '</td>';
+        if (g === 'fiyat') {
+          const ust = x.max_ustu_yuzde;
+          const renk = ust == null ? '#94a3b8' : (ust > 20 ? '#f87171' : (ust > 0 ? '#fbbf24' : '#4ade80'));
+          h += '<td style="padding:8px 10px;font-family:monospace;color:#8fa;font-size:11.5px">' + esc2(x.krb_kalem_kodu) + '</td>'
+            + '<td style="padding:8px 10px;text-align:right;font-weight:700;color:' + renk + '">' + tl(x.krb_liste) + '</td>'
+            + '<td style="padding:8px 10px;text-align:right;color:#9ab">' + tl(x.pazar_min) + '</td>'
+            + '<td style="padding:8px 10px;text-align:right;color:#cbd5e1">' + tl(x.pazar_medyan) + '</td>'
+            + '<td style="padding:8px 10px;text-align:right;color:#9ab">' + tl(x.pazar_max) + '</td>'
+            + '<td style="padding:8px 10px;text-align:right;font-weight:800;color:' + renk + '">'
+              + (ust == null ? '—' : (ust > 0 ? '+%' + ust : '%' + ust)) + '</td>'
+            + '<td style="padding:8px 10px;text-align:center;color:#9ab">' + (x.pazaryeri_sayisi || 0) + '</td>';
+        } else if (g === 'yeni') {
+          h += '<td style="padding:8px 10px;color:#4ade80">' + gun(x.ilk_gorulme) + '</td>'
+            + '<td style="padding:8px 10px;text-align:center;color:#cbd5e1">' + (x.pazaryeri_sayisi || 0) + '</td>'
+            + '<td style="padding:8px 10px;text-align:right;color:#cbd5e1">' + tl(x.pazar_min) + '</td>'
+            + '<td style="padding:8px 10px;text-align:center">' + (x.krb_de_var
+                ? '<span style="color:#4ade80">✓</span>'
+                : '<span style="color:#f87171">✗</span>') + '</td>';
+        } else {
+          h += '<td style="padding:8px 10px;color:#9ab">' + esc2(x.mevsim || '') + '</td>'
+            + '<td style="padding:8px 10px;text-align:center"><b style="color:' + ((x.pazaryeri_sayisi||0) >= 5 ? '#f87171' : '#cbd5e1') + '">' + (x.pazaryeri_sayisi || 0) + '</b></td>'
+            + '<td style="padding:8px 10px;text-align:center;color:#9ab">' + (x.ilan_sayisi || 0) + '</td>'
+            + '<td style="padding:8px 10px;text-align:right;color:#cbd5e1">' + tl(x.pazar_min) + '</td>'
+            + '<td style="padding:8px 10px;text-align:right;color:#9ab">' + tl(x.pazar_medyan) + '</td>';
+        }
+        h += '</tr>';
+      });
+      h += '</tbody></table></div>';
+      h += '<div style="margin-top:10px;font-size:11px;color:#667">' + r.length + ' kayıt gösteriliyor (en fazla 300).</div>';
+      liste.innerHTML = h;
     };
 
     // ═══ ESKI URETIM / DOT (RAKIP_DOT_V1) ════════════════════════════════════

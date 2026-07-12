@@ -20382,6 +20382,75 @@ async function requireTenantAdmin(request) {
     return;
   }
 
+  // GET /api/rakip/urun-master — KENDI URUN MASTER'IMIZ (URUN_MASTER_V1)
+  //   ?gorunum=bosluk   -> pazar satiyor, KRB'de SKU yok
+  //   ?gorunum=fiyat    -> KRB liste fiyati vs pazar (min/medyan/max)
+  //   ?gorunum=yeni&gun=7 -> son N gunde ILK KEZ gorulen urunler
+  if (request.method === 'GET' && url.pathname === '/api/rakip/urun-master') {
+    const gorunum = (url.searchParams.get('gorunum') || 'bosluk').trim();
+    const marka   = (url.searchParams.get('marka')   || '').trim();
+    const ebat    = (url.searchParams.get('ebat')    || '').trim();
+    let minSite = parseInt(url.searchParams.get('min_site') || '3', 10);
+    if (!Number.isFinite(minSite) || minSite < 1) minSite = 3;
+    let gun = parseInt(url.searchParams.get('gun') || '7', 10);
+    if (!Number.isFinite(gun) || gun < 1) gun = 7;
+
+    const vals = [];
+    const f = ["durum = 'AKTIF'"];
+    if (marka) { vals.push('%' + marka + '%'); f.push(`marka ILIKE $${vals.length}`); }
+    if (ebat)  { vals.push('%' + ebat + '%');  f.push(`ebat ILIKE $${vals.length}`); }
+
+    let sql;
+    if (gorunum === 'fiyat') {
+      // KRB SKU'su pazarda bulunanlar: liste fiyati pazarin neresinde?
+      f.push('krb_kalem_kodu IS NOT NULL', 'krb_liste_fiyati IS NOT NULL');
+      vals.push(minSite);
+      sql = `SELECT sm_key, marka, desen, desen_adi, ebat, mevsim,
+                    krb_kalem_kodu, krb_liste_fiyati::float AS krb_liste,
+                    min_fiyat::float AS pazar_min, medyan_fiyat::float AS pazar_medyan,
+                    max_fiyat::float AS pazar_max, pazaryeri_sayisi, ilan_sayisi,
+                    round(((krb_liste_fiyati - max_fiyat) / NULLIF(max_fiyat,0) * 100)::numeric)::int AS max_ustu_yuzde,
+                    round(((krb_liste_fiyati - medyan_fiyat) / NULLIF(medyan_fiyat,0) * 100)::numeric)::int AS medyan_ustu_yuzde
+               FROM bi_urun_master
+              WHERE ${f.join(' AND ')} AND pazaryeri_sayisi >= $${vals.length}
+              ORDER BY max_ustu_yuzde DESC NULLS LAST LIMIT 300`;
+    } else if (gorunum === 'yeni') {
+      vals.push(gun);
+      sql = `SELECT sm_key, marka, desen, desen_adi, ebat, mevsim,
+                    ilk_gorulme, pazaryeri_sayisi, ilan_sayisi,
+                    min_fiyat::float AS pazar_min, medyan_fiyat::float AS pazar_medyan,
+                    (krb_kalem_kodu IS NOT NULL) AS krb_de_var
+               FROM bi_urun_master
+              WHERE ${f.join(' AND ')}
+                AND ilk_gorulme > now() - ($${vals.length} || ' days')::interval
+              ORDER BY ilk_gorulme DESC, pazaryeri_sayisi DESC LIMIT 300`;
+    } else {
+      // bosluk: pazar satiyor, KRB'de SKU yok
+      f.push('krb_kalem_kodu IS NULL');
+      vals.push(minSite);
+      sql = `SELECT sm_key, marka, desen, desen_adi, ebat, mevsim,
+                    pazaryeri_sayisi, ilan_sayisi,
+                    min_fiyat::float AS pazar_min, medyan_fiyat::float AS pazar_medyan,
+                    max_fiyat::float AS pazar_max, ilk_gorulme
+               FROM bi_urun_master
+              WHERE ${f.join(' AND ')} AND pazaryeri_sayisi >= $${vals.length}
+              ORDER BY pazaryeri_sayisi DESC, ilan_sayisi DESC LIMIT 300`;
+    }
+
+    const { rows } = await pool.query(sql, vals);
+
+    const ozet = await pool.query(
+      `SELECT count(*)::int AS toplam,
+              count(*) FILTER (WHERE krb_kalem_kodu IS NOT NULL)::int AS krb_eslesen,
+              count(*) FILTER (WHERE krb_kalem_kodu IS NULL AND pazaryeri_sayisi >= 3)::int AS bosluk,
+              count(*) FILTER (WHERE ilk_gorulme > now() - interval '7 days')::int AS yeni_7g,
+              count(DISTINCT marka)::int AS marka
+         FROM bi_urun_master WHERE durum = 'AKTIF'`);
+
+    sendJson(response, 200, { gorunum, satirlar: rows, ozet: ozet.rows[0] });
+    return;
+  }
+
   // GET /api/rakip/dot — ESKI URETIM (DOT) takibi (RAKIP_DOT_V1)
   //   ?marka= &ebat= &min_indirim=20
   if (request.method === 'GET' && url.pathname === '/api/rakip/dot') {
