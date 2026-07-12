@@ -20288,6 +20288,37 @@ async function requireTenantAdmin(request) {
   // Rakip Fiyat İzleme API — /api/rakip/*
   // =========================================================================
 
+  // POST /api/ai/chat — AI_CHAT_V1
+  // bi.js fiyat endeksi sekmesi: { message, context } -> { reply }
+  // (Route YOKTU; arayuz 404'u yutup "AI analizi su an mevcut degil" yaziyordu.)
+  if (request.method === 'POST' && url.pathname === '/api/ai/chat') {
+    const session = await requireModuleAccess(request, 'bi');
+    const b = await readJson(request);
+    const mesaj = String((b && b.message) || '').trim();
+    if (!mesaj) { sendJson(response, 400, { error: 'message zorunlu' }); return; }
+    const ctx = String((b && b.context) || 'genel').slice(0, 40);
+    try {
+      const r = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 400,
+        system: 'Sen KRB Otomotiv icin lastik pazari analistisin. Turkce, KISA (2-3 cumle), '
+              + 'somut ve rakama dayali yaz. Sana verilmeyen bir rakami UYDURMA. '
+              + 'Veri yetersizse "bu konuda yeterli veri yok" de. Baglam: ' + ctx,
+        messages: [{ role: 'user', content: mesaj }]
+      });
+      const reply = (r.content || [])
+        .filter(x => x.type === 'text')
+        .map(x => x.text)
+        .join('')
+        .trim();
+      sendJson(response, 200, { reply: reply || 'Analiz uretilemedi.' });
+    } catch (e) {
+      console.error('[ai/chat] HATA:', e.message);
+      sendJson(response, 502, { error: 'AI servisi yanit vermedi: ' + e.message });
+    }
+    return;
+  }
+
   // GET /api/rakip/piyasa?marka=&ebat=&segment=&limit=200   [SEGMENT_V1]
   //   segment: TUKETICI (binek) | TICARI (kamyon/otobus + hafif ticari) | bos=tumu
   if (request.method === 'GET' && url.pathname === '/api/rakip/piyasa') {
