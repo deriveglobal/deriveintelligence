@@ -223,7 +223,7 @@ export function initBiSurface(container, me, sub, callbacks) {
       _br.id = 'vmo-room-bugun';
       _br.dataset.dept = 'bugun';
       _br.className = 'vmo-room';
-      _br.style.cssText = 'background:var(--zemin-0);overflow-y:auto;display:block;padding:0';
+      _br.style.cssText = 'background:var(--zemin-0);overflow-y:auto;padding:0';  /* ANA_UI_FIX: display satir ici OLMAZ — .vmo-room-hidden'i ezer */
       _br.innerHTML = '<div id="bugun-govde" style="max-width:1080px;margin:0 auto;padding:26px 28px 0"><div style="color:var(--tx-2);font-size:13px">Yükleniyor…</div></div>';
       _off2.appendChild(_br);
     }
@@ -379,6 +379,19 @@ export function initBiSurface(container, me, sub, callbacks) {
       }
     }, 260);
   }
+
+  // ⚠ ANA_UI_FIX — ACILIS SENKRONU
+  // Eski 'home' odasi createElement ile kuruluyor ve gizle sinifi ALMIYOR.
+  // OFFICERS.map ile uretilenler aliyor, sonradan eklenenler ALMIYOR.
+  // Mevcut mekanizmayi (satir ~1072) acilista BIR KEZ calistir.
+  setTimeout(function(){
+    container.querySelectorAll('.vmo-room').forEach(function(r){
+      r.classList.toggle('vmo-room-hidden', r.dataset.dept !== activeDept);
+    });
+    container.querySelectorAll('.vmo-tab').forEach(function(t){
+      t.classList.toggle('active', t.dataset.dept === activeDept);
+    });
+  }, 0);
 
   ciz_bugun();
 
@@ -7408,7 +7421,7 @@ body {
   /* ── Office & rooms ── */
   .vmo-office { flex:1; overflow:hidden; position:relative; }
   .vmo-room { display:flex; height:100%; }
-  .vmo-room-hidden { display:none; }
+  .vmo-room-hidden { display:none !important; }  /* ANA_UI_FIX */
   /* ── Hub ── */
   .vmo-hub-wrap{position:relative;width:100%;height:100%;background:radial-gradient(ellipse at 50% 42%,#0c1b3a 0%,#080818 65%);display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
   .vmo-hub-glow{position:absolute;top:42%;left:50%;transform:translate(-50%,-50%);width:440px;height:440px;background:radial-gradient(circle,rgba(225,29,72,0.07) 0%,transparent 70%);pointer-events:none}
