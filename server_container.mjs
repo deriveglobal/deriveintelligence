@@ -23834,22 +23834,36 @@ if (request.method === "GET" && url.pathname === "/api/bi/sezon/onsiparis") {
       --     'ebat' alaniyla tutmuyordu -> mevcut stok YANLIS, eksik hesabi YANLIS.
       --     Regex ile ebat cikarmak, bugun 7 kez yakaladigimiz hatanin aynisi:
       --     makul gorunen, sessizce yanlis bir sayi.
+      -- ONSIPARIS_V3 — KADEME 1: satis tablosu (ERP'nin KENDI alani)
       kod_ebat AS (
         SELECT DISTINCT ON (kalem_kodu) kalem_kodu, ebat
           FROM bi_satis_faturalari
          WHERE tenant_id = $1::text AND ebat IS NOT NULL AND ebat <> ''
          ORDER BY kalem_kodu, fatura_tarihi DESC
       ),
-      stok AS (
-        SELECT ke.ebat AS ebat,
-               SUM(s.adet) AS mevcut,
-               SUM(s.adet * m.maliyet) / NULLIF(SUM(s.adet) FILTER (WHERE m.maliyet IS NOT NULL), 0) AS birim_maliyet,
-               SUM(s.adet) FILTER (WHERE m.maliyet IS NULL) AS maliyetsiz_adet
+      -- ⚠ KADEME 3: urun adinin ILK KELIMESI zaten ebattir.
+      --   "245/40R18 97V BLIZZAK 6"  -> 245/40R18
+      --   "185R14C 102/100R WINTUS"  -> 185R14C   (V2'nin regex'i BUNU KACIRIYORDU)
+      --   Yeni SKU'lar (Brisa donusu: BLIZZAK 6, SNOWAYS 4, WINTUS 2) satista
+      --   henuz gecmedigi icin KADEME 1 onlari bulamiyor. Kor nokta buydu.
+      stok_ebat AS (
+        SELECT s.kalem_kodu, s.adet,
+               COALESCE(ke.ebat, substring(s.kalem_tanimi from '^([^ ]+)')) AS ebat,
+               CASE WHEN ke.ebat IS NOT NULL THEN 'erp' ELSE 'turetilmis' END AS ebat_kaynagi
           FROM bi_stok_anlik s
-          JOIN kod_ebat ke      ON ke.kalem_kodu = s.kalem_kodu
-          LEFT JOIN son_maliyet m ON m.kalem_kodu = s.kalem_kodu
+          LEFT JOIN kod_ebat ke ON ke.kalem_kodu = s.kalem_kodu
          WHERE s.tenant_id = $1::uuid AND s.adet > 0 AND s.sezon ILIKE $2
            AND s.export_date = (SELECT MAX(export_date) FROM bi_stok_anlik WHERE tenant_id = $1::uuid)
+      ),
+      stok AS (
+        SELECT se.ebat AS ebat,
+               SUM(se.adet) AS mevcut,
+               SUM(se.adet * m.maliyet) / NULLIF(SUM(se.adet) FILTER (WHERE m.maliyet IS NOT NULL), 0) AS birim_maliyet,
+               SUM(se.adet) FILTER (WHERE m.maliyet IS NULL) AS maliyetsiz_adet,
+               SUM(se.adet) FILTER (WHERE se.ebat_kaynagi = 'turetilmis') AS turetilmis_adet
+          FROM stok_ebat se
+          LEFT JOIN son_maliyet m ON m.kalem_kodu = se.kalem_kodu
+         WHERE se.ebat IS NOT NULL AND se.ebat <> ''
          GROUP BY 1
       ),
       -- ⚠ Ebat basina maliyet: stokta yoksa SATIS tarafindaki ayni ebatin
@@ -23875,7 +23889,9 @@ if (request.method === "GET" && url.pathname === "/api/bi/sezon/onsiparis") {
              CASE WHEN st.birim_maliyet IS NOT NULL THEN 'stok_son_alis'
                   WHEN em.maliyet IS NOT NULL       THEN 'ebat_ortalamasi'
                   ELSE 'MALIYET_YOK' END             AS maliyet_kaynagi,
-             COALESCE(st.maliyetsiz_adet, 0)           AS maliyetsiz_adet
+             COALESCE(st.maliyetsiz_adet, 0)           AS maliyetsiz_adet,
+             -- ⚠ Bu ebattaki stogun kaci URUN ADINDAN turetildi? (yeni SKU'lar)
+             COALESCE(st.turetilmis_adet, 0)           AS turetilmis_adet
         FROM pay p
         LEFT JOIN stok st          ON st.ebat = p.ebat
         LEFT JOIN ebat_maliyet em  ON em.ebat = p.ebat
@@ -23894,6 +23910,8 @@ if (request.method === "GET" && url.pathname === "/api/bi/sezon/onsiparis") {
       tutar: x.tutar == null ? null : Number(x.tutar),
       // ⚠ ONSIPARIS_V2 — maliyet NEREDEN geldi? Bilinmiyorsa TUTAR YOK, SIFIR DEGIL.
       maliyet_kaynagi: x.maliyet_kaynagi,
+      // ⚠ Ebati URUN ADINDAN turetilen adet (yeni SKU — satista henuz gecmemis)
+      turetilmis_adet: Number(x.turetilmis_adet || 0),
       durum: Number(x.mevcut_stok) === 0 ? "yok"
            : Number(x.mevcut_stok) < Number(x.hedef_adet) * 0.3 ? "kritik"
            : Number(x.mevcut_stok) < Number(x.hedef_adet) * 0.7 ? "eksik" : "yeterli"
