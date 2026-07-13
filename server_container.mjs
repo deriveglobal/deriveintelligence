@@ -25107,9 +25107,16 @@ function buildDeptSystemPrompt(dept, context, session) {
                 'KENDI CUMLELERINI aktar, ozetleyip yumusatma. uygulama_hatalari = temsilcinin ' +
                 'ekraninda GERCEKTEN patlayan hatalar; bunlari kucumseme.',
               BILINEN_SORUNLAR: [
-                'ERP AKTARIMI 29 GUNDUR OLU. Ciro/stok/bakiye rakamlari EKSIK. ' +
-                'Fatih Bilen 09.07\'de "haziran cirosu 121.79M" dedi; sistem 69.1M gosteriyor (~yarisi). ' +
-                'Bu, pilotun 1 numarali riskidir — temsilciler Pazartesi bir aylik eski bakiye/stok gorecek.',
+                'ERP VERISI 13.07 GECESI TAMAMEN YENIDEN YUKLENDI (BAYAT_V2). ' +
+                'Satis: 364.785 satir (2021-10 .. 2026-07). Alis: 146.680 satir. ' +
+                'Haziran 2026 cirosu = 121,76 M TL — Fatih Bilen\'in 09.07\'de soyledigi 121,79M ile ORTUSUYOR. ' +
+                'ESKI SORUN NEYDI: (a) SAP tarihleri GG/AA yazar, Excel AA/GG okuyordu; gunu <=12 olan ' +
+                'faturalar Agustos-Aralik\'a savruluyordu — Haziran yarim gorunuyordu. (b) Export SADECE ' +
+                'lastik kalem gruplarini iceriyordu; servis/jant/aku/yedek parca (cironun ~%26\'si) hic yoktu. ' +
+                'IKISI DE DUZELTILDI. Artik ciro rakamlarina guvenilebilir.',
+                'ALIS VADESI ARTIK HESAPLANIYOR: onceden 28.252 satirin TAMAMINDA vade_tarihi NULL\'du. ' +
+                'Ortalama alis vadesi 2021\'de 66,7 gun iken 2025\'te 40,7 gune dusmus — tedarikciler ' +
+                'KRB\'nin vadesini 4 yilda 26 gun kismis. Bu, sistemin ilk kez gorebildigi bir sey.',
                 'DKIM/DMARC yayinlanmadi (deriveglobal.com) — bildirim e-postalari Junk klasorune dusuyor.',
                 'Ticari (kamyon/van) pazar verisi 12.07\'ye kadar BOZUKTU (ebat parse hatasi); duzeltildi.',
                 'Asistan yanitlari max_tokens=1024 ile KESILIYORDU; "gonderiyorum" deyip eylem yapamiyordu. ' +
@@ -25520,10 +25527,19 @@ Bu karsilamayi SEN yaz, kendi sesinle. Su akista:
    Ornek ver: "gonderiyorum" deyip gondermedigini. Kisa, samimi, savunmaci DEGIL.
    "Uyandim" fikri guzel — ama klise olmasin, kendi cumlelerini kur.
 
-2) SONRA HEMEN DURUSTLUK — hala BOZUK olani ILK soyle:
-   ERP aktarimi 30 gundur olu. Ciro rakamin EKSIK: sistem ~69,1M gosteriyor,
-   o 121,79M biliyor. "Bu duzelene kadar benden ciro/stok rakami almayin" de.
-   Bunu ESPRIYLE gecistirme. En zor cumle bu, ve ilk soylenmeli.
+2) SONRA: SOZ VERILDI VE TUTULDU — ama once NE OLDUGUNU durustce soyle.
+   O sana "haziran cirosu 121,79M" dedi; sistem 19M gosteriyordu. Ben o zaman
+   "ERP akisi olmus" diye TESHIS KOYDUM ve YANILDIM. Gercek sebep baskaydi:
+   • SAP tarihi GG/AA yazar, Excel AA/GG okudu. 10/02 (10 Subat) -> 2 Ekim oldu.
+     Gunu 12'den kucuk olan faturalar Agustos-Aralik'a savruldu. Haziran'in
+     yarisi kayboldu — veri hep oradaydi, YANLIS AYA yazilmisti.
+   • Ayrica export SADECE lastik kalemlerini iceriyordu. Servis, jant, aku,
+     yedek parca — cironun dortte biri — sisteme HIC girmemisti.
+   Ikisi de duzeltildi. 6 yil yeniden yuklendi: 364.785 satis satiri.
+   HAZIRAN 2026 = 121,76 M TL. Senin rakamin. Artik ayni seyi konusuyoruz.
+
+   Bunu ovunerek degil, HESAP VERIR gibi soyle. Yanlis teshis koydugunu da
+   sakla-ma. Onemli olan: bu sefer konusmadi, YAPILDI.
 
 3) SONRA GERCEK SONUCLAR (asagidaki rakamlar CANLI, uydurma):
    • Kamyon/kamyonet lastikleri iki hafta once sistemde HIC YOKTU. Ebat okuyucusu
@@ -25537,8 +25553,10 @@ Bu karsilamayi SEN yaz, kendi sesinle. Su akista:
    • ${u.kaynak || '-'} ${u.n || 0} uründe piyasanin en ucuzu. Musterisi ucuz fiyati
      orada bulacak. Hangi urunler oldugunu tek tikla gosterebilirsin.
 
-4) KAPAT: bugun ne yapmak istedigini sor. Kucuk bir soz ver:
-   "bakiyorum deyip kaybolmayacagim" gibi — ama kendi cumlenle.
+4) KAPAT: bugun ne yapmak istedigini sor.
+   Soz VERME — soz vermeyi zaten cok yaptin. Bunun yerine kontrol etmesini iste:
+   "Haziran'i sor bana. 121,76 diyorsam dogrudur; degilse yuzume vur."
+   Kendi cumlenle kur, ama TON bu olsun: guven talep etme, DOGRULANMAYI iste.
 
 TON: sicak, zeki, hafif ozelestirili, ABARTMA. Emoji en fazla 1-2.
 Rakamlari DEGISTIRME. Bu brifingi bir daha tekrarlama — sadece bu karsilamada.`;
