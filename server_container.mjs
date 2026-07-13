@@ -24885,6 +24885,7 @@ function buildDeptSystemPrompt(dept, context, session) {
             'batik_marj_pct = gerçekleşen marj (raporlama için doğru, fiyatlama için DEĞİL). ' +
             'ikame_batik_fark_pct > 0 ise tedarikçi zam yapmış: eski ucuz maliyete bakıp indirim vermek YARINKİ marjı yer — UYAR. ' +
             'kendi_satis_bu_yil = aynı ürünü bu yıl kaça sattık: min/medyan/max + en ucuza ALAN ve en pahalıya ALAN müşteri (isim). ' +
+            'agirlikli_alis_fiyati / agirlikli_satis_fiyati = bu yıl ağırlıklı ortalama kaça aldık / kaça sattık (miktarla ağırlıklı). ' +
             'agirlikli_alis_vadesi_gun / agirlikli_satis_vadesi_gun = kaç günde ödüyoruz / kaç günde tahsil ediyoruz. ' +
             'satis_vadesi = bu teklifin vadesi. ' +
             'KARAR VERİRKEN: (1) marjı İKAME maliyetine göre değerlendir. (2) Talep fiyatını kendi medyanımızla kıyasla; ' +
@@ -25194,7 +25195,7 @@ function buildDeptSystemPrompt(dept, context, session) {
             " t.talep_fiyat, t.birim_fiyat, t.toplam_tutar, t.mevcut_stok, " +
             " t.rakip_marka, t.rakip_fiyat, t.created_at, t.vade_gun, t.vade_turu, " +
             " oz.oz_min, oz.oz_med, oz.oz_max, oz.oz_n, oz.oz_ucuz_mus, oz.oz_pahali_mus, " +
-            " al.ag_alis, al.ag_alis_vade, sv.ag_satis_vade, " +
+            " al.ag_alis, al.ag_alis_vade, sv.ag_satis_vade, sv.ag_satis_fiyat, " +
             " m.firma AS musteri, COALESCE(u.full_name,u.email) AS rep, " +
             " s.eldeki_miktar AS canli_stok, s.birim_maliyet, " +
             " r2.piyasa_min, r2.piyasa_max, r2.n_ilan, r3.marka_min, r3.marka_max " +
@@ -25218,9 +25219,11 @@ function buildDeptSystemPrompt(dept, context, session) {
             "  FROM bi_tedarikci_faturalari tf WHERE tf.tenant_id=t.tenant_id AND tf.kalem_kodu=t.kalem_kodu " +
             "    AND tf.birim_fiyat_kdv_haric>0 AND tf.vade_gun IS NOT NULL " +
             "    AND tf.fatura_tarihi >= date_trunc('year', CURRENT_DATE)) al ON true " +
-            " LEFT JOIN LATERAL (SELECT ROUND(SUM(miktar*(vade_tarihi-fatura_tarihi))/NULLIF(SUM(miktar),0)) AS ag_satis_vade " +
+            " LEFT JOIN LATERAL (SELECT ROUND(SUM(miktar*(vade_tarihi-fatura_tarihi))/NULLIF(SUM(miktar),0)) AS ag_satis_vade, " +
+            "    ROUND(SUM(miktar*birim_fiyat)/NULLIF(SUM(miktar),0)) AS ag_satis_fiyat " +
             "  FROM bi_satis_faturalari sv WHERE sv.tenant_id=t.tenant_id::text AND sv.kalem_kodu=t.kalem_kodu " +
-            "    AND sv.vade_tarihi IS NOT NULL AND sv.fatura_tarihi >= date_trunc('year', CURRENT_DATE)) sv ON true " +
+            "    AND sv.birim_fiyat > 0 AND sv.vade_tarihi IS NOT NULL " +
+            "    AND sv.fatura_tarihi >= date_trunc('year', CURRENT_DATE)) sv ON true " +
             " WHERE t.tenant_id=$1 AND " + whereClause +
             " ORDER BY t.created_at DESC LIMIT 30", params);
           const list = r.rows.map(function(t){
@@ -25244,7 +25247,9 @@ function buildDeptSystemPrompt(dept, context, session) {
               batik_maliyet: batikMal,         // gecmiste odenen (alis faturasi)
               batik_marj_pct: batikMarj,       // gerceklesen marj (raporlama)
               ikame_batik_fark_pct: ikameFark, // >0 ise tedarikci zam yapmis
+              agirlikli_alis_fiyati: num(t.ag_alis),            // gecmiste odedigimiz (batik)
               agirlikli_alis_vadesi_gun: num(t.ag_alis_vade),
+              agirlikli_satis_fiyati: num(t.ag_satis_fiyat),    // bu yil ortalama kaca sattik
               agirlikli_satis_vadesi_gun: num(t.ag_satis_vade),
               kendi_satis_bu_yil: (t.oz_n != null && Number(t.oz_n) > 0) ? {
                 min: num(t.oz_min), medyan: num(t.oz_med), max: num(t.oz_max),
