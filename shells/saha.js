@@ -6781,6 +6781,257 @@ function injectStyles() {
   const css = document.createElement("style");
   css.id = "saha-css";
   css.textContent = `
+/* DERIVE_TEMA_V2 */
+/* ══════════════════════════════════════════════════════════════════
+   DERIVE — TASARIM DILI v1
+   Tek token seti · iki tema · mobil-once · her iki shell (bi + saha)
+
+   ⚠ KURALLAR (ihlal edilirse tasarim dagilir):
+   1. TEMA CIHAZA BAGLI, MODULE DEGIL. Ayni kisi ayni gun ofiste koyu,
+      sahada acik kullanir. Modul temasi diye bir sey YOK.
+   2. Her ekran ONCE 340px'te kurulur, sonra genisler. Tersi = yeniden tasarim.
+   3. RAKAM = monospace + tabular-nums. HER YERDE. Sayilar birbirinin altinda
+      hizalanmali; degisken genislikli rakam karsilastirmayi imkansiz kilar.
+   4. TEK FONT AGIRLIGI (400). Vurgu renkle ve boslukla yapilir, kalinla degil.
+   5. GRADIENT / GOLGE / GLOW / BLUR YOK. Hicbiri. Zemin duz.
+   6. UC DURUM RENGI, iki temada AYNI ANLAM:
+        kirmizi = KARAR GEREKIYOR · sari = DIKKAT · yesil = NORMAL
+      ⚠ Kontrast degerleri temaya gore AYRI ayarlandi — koyu temanin kirmizisi
+        beyaz zeminde ciglik atar, okunmaz. Ayni hex KULLANILAMAZ.
+   7. DOKUNMA HEDEFI >= 44px. Fatih Bilen arabada, tek elle kullaniyor.
+   8. TABLO YOK (mobilde). Kart var. Tablo hucresi kaynagini soyleyemez, kart soyler.
+   ══════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── DEGISMEYENLER: tema ne olursa olsun sabit ── */
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+
+  --r-sm: 8px;  --r-md: 10px;  --r-lg: 14px;
+  --b: 0.5px;                       /* sac teli. 1px kalin durur. */
+  --dokunma: 44px;                  /* ⚠ minimum. Altina inme. */
+
+  --a1: 4px;  --a2: 8px;  --a3: 12px;  --a4: 16px;
+  --a5: 22px; --a6: 32px; --a7: 48px;
+
+  --hiz: 140ms;
+  --egri: cubic-bezier(.2,0,.2,1);
+
+  /* ── OLCEK: mobil taban. Masaustunde --ol-* buyur, hiyerarsi korunur. ── */
+  --ol-mini:  11px;
+  --ol-kucuk: 13px;
+  --ol-govde: 15px;                 /* ⚠ mobilde 14px altina inme, okunmaz */
+  --ol-orta:  20px;
+  --ol-buyuk: 26px;
+  --ol-dev:   34px;                 /* tek hayati sayi (EVA) */
+}
+
+/* ══ KOYU TEMA (varsayilan: ofis, masaustu, aksam) ══ */
+:root,
+[data-tema="koyu"] {
+  --zemin-0: #0A0A0B;               /* sayfa */
+  --zemin-1: #0F0F11;               /* kart */
+  --zemin-2: #15161A;               /* kart uzeri */
+  --cizgi:   rgba(255,255,255,.07);
+  --cizgi-g: rgba(255,255,255,.14); /* guclu */
+
+  --tx-0: #F5F5F7;                  /* ana */
+  --tx-1: #8A8A8F;                  /* ikincil */
+  --tx-2: #6E6E76;                  /* ipucu */
+  --tx-3: #4A4A50;                  /* zaman damgasi, en sessiz */
+
+  --kirmizi:    #FF6B5A;
+  --kirmizi-z:  #15100F;            /* zemin tonu */
+  --sari:       #F5B950;
+  --sari-z:     #14110A;
+  --yesil:      #3ECF8E;
+  --yesil-z:    #0A1410;
+}
+
+/* ══ ACIK TEMA (saha, gunes altinda, telefon) ══
+   ⚠ Renkler KOYULASTIRILDI. Koyu temanin #FF6B5A'si beyazda okunmaz. */
+[data-tema="acik"] {
+  --zemin-0: #FBFBFA;
+  --zemin-1: #FFFFFF;
+  --zemin-2: #F4F4F2;
+  --cizgi:   rgba(0,0,0,.09);
+  --cizgi-g: rgba(0,0,0,.18);
+
+  --tx-0: #16161A;
+  --tx-1: #5F5F66;
+  --tx-2: #85858C;
+  --tx-3: #A8A8AE;
+
+  --kirmizi:    #C43D28;            /* koyu temada #FF6B5A idi */
+  --kirmizi-z:  #FDF0ED;
+  --sari:       #8A5D06;            /* sari beyazda okunmaz -> kehribar */
+  --sari-z:     #FEF6E7;
+  --yesil:      #106B4A;
+  --yesil-z:    #EAF7F1;
+}
+
+/* Cihaz koyu istiyorsa ve kullanici ezmemisse: koyu. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-tema]) {
+    --zemin-0:#FBFBFA; --zemin-1:#FFFFFF; --zemin-2:#F4F4F2;
+    --cizgi:rgba(0,0,0,.09); --cizgi-g:rgba(0,0,0,.18);
+    --tx-0:#16161A; --tx-1:#5F5F66; --tx-2:#85858C; --tx-3:#A8A8AE;
+    --kirmizi:#C43D28; --kirmizi-z:#FDF0ED;
+    --sari:#8A5D06;    --sari-z:#FEF6E7;
+    --yesil:#106B4A;   --yesil-z:#EAF7F1;
+  }
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+body {
+  margin: 0;
+  background: var(--zemin-0);
+  color: var(--tx-0);
+  font-family: var(--sans);
+  font-size: var(--ol-govde);
+  font-weight: 400;                 /* ⚠ TEK AGIRLIK. 600/700 YOK. */
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── RAKAM ──────────────────────────────────────────────
+   ⚠ Her sayi bunu alir. Istisna yok.                    */
+.n {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.n-dev   { font-size: var(--ol-dev);   line-height: 1.1; }
+.n-buyuk { font-size: var(--ol-buyuk); line-height: 1.15; }
+.n-orta  { font-size: var(--ol-orta);  line-height: 1.2; }
+
+.d-kirmizi { color: var(--kirmizi); }
+.d-sari    { color: var(--sari); }
+.d-yesil   { color: var(--yesil); }
+
+/* ── ETIKET ── */
+.etiket {
+  font-size: var(--ol-mini);
+  letter-spacing: .07em;
+  color: var(--tx-2);
+  text-transform: uppercase;
+}
+
+/* ── KART: tablonun yerini alan sey ──────────────────────
+   ⚠ Mobilde tablo YOK. Her satir bir kart.               */
+.kart {
+  background: var(--zemin-1);
+  border: var(--b) solid var(--cizgi);
+  border-radius: var(--r-md);
+  padding: var(--a3) var(--a4);
+}
+.kart-karar   { border-left: 2px solid var(--kirmizi); border-radius: 0 var(--r-md) var(--r-md) 0; }
+.kart-dikkat  { border-left: 2px solid var(--sari);    border-radius: 0 var(--r-md) var(--r-md) 0; }
+.kart-normal  { border-left: 2px solid var(--yesil);   border-radius: 0 var(--r-md) var(--r-md) 0; }
+
+/* kart icinde rakam satiri: etiket solda, sayi sagda, alt alta hizali */
+.satir {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: var(--a3);
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+  font-size: var(--ol-kucuk);
+  padding: 3px 0;
+}
+.satir > span:first-child { color: var(--tx-1); font-family: var(--sans); }
+
+/* ── DOKUNMA NOKTASI ────────────────────────────────────
+   ⚠ Her sayi tiklanabilir. Kaynagini + guvenini soyler,
+     geri bildirim alir. Tablo hucresi bunu yapamaz.       */
+.dn {
+  cursor: pointer;
+  border-bottom: 1px dotted var(--cizgi-g);
+  transition: border-color var(--hiz) var(--egri);
+}
+.dn:hover, .dn:active { border-bottom-color: var(--tx-1); }
+
+/* ── DUGME: >= 44px. Tek elle, arabada, eldivenle. ── */
+.dg {
+  min-height: var(--dokunma);
+  padding: 0 var(--a4);
+  background: none;
+  border: var(--b) solid var(--cizgi-g);
+  border-radius: var(--r-sm);
+  color: var(--tx-0);
+  font-family: var(--sans);
+  font-size: var(--ol-govde);
+  font-weight: 400;
+  cursor: pointer;
+  transition: background var(--hiz) var(--egri);
+}
+.dg:active { background: var(--zemin-2); transform: scale(.985); }
+.dg-sessiz { color: var(--tx-1); border-color: var(--cizgi); }
+
+/* ── ASISTAN SERIDI: alta sabit, basparmak bolgesi ── */
+.as {
+  position: sticky; bottom: 0; z-index: 20;
+  background: var(--zemin-0);
+  border-top: var(--b) solid var(--cizgi);
+  padding: var(--a2) var(--a4) calc(var(--a3) + env(safe-area-inset-bottom));
+}
+.as-kutu {
+  display: flex; align-items: center; gap: var(--a2);
+  min-height: var(--dokunma);
+  padding: 0 var(--a3);
+  background: var(--zemin-1);
+  border: var(--b) solid var(--cizgi-g);
+  border-radius: var(--r-md);
+}
+.as-kutu input {
+  flex: 1; min-width: 0;
+  background: none; border: none; outline: none;
+  color: var(--tx-0);
+  font-family: var(--sans);
+  font-size: 16px;                  /* ⚠ iOS 16px altinda ZOOM yapar. Dokunma. */
+}
+
+/* ── SEKME SERIDI (mobil): alt, 5 sekme, ikon + etiket ── */
+.sekmeler { display: flex; justify-content: space-around; padding-top: var(--a2); }
+.sekme {
+  flex: 1; min-height: var(--dokunma);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px;
+  color: var(--tx-3);
+  font-size: 10px;
+  cursor: pointer;
+}
+.sekme.aktif { color: var(--tx-0); }
+
+/* ── "MASAUSTU GEREKIR" bildirimi ────────────────────────
+   ⚠ Ozur dilemez, gizlemez. Telefonun isi KARAR,
+     masaustunun isi KESIF.                                */
+.mu-gerek {
+  padding: var(--a3) var(--a4);
+  background: var(--zemin-2);
+  border: var(--b) dashed var(--cizgi-g);
+  border-radius: var(--r-md);
+  color: var(--tx-1);
+  font-size: var(--ol-kucuk);
+  line-height: 1.5;
+}
+
+/* ── MASAUSTU: genisle. Hiyerarsi AYNI kalir. ── */
+@media (min-width: 900px) {
+  :root {
+    --ol-govde: 15px;
+    --ol-orta:  22px;
+    --ol-buyuk: 28px;
+    --ol-dev:   42px;
+  }
+  .as { position: sticky; }
+  .sekmeler { display: none; }      /* masaustunde yan menu */
+}
+
+/* ⚠ HAREKET AZALTMA: erisilebilirlik, tercih degil. */
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
   .saha-app{width:100%;max-width:100%;height:100%;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#0f172a;display:flex;flex-direction:column;overflow:hidden}
   .saha-head{flex-shrink:0;z-index:20;background:#0f172a;color:#fff;padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .saha-title{font-size:17px}.saha-title b{color:#38bdf8}
