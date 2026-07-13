@@ -23610,7 +23610,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
             SELECT DISTINCT ON (bi_sku_norm(kalem_kodu))
                    bi_sku_norm(kalem_kodu) AS sku, birim_fiyat_kdv_haric AS fiyat
               FROM bi_tedarikci_faturalari
-             WHERE tenant_id=$1::uuid AND miktar>0 AND birim_fiyat_kdv_haric>0
+             WHERE tenant_id=$2::uuid AND miktar>0 AND birim_fiyat_kdv_haric>0
              ORDER BY 1, fatura_tarihi DESC),
           stok AS (
             SELECT COALESCE(sum(st.adet*sa.fiyat),0)           AS deger,
@@ -23619,14 +23619,14 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
                    COALESCE(sum(st.adet),0)                     AS adet
               FROM bi_stok_anlik st
               LEFT JOIN sa ON sa.sku=bi_sku_norm(st.kalem_kodu)
-             WHERE st.tenant_id=$1::uuid AND st.adet>0),
+             WHERE st.tenant_id=$2::uuid AND st.adet>0),
           alacak AS (
             SELECT COALESCE(sum(toplam_risk),0)    AS risk,
                    COALESCE(sum(vadesi_gecmis),0)  AS gecikmis,
                    count(*) FILTER (WHERE vadesi_gecmis>0)  AS gecikmis_musteri,
                    count(*) FILTER (WHERE limit_asimi>0)    AS limit_asan
               FROM bi_musteri_risk
-             WHERE tenant_id=$1::uuid AND COALESCE(musteri_mi,true)),
+             WHERE tenant_id=$2::uuid AND COALESCE(musteri_mi,true)),
           ciro AS (
             SELECT COALESCE(sum(satir_tutar),0)/365.0 AS gunluk
               FROM bi_satis_faturalari
@@ -23640,15 +23640,15 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
                  -- ⚠ GERCEK DSO: tahsil EDILMEYENI de icerir. Tablo 26,9 diyordu; yalan.
                  ROUND(a.risk   / NULLIF(c.gunluk,0))                AS dso_gun,
                  ROUND((s.deger + a.risk) * 0.40)                    AS sermaye_yuku
-            FROM stok s, alacak a, ciro c`, [T]),
+            FROM stok s, alacak a, ciro c`, [T, T]),
 
         // 2) ⚠ KOR NOKTA — SADECE bayilik markalarinda anlamli.
         //    Net-fiyat markalarinin maliyeti son alistir ve DOGRUDUR.
         query(`
           WITH isk AS (SELECT DISTINCT upper(marka) marka, sezon
-                         FROM bi_fiyat_iskonto WHERE tenant_id=$1::uuid AND aktif),
+                         FROM bi_fiyat_iskonto WHERE tenant_id=$2::uuid AND aktif),
                lst AS (SELECT DISTINCT upper(marka) marka, kategori
-                         FROM bi_fiyat_listesi_uploads WHERE tenant_id=$1::uuid AND aktif),
+                         FROM bi_fiyat_listesi_uploads WHERE tenant_id=$2::uuid AND aktif),
                s AS (SELECT f.kategori, upper(f.marka) AS marka, sum(f.satir_tutar) AS ciro
                        FROM bi_satis_faturalari f
                       WHERE f.tenant_id=$1::text AND f.miktar>0 AND f.ebat IS NOT NULL
@@ -23664,7 +23664,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
             FROM s
             LEFT JOIN isk i ON i.marka=s.marka AND i.sezon=s.kategori
             LEFT JOIN lst l ON l.marka=s.marka AND l.kategori=s.kategori
-           GROUP BY 1 ORDER BY 2 DESC`, [T]),
+           GROUP BY 1 ORDER BY 2 DESC`, [T, T]),
 
         // 3) KARAR KUYRUGU — ⚠ planli odemeler HARIC, susturulmus HARIC
         query(`
@@ -23737,7 +23737,10 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
         bilgi    : odemeler.rows[0] || {},
         vardiya  : vardiya.rows
       });
-    } catch(e) { sendJson(response, 500, { error: e.message }); }
+    } catch(e) {
+      console.error('[/api/bi/ana] HATA:', e);   // ⚠ artik logda gorunecek
+      sendJson(response, 500, { error: e.message, stack: String(e.stack||'').split('\n').slice(0,3).join(' | ') });
+    }
   }
 
 

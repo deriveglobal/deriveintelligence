@@ -238,8 +238,10 @@ export function initBiSurface(container, me, sub, callbacks) {
     let d;
     try {
       const r = await fetch('/api/bi/ana', { credentials: 'same-origin' });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      d = await r.json();
+      const _txt = await r.text();
+      // ⚠ HATA MESAJINI ATMA. Onceki halim 'HTTP 500' deyip govdeyi cope atiyordu.
+      try { d = JSON.parse(_txt); } catch (_) { throw new Error('HTTP ' + r.status + ' — ' + _txt.slice(0,200)); }
+      if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
       if (d.error) throw new Error(d.error);
     } catch (e) {
       // ⚠ HATA GIZLENMIYOR. Bos ekran, "bir seyler ters gitti"den beterdir.
