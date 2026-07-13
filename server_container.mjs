@@ -23764,6 +23764,171 @@ if (request.method === "GET" && url.pathname === "/api/bi/pricing/ccc") {
   return;
 }
 
+
+// ONSIPARIS_V1 ═══════════════════════════════════════════════════════════
+// GET /api/bi/sezon/onsiparis?sezon=KIS&senaryo=baz
+//   senaryo: temkinli(25000) | baz(32000) | iyimser(40000) | <sayi>
+if (request.method === "GET" && url.pathname === "/api/bi/sezon/onsiparis") {
+  try {
+    const session = await requireModuleAccess(request, "intelligence");
+    if (!session.tenantId) { sendJson(response, 200, {}); return; }
+
+    const sezon = (url.searchParams.get("sezon") || "KIS").toUpperCase();
+    const sen   = (url.searchParams.get("senaryo") || "baz").toLowerCase();
+    const SENARYO = { temkinli: 25000, baz: 32000, iyimser: 40000 };
+    const hedefToplam = SENARYO[sen] || parseInt(sen) || SENARYO.baz;
+
+    // ── Sezon penceresi
+    const bugun = new Date();
+    const ay = bugun.getMonth() + 1;
+    const pencere = (sezon === "KIS")
+      ? { aylar: [6, 7], ad: "Haziran–Temmuz", hedef_sezon: "Ekim–Ocak" }
+      : { aylar: [11, 12], ad: "Kasım–Aralık", hedef_sezon: "Mart–Haziran" };
+    const acik = pencere.aylar.indexOf(ay) >= 0;
+    const kapanis = new Date(bugun.getFullYear(), pencere.aylar[pencere.aylar.length - 1], 0);
+    const gunKaldi = Math.max(0, Math.round((kapanis - bugun) / 86400000));
+
+    const KAT = sezon === "KIS" ? "%KIS%" : (sezon === "YAZ" ? "%YAZ%" : "%4 MEVSIM%");
+
+    // ── EBAT bazinda KATEGORI talebi (TUM markalar) + mevcut stok
+    //    ⚠ marka gecmisine DEGIL, kategori toplamina bakiyoruz. Sebep yukarida.
+    const r = await query(`
+      WITH son_maliyet AS (
+        SELECT DISTINCT ON (kalem_kodu) kalem_kodu, birim_fiyat_kdv_haric AS maliyet
+          FROM bi_tedarikci_faturalari
+         WHERE tenant_id = $1::uuid AND birim_fiyat_kdv_haric > 0 AND miktar > 0
+         ORDER BY kalem_kodu, fatura_tarihi DESC
+      ),
+      -- BAYILI DONEM (2021-22 + 2022-23): talebin GERCEK potansiyeli
+      bayili AS (
+        SELECT ebat, SUM(miktar) / 2.0 AS sezon_ort
+          FROM bi_satis_faturalari
+         WHERE tenant_id = $1::text AND grup_adi LIKE 'LASTIK%' AND miktar > 0
+           AND kategori ILIKE $2 AND ebat <> ''
+           AND ((fatura_tarihi >= DATE '2021-10-01' AND fatura_tarihi < DATE '2022-02-01')
+             OR (fatura_tarihi >= DATE '2022-10-01' AND fatura_tarihi < DATE '2023-02-01'))
+         GROUP BY 1
+      ),
+      -- SON SEZON: guncel musteri profili
+      guncel AS (
+        SELECT ebat, SUM(miktar) AS sezon_adet
+          FROM bi_satis_faturalari
+         WHERE tenant_id = $1::text AND grup_adi LIKE 'LASTIK%' AND miktar > 0
+           AND kategori ILIKE $2 AND ebat <> ''
+           AND fatura_tarihi >= DATE '2025-10-01' AND fatura_tarihi < DATE '2026-02-01'
+         GROUP BY 1
+      ),
+      -- HARMAN: bayili donem %60 (potansiyel) + son sezon %40 (guncel profil)
+      --   ⚠ Bu bir AGIRLIKLANDIRMA KARARIDIR, veri degil. Ekranda yaziyor.
+      harman AS (
+        SELECT COALESCE(b.ebat, g.ebat) AS ebat,
+               COALESCE(b.sezon_ort, 0) * 0.6 + COALESCE(g.sezon_adet, 0) * 0.4 AS agirlik
+          FROM bayili b FULL JOIN guncel g ON g.ebat = b.ebat
+      ),
+      pay AS (
+        SELECT ebat, agirlik, agirlik / NULLIF(SUM(agirlik) OVER (), 0) AS oran
+          FROM harman WHERE agirlik > 0
+      ),
+      stok AS (
+        SELECT s.ebat_norm AS ebat, SUM(s.adet) AS mevcut,
+               SUM(s.adet * m.maliyet) / NULLIF(SUM(s.adet), 0) AS birim_maliyet
+          FROM (
+            SELECT COALESCE(NULLIF(regexp_replace(kalem_tanimi, '^([0-9]+[/.][0-9]*[A-Z]*R?[0-9.]+C?).*$', '\\1'), kalem_tanimi), '') AS ebat_norm,
+                   kalem_kodu, adet
+              FROM bi_stok_anlik
+             WHERE tenant_id = $1::uuid AND adet > 0 AND sezon ILIKE $2
+               AND export_date = (SELECT MAX(export_date) FROM bi_stok_anlik WHERE tenant_id = $1::uuid)
+          ) s JOIN son_maliyet m ON m.kalem_kodu = s.kalem_kodu
+         GROUP BY 1
+      )
+      SELECT p.ebat,
+             ROUND(p.oran * 100, 2)                     AS talep_pay_pct,
+             ROUND($3 * p.oran)                         AS hedef_adet,
+             COALESCE(ROUND(st.mevcut), 0)              AS mevcut_stok,
+             GREATEST(ROUND($3 * p.oran) - COALESCE(st.mevcut, 0), 0) AS eksik_adet,
+             ROUND(COALESCE(st.birim_maliyet, 0))       AS birim_maliyet,
+             ROUND(GREATEST(ROUND($3 * p.oran) - COALESCE(st.mevcut, 0), 0)
+                   * COALESCE(st.birim_maliyet, 0))     AS tutar
+        FROM pay p LEFT JOIN stok st ON st.ebat = p.ebat
+       WHERE p.oran > 0.001
+       ORDER BY p.oran DESC
+       LIMIT 60`,
+      [session.tenantId, KAT, hedefToplam]);
+
+    const kalem = r.rows.map(x => ({
+      ebat: x.ebat,
+      talep_pay_pct: Number(x.talep_pay_pct),
+      hedef: Number(x.hedef_adet),
+      mevcut: Number(x.mevcut_stok),
+      eksik: Number(x.eksik_adet),
+      birim_maliyet: Number(x.birim_maliyet),
+      tutar: Number(x.tutar),
+      durum: Number(x.mevcut_stok) === 0 ? "yok"
+           : Number(x.mevcut_stok) < Number(x.hedef_adet) * 0.3 ? "kritik"
+           : Number(x.mevcut_stok) < Number(x.hedef_adet) * 0.7 ? "eksik" : "yeterli"
+    }));
+
+    // ── Tesvik: kesin siparis primi tanimli mi?
+    const t = await query(`
+      SELECT marka, kesin_siparis_pct, max_toplam_pct, odeme_vadesi_gun, fatura_kuru
+        FROM bi_tedarikci_tesvik
+       WHERE tenant_id = $1::uuid AND yil = EXTRACT(YEAR FROM CURRENT_DATE)::int
+       ORDER BY marka`, [session.tenantId]);
+    const tesvikVar = t.rows.some(x => Number(x.kesin_siparis_pct) > 0);
+
+    const toplamEksik = kalem.reduce((a, k) => a + k.eksik, 0);
+    const toplamTutar = kalem.reduce((a, k) => a + k.tutar, 0);
+    const toplamMevcut = kalem.reduce((a, k) => a + k.mevcut, 0);
+
+    sendJson(response, 200, {
+      sezon: sezon,
+      pencere: { acik: acik, ad: pencere.ad, hedef_sezon: pencere.hedef_sezon, gun_kaldi: gunKaldi },
+      senaryo: { secilen: sen, hedef_toplam: hedefToplam,
+        secenekler: [
+          { ad: "temkinli", adet: 25000, aciklama: "Brisa kısmi geri dönüş. Toplam kış 19K→25K." },
+          { ad: "baz",      adet: 32000, aciklama: "2021-22 bayili dönemin %80'i. Nis-Tem hızı bunu destekliyor." },
+          { ad: "iyimser",  adet: 40000, aciklama: "2022-23 seviyesine tam dönüş (40.807)." }
+        ],
+        // ⚠ SENARYO SECIMI BIR IS KARARIDIR — model dayatmaz.
+        uyari: "Senaryo seçimi Fatih Bilen'in kararıdır. Model üç seçeneğin adet ve TL karşılığını gösterir; birini dayatmaz."
+      },
+      ozet: {
+        hedef_toplam: hedefToplam,
+        mevcut_stok: toplamMevcut,
+        eksik_adet: toplamEksik,
+        tahmini_tutar: toplamTutar,
+        karsilama_pct: Math.round(100 * toplamMevcut / Math.max(hedefToplam, 1))
+      },
+      esik: {
+        finansman_maliyeti_pct: 7.1,
+        aciklama: "Brisa taksit takvimi: Tem/Ağu/Eyl faturası → 18 Kas + 16 Ara. " +
+                  "Eki/Kas/Ara faturası → 22 Oca + 22 Şub. Fark 65 gün. %40/yıl sermaye → %7,1. " +
+                  "⚠ Ödeme tarihleri takvime çakılı: Temmuz'da mal alsan bile Kasım'a kadar para çıkmıyor. " +
+                  "Stoğu tedarikçi finanse ediyor. Tek maliyet 65 gün erken ödeme.",
+        kesin_siparis_tanimli: tesvikVar,
+        karar: tesvikVar
+          ? "Kesin sipariş primi > %7,1 olan markalarda ERKEN AL."
+          : "⚠ kesin_siparis_pct HİÇBİR MARKADA TANIMLI DEĞİL (hepsi 0.00). " +
+            "Bu alan doldurulmadan 'erken al / bekle' kararı verilemez. " +
+            "Ama stok potansiyelin %" + Math.round(100 * toplamMevcut / Math.max(hedefToplam, 1)) +
+            "'i — tükenme riski primden ağır basıyor.",
+        tesvikler: t.rows
+      },
+      temel: {
+        yontem: "Talep tahmini MARKA geçmişine DEĞİL, KATEGORİ toplamına dayanır.",
+        neden: "KRB 3 yıl Brisa bayisi değildi (Nisan 2026'da döndü). LASSA 2024'te 899 adet sattı — " +
+               "bayi olmadığı için. O sayıyı taban alsak sıfıra yakın sipariş önerirdik.",
+        olculen: "Kış sezonları (Eki-Oca): 2021-22: 38.020 · 2022-23: 40.807 · 2023-24: 29.253 · " +
+                 "2024-25: 19.163 · 2025-26: 18.674. Brisa kaybı kış hacminin yarısından fazlasını götürdü.",
+        agirlik: "Ebat dağılımı: bayili dönem %60 (potansiyel) + son sezon %40 (güncel profil). " +
+                 "⚠ Bu bir ağırlıklandırma KARARIDIR, ölçüm değil."
+      },
+      kalemler: kalem
+    });
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
 // GET /api/bi/pricing/kpis
 if (request.method === "GET" && url.pathname === "/api/bi/pricing/kpis") {
   try {
