@@ -2381,6 +2381,53 @@ function _marjHTML(k) {
   return `Liste: <b>${tl(k.liste_fiyati)}</b>${iskStr} · Net maliyet: <b>${tl(k.net_maliyet)}</b> · Marj: <b style="color:${marjColor}">${k.marj_pct != null ? "%" + k.marj_pct : "—"}</b>${karStr}`;
 }
 
+// SEZON_UI_V1 ─────────────────────────────────────────────────────────
+// Ikame maliyeti = liste - tesvik. Hangi tesvik kademesi uygulandi?
+// Tesvik yoksa marj UYDURMUYORUZ — "tanimli degil" diyoruz.
+function _tesvikHTML(k) {
+  const t = k.tesvik;
+  if (!t) return "";
+  const SEZ = { KIS: "Kış", YAZ: "Yaz", "4MEVSIM": "4 Mevsim", TUM: "Tüm sezon" };
+  const ARC = { BINEK: "Binek", SUV: "SUV", HAFIF_TICARI: "Hafif Ticari",
+                KAMYON: "Kamyon/TBR", OTOBUS: "Otobüs", IS_MAKINESI: "İş Makinesi", TUM: "Tüm araçlar" };
+  const urun = (SEZ[t.sezon] || t.sezon || "—") + " · " + (ARC[t.arac_tipi] || t.arac_tipi || "—");
+
+  if (!t.tanimli) {
+    return `
+      <div style="margin-top:5px;padding:5px 7px;background:#fef2f2;border-radius:5px;border-left:3px solid #dc2626">
+        <div style="font-size:11px;color:#991b1b;font-weight:700">⚠ Bu ürün için teşvik tanımlı değil</div>
+        <div style="font-size:11px;color:#7f1d1d;margin-top:2px">
+          Aranan: <b>${esc(urun)}</b> · ${esc(k.marka || "")}<br>
+          Teşvik oranı bilinmediği için <b>ikame maliyeti ve marj hesaplanamıyor</b>.
+          Yanlış bir oran uydurmuyoruz — karar verirken kendi satış aralığımıza ve
+          gerçekleşen alış maliyetine bakın.
+        </div>
+      </div>`;
+  }
+
+  // Tam eslesme degilse, hangi kademeye dusuldugunu SOYLE.
+  const kademeNot = {
+    tam_eslesme: null,
+    sezon_genel: "Bu sezona özel teşvik yok; aynı araç tipinin genel oranı kullanıldı.",
+    arac_genel:  "Bu araç tipine özel teşvik yok; aynı sezonun genel oranı kullanıldı.",
+    genel:       "Ne sezona ne araç tipine özel teşvik var; markanın genel oranı kullanıldı."
+  }[t.kademe];
+
+  const es = t.eslesen || {};
+  const eslesenStr = (SEZ[es.sezon] || es.sezon || "?") + " · " + (ARC[es.arac_tipi] || es.arac_tipi || "?");
+  const tam = t.kademe === "tam_eslesme";
+
+  return `
+    <div style="margin-top:5px;padding:5px 7px;background:${tam ? "#f0fdf4" : "#fffbeb"};border-radius:5px;border-left:3px solid ${tam ? "#16a34a" : "#f59e0b"}">
+      <div style="font-size:11px;color:${tam ? "#15803d" : "#b45309"};font-weight:700">
+        ${tam ? "✅" : "⚠"} Teşvik: ${esc(eslesenStr)}${k.iskonto_pct != null ? ` · <b>%${k.iskonto_pct}</b> indirim` : ""}
+      </div>
+      <div style="font-size:11px;color:#64748b;margin-top:2px">
+        Ürün: ${esc(urun)}${kademeNot ? `<br><span style="color:#b45309">${esc(kademeNot)}</span>` : ""}
+      </div>
+    </div>`;
+}
+
 // AYKIRI_UI_V1 ────────────────────────────────────────────────────────
 // Araliktan cikarilan satislari GOSTER. Gizlemiyoruz — tiklayinca aciliyor.
 // Aykiri kayitlari kalem bazinda saklariz; DOM'a JSON gommekten kacinmak icin.
@@ -2557,6 +2604,7 @@ function _teklifAnalizHTML(az) {
         ${hasRival
           ? `<div style="margin-top:3px;color:#475569">${et ? `Piyasa (e-ticaret): <b>${et}</b>${k.eticaret.ilan ? ` <span style="color:#94a3b8">(${k.eticaret.ilan} ilan)</span>` : ""}<br>` : ""}${ma ? `Marka aralığı: <b>${ma}</b><br>` : ""}${(sa && sa.adet) ? `Saha teklifleri: <b>${aralik(sa)}</b> <span style="color:#94a3b8">(ort ${tl(sa.ortalama)}, ${sa.adet} kayıt${sa.son_tarih ? `, son ${new Date(sa.son_tarih).toLocaleDateString("tr-TR")}` : ""})</span>` : ""}</div>`
           : `<div style="margin-top:3px;color:#94a3b8;font-style:italic">Piyasa/e-ticaret verisi yok.</div>`}
+        ${_tesvikHTML(k)}
         ${_kendiSatisHTML(k)}
         ${_vadeMaliyetHTML(k)}
       </div>`;
