@@ -27971,25 +27971,37 @@ async function handleSahaApi(request, response, url, deps) {
             _netMaliyet = _iskPct != null ? Math.round(_liste * (1 - _iskPct / 100) * 100) / 100 : null;
           }
         } catch (e) { console.error("analiz pricelist:", e && e.message); }
-        // ── BAYILIK_V1: hangi tedarik modeli? ────────────────────────────
-        let _tedarik = null, _sonAlis = null;
+        // ── BAYILIK_V2: ikame maliyeti KADEME SIRASI ─────────────────────
+        let _tedarik = null, _sonAlis = null, _ikameKaynak = "yok";
         try {
           _tedarik = (await _bayilikMi(pool, session.tenantId, k.marka)) ? "bayilik" : "net_alim";
-          if (_tedarik === "net_alim") {
-            // Tesvik ARAMIYORUZ -- bu markada tesvik KAVRAMI yok.
-            _iskPct = null; _tesvik_kademe = null; _tesvik_eslesen = null;
+
+          if (_tedarik === "bayilik" && _iskPct != null && _netMaliyet != null) {
+            // KADEME 1 — tesvik satiri VAR. liste x (1-tesvik). EN GUNCEL TEMEL.
+            _ikameKaynak = "liste_tesvik";
+          } else {
+            // KADEME 2/3 — SON ALIS FATURASI.
+            //   Net alim markasinda: dogru temel, tesvik kavrami zaten yok.
+            //   Bayilik markasinda : tesvik tablosu eksik AMA alis faturasindaki
+            //     fiyat tesvikleri ZATEN ICINDE TASIYOR (Brisa'ya odenen net fiyat
+            //     = liste - tesvik). Yani maliyeti BILIYORUZ; sadece biraz bayat.
+            //     Bunu ekranda ACIKCA soyluyoruz -- gizlemiyoruz.
+            if (_tedarik === "net_alim") { _iskPct = null; _tesvik_kademe = null; _tesvik_eslesen = null; }
             _sonAlis = await _sonAlisFiyati(pool, session.tenantId, k.kalem_kodu);
             if (_sonAlis) {
-              _netMaliyet = _sonAlis.fiyat;          // IKAME = son net alis
-              _fiyatDurumu = "net_alim";
+              _netMaliyet = _sonAlis.fiyat;
+              _ikameKaynak = "son_alis";
+              _fiyatDurumu = (_tedarik === "bayilik") ? "bayilik_son_alis" : "net_alim";
             } else {
+              // KADEME 4 — bu kalemi HIC ALMAMISIZ. Maliyet BILINMIYOR.
+              //   Liste fiyatini maliyet saymak marji oldugundan DUSUK gosterir
+              //   -> yanlis red kararlari. UYDURMUYORUZ.
               _netMaliyet = null;
-              _fiyatDurumu = "alis_yok";             // bu urunu HIC almamisiz
+              _ikameKaynak = "yok";
+              _fiyatDurumu = "alis_yok";
             }
           }
-          // bayilik ise: _netMaliyet yukarida liste x (1-tesvik) ile hesaplandi.
-          // Tesvik satiri yoksa null kalir -> ekran "eksik tesvik" der. DOGRU.
-        } catch (e) { console.error("[bayilik_v1] analiz:", e && e.message); }
+        } catch (e) { console.error("[bayilik_v2] analiz:", e && e.message); }
 
         const marj = (talep && _netMaliyet) ? Math.round((talep - _netMaliyet) / talep * 1000) / 10 : null;
         const _karAdet = (talep != null && _netMaliyet != null) ? Math.round(talep - _netMaliyet) : null;
@@ -28124,8 +28136,9 @@ async function handleSahaApi(request, response, url, deps) {
             kademe: _tesvik_kademe,           // tam_eslesme | sezon_genel | arac_genel | genel
             eslesen: _tesvik_eslesen,         // tabloda GERCEKTEN bulunan satir
             tanimli: _fiyatDurumu !== "tesvik_tanimsiz",
-            // BAYILIK_V1
+            // BAYILIK_V1 / V2
             tedarik: _tedarik,                // 'bayilik' | 'net_alim'
+            ikame_kaynak: _ikameKaynak,       // 'liste_tesvik' | 'son_alis' | 'yok'
             net_alim: _sonAlis                // son alis: fiyat/tarih/tedarikci/gun_once/bayat
           } });
       }

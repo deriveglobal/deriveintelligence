@@ -2422,17 +2422,40 @@ function _tesvikHTML(k) {
       </div>`;
   }
 
-  // ── BAYILIK markasi ama tesvik satiri YOK -> GERCEK BOSLUK ────────────
-  if (!t.tanimli) {
+  // ── BAYILIK_UI_V2: bayilik markasi, tesvik tablosu EKSIK, ama son alis VAR
+  //   ⚠ Alis faturasindaki fiyat TESVIKLERI ZATEN ICINDE TASIR (Brisa'ya odenen
+  //     net fiyat = liste - tesvik). Yani maliyet BILINIYOR; sadece biraz bayat.
+  //     Marji gosteriyoruz AMA hangi temele bakildigini SOYLUYORUZ.
+  if (t.tedarik === "bayilik" && t.ikame_kaynak === "son_alis" && t.net_alim) {
+    const n = t.net_alim;
+    const tar = String(n.tarih || "").slice(0, 10).split("-").reverse().join(".");
+    return `
+      <div style="margin-top:5px;padding:5px 7px;background:#fffbeb;border-radius:5px;border-left:3px solid #f59e0b">
+        <div style="font-size:11px;color:#b45309;font-weight:700">
+          ⚠ Teşvik tablosu eksik — son alış fiyatı kullanıldı: <b>₺${Number(n.fiyat).toLocaleString("tr-TR")}</b>
+        </div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px">
+          ${esc(k.marka || "")} · <b>${esc(urun)}</b> teşviki sisteme yüklenmemiş.<br>
+          Alış faturasındaki fiyat <b>teşvikleri zaten içinde taşır</b> (bayiye kesilen
+          net fiyat = liste − teşvik), o yüzden maliyeti biliyoruz. Kaynak:
+          ${esc(tar)} · ${n.gun_once} gün önce${n.tedarikci ? " · " + esc(n.tedarikci) : ""}.
+          ${n.bayat ? `<br><span style="color:#b45309">Bu fiyat ${n.gun_once} günlük — zam gelmişse marj olduğundan yüksek görünür.</span>` : ""}
+          <br>Teşvik tablosu yüklenirse hesap otomatik olarak liste−teşvike geçer.
+        </div>
+      </div>`;
+  }
+
+  // ── Maliyet HIC BILINMIYOR -> marj gosterme, sebebini soyle ───────────
+  if (t.ikame_kaynak === "yok" || !t.tanimli) {
     return `
       <div style="margin-top:5px;padding:5px 7px;background:#fef2f2;border-radius:5px;border-left:3px solid #dc2626">
-        <div style="font-size:11px;color:#991b1b;font-weight:700">⚠ Teşvik tablosu eksik — ${esc(k.marka || "")}</div>
+        <div style="font-size:11px;color:#991b1b;font-weight:700">⚠ Maliyet bilinmiyor — ${esc(k.marka || "")}</div>
         <div style="font-size:11px;color:#7f1d1d;margin-top:2px">
-          ${esc(k.marka || "")} bayilik markamız, yani <b>teşvik olması gerekiyor</b> —
-          ama <b>${esc(urun)}</b> için sisteme yüklenmemiş.<br>
-          Teşvik oranı bilinmediği için <b>ikame maliyeti ve marj hesaplanamıyor</b>.
-          Yanlış bir oran uydurmuyoruz. Eksik teşvik tablosunu yükleyin;
-          hesaplama kendiliğinden başlar.
+          <b>${esc(urun)}</b> için ne teşvik tanımlı, ne de bu kalemin <b>alış faturası</b> var
+          — yani bu ürünü hiç almamışız.<br>
+          İkame maliyeti bilinmediği için <b>marj hesaplanamıyor</b>. Yanlış bir oran
+          uydurmuyoruz; liste fiyatını maliyet saymak marjı olduğundan düşük gösterirdi.
+          Fiyat vermeden önce alış maliyetini teyit edin.
         </div>
       </div>`;
   }
