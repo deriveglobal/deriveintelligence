@@ -21059,6 +21059,7 @@ if (request.method === 'GET' && url.pathname === '/api/bi/brand-compare/sizes') 
       SELECT DISTINCT ebat
       FROM bi_satis_faturalari
       WHERE tenant_id = $1::text
+        AND grup_adi LIKE 'LASTIK%'   -- LASTIK_FILTRE_V1
         AND ($2 = 'ALL' OR kategori = $2)
         AND ($3 = '' OR ebat ILIKE $3)
         AND ebat IS NOT NULL AND ebat <> ''
@@ -21165,6 +21166,7 @@ if (request.method === 'GET' && url.pathname === '/api/bi/brand-index') {
         FROM bi_satis_faturalari s
         JOIN last_purchase lp ON lp.kalem_kodu = s.kalem_kodu
         WHERE s.tenant_id = $1::text
+          AND s.grup_adi LIKE 'LASTIK%'   -- LASTIK_FILTRE_V1
           AND s.fatura_tarihi >= CURRENT_DATE - ($2 * INTERVAL '1 month')
           AND s.miktar > 0 AND lp.cost > 0
           AND ($4 = 'ALL' OR s.kategori = $4)
@@ -21536,6 +21538,7 @@ if (request.method === 'GET' && url.pathname === '/api/bi/brand-alerts') {
         FROM bi_satis_faturalari s
         JOIN last_purchase lp ON lp.kalem_kodu = s.kalem_kodu
         WHERE s.tenant_id = $1::text
+          AND s.grup_adi LIKE 'LASTIK%'   -- LASTIK_FILTRE_V1
           AND s.fatura_tarihi >= CURRENT_DATE - ($2 * INTERVAL '1 month')
           AND s.miktar > 0 AND lp.cost > 0
       ),
@@ -22153,6 +22156,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/sales/kpis") {
       SELECT marka, SUM(miktar) AS adet, SUM(satir_tutar) AS tutar
       FROM bi_satis_faturalari
       WHERE tenant_id = $1 AND fatura_tarihi >= now() - interval '30 days'
+        AND grup_adi LIKE 'LASTIK%'   -- LASTIK_FILTRE_V1
       GROUP BY marka ORDER BY tutar DESC LIMIT 10`, [session.tenantId]);
 
     sendJson(response, 200, {
@@ -23043,6 +23047,7 @@ if (request.method === 'GET' && url.pathname === '/api/bi/orders/brand-mix') {
         WHERE sf.tenant_id = $1::text
           AND sf.fatura_tarihi >= now() - interval '365 days'
           AND sf.marka IS NOT NULL AND sf.marka <> ''
+          AND sf.grup_adi LIKE 'LASTIK%'   -- LASTIK_FILTRE_V1
           AND ($2 = 'all' OR
                ($2 = 'tuketici' AND sf.kategori IN ('YAZ','KIS','4 MEVSIM')) OR
                ($2 = 'ticari'   AND sf.kategori IN ('TBR','LSR','IND','OTR','AG')) OR
@@ -24604,7 +24609,12 @@ function buildDeptSystemPrompt(dept, context, session) {
       'KRB\'nin satış direktörüsün. Satış verilerini analiz et, büyüme fırsatlarını bul.\n\n' +
       DB_SCHEMA + '\n\n' +
       'Hazır sorgu örnekleri:\n' +
-      '  Marka bazlı: SELECT marka, SUM(miktar) AS adet, SUM(satir_tutar) AS ciro FROM bi_satis_faturalari WHERE tenant_id=$1 GROUP BY marka ORDER BY ciro DESC LIMIT 10\n' +
+      '  ⚠ LASTİK KURALI: bi_satis_faturalari ARTIK TÜM ciroyu içeriyor (servis, jant, akü, yedek parça dahil).\n' +
+      '    • ciro / müşteri / tahsilat / DSO sorularında FİLTRE KOYMA — toplam ciro doğrudur.\n' +
+      '    • marka / ebat / ürün sorularında MUTLAKA:  AND grup_adi LIKE \'LASTIK%\'\n' +
+      '    Aksi halde \'İŞÇİLİK\' (16.996 satır, servis işçiliği) en çok satan MARKA, boş ebat da en çok satan EBAT görünür.\n' +
+      '    Doğrulama: Haziran 2026 toplam ciro = 121,76 M TL (GM\'in SAP rakamıyla birebir).\n' +
+      '  Marka bazlı: SELECT marka, SUM(miktar) AS adet, SUM(satir_tutar) AS ciro FROM bi_satis_faturalari WHERE tenant_id=$1 AND grup_adi LIKE \'LASTIK%\' GROUP BY marka ORDER BY ciro DESC LIMIT 10\n' +
       '  Müşteri büyüme: son 30 günü önceki 30 günle karşılaştır (fatura_tarihi ile)\n' +
       '  Temsilci perf: GROUP BY satis_temsilcisi\n' +
       '  Ürün bazlı: GROUP BY kalem_tanimi veya kategori',
@@ -24619,7 +24629,8 @@ function buildDeptSystemPrompt(dept, context, session) {
       '=== ÜRÜN ANALİTİK YETKİNLİKLER ===\n' +
       'Bu 3 soru türünü YALNIZCA sen yanıtlarsın. execute_query aracını kullan.\n\n' +
       'KRİTİK ŞEMA NOTLARI:\n' +
-      '  bi_satis_faturalari  — ebat kolonu VAR. Filtre: WHERE ebat=\'385/65R22.5\'\n' +
+      '  bi_satis_faturalari  — ebat kolonu VAR. Filtre: WHERE ebat=\'385/65R22.5\' AND grup_adi LIKE \'LASTIK%\'\n' +
+      '    (grup_adi filtresi ŞART: tabloda 19.115 lastik-dışı satır var, ebat\'ları BOŞ.)\n' +
       '  bi_stok_durumu       — ebat YOK. Filtre: kalem_tanimi ILIKE \'%385/65R22.5%\'\n' +
       '  bi_tedarikci_faturalari — ebat YOK. JOIN via: kalem_kodu IN (SELECT DISTINCT kalem_kodu FROM bi_satis_faturalari WHERE tenant_id=$1 AND ebat=\'[EBAT]\')\n' +
       '  bi_stok_hareketleri  — ebat YOK. Aynı kalem_kodu IN stratejisi.\n' +
@@ -26541,6 +26552,7 @@ async function refreshSahaMasters(db) {
            COUNT(*), COALESCE(SUM(f.miktar), 0), COALESCE(SUM(f.satir_tutar), 0)
     FROM bi_satis_faturalari f
     WHERE f.kalem_kodu IS NOT NULL
+      AND f.grup_adi LIKE 'LASTIK%'   -- LASTIK_FILTRE_V1: İŞÇİLİK/YEDEK PARCA urun degil
     GROUP BY f.tenant_id, f.kalem_kodu
     ON CONFLICT (tenant_id, kalem_kodu) DO UPDATE
       SET kalem_tanimi = EXCLUDED.kalem_tanimi, marka = COALESCE(EXCLUDED.marka, master_urun.marka),
