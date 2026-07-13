@@ -2432,15 +2432,21 @@ function _tesvikHTML(k) {
     return `
       <div style="margin-top:5px;padding:5px 7px;background:#fffbeb;border-radius:5px;border-left:3px solid #f59e0b">
         <div style="font-size:11px;color:#b45309;font-weight:700">
-          ⚠ Teşvik tablosu eksik — son alış fiyatı kullanıldı: <b>₺${Number(n.fiyat).toLocaleString("tr-TR")}</b>
+          ⚠ BRÜT maliyet — <b>₺${Number(n.fiyat).toLocaleString("tr-TR")}</b> · prim hariç
         </div>
         <div style="font-size:11px;color:#64748b;margin-top:2px">
-          ${esc(k.marka || "")} · <b>${esc(urun)}</b> teşviki sisteme yüklenmemiş.<br>
-          Alış faturasındaki fiyat <b>teşvikleri zaten içinde taşır</b> (bayiye kesilen
-          net fiyat = liste − teşvik), o yüzden maliyeti biliyoruz. Kaynak:
-          ${esc(tar)} · ${n.gun_once} gün önce${n.tedarikci ? " · " + esc(n.tedarikci) : ""}.
-          ${n.bayat ? `<br><span style="color:#b45309">Bu fiyat ${n.gun_once} günlük — zam gelmişse marj olduğundan yüksek görünür.</span>` : ""}
-          <br>Teşvik tablosu yüklenirse hesap otomatik olarak liste−teşvike geçer.
+          <b>Bu rakam ne:</b> ${esc(k.marka || "")} · ${esc(urun)} için teşvik tablosu
+          henüz yüklenmedi. Bu maliyet, <b>KRB'nin kendi alış faturasından türetildi</b>
+          (${esc(tar)} · ${n.gun_once} gün önce${n.tedarikci ? " · " + esc(n.tedarikci) : ""}).<br>
+          <b>Bu rakam ne DEĞİL:</b> nihai maliyet. Brisa/Continental teşvik modeliyle
+          çalışıyor; <b>primi KRB ayrıca fatura ediyor</b>, alış faturasına girmiyor.
+          Bu yıl <b>33,5M TL prim hakedişi</b> kesilmiş. Yani gerçek maliyet
+          <b>bundan düşük</b>.<br>
+          <b>Sonuç:</b> aşağıdaki marj <b>gerçek marjın ALT SINIRIDIR</b> — gerçeği
+          daha iyidir. Negatif görünmesi zarar demek değildir.
+          ${n.bayat ? `<br><span style="color:#b45309">Ayrıca bu fiyat ${n.gun_once} günlük.</span>` : ""}
+          <br><span style="color:#0369a1">Teşvik tablosu yüklendiğinde hesap otomatik olarak
+          liste−teşvike (net maliyet) geçer ve bu uyarı kalkar.</span>
         </div>
       </div>`;
   }
