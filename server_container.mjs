@@ -25488,6 +25488,7 @@ async function _sonAlisFiyati(pool, tenantId, kalemKodu) {
     "       vade_gun AS vg, (CURRENT_DATE - fatura_tarihi)::int AS gun " +
     "  FROM bi_tedarikci_faturalari " +
     " WHERE tenant_id=$1::uuid AND kalem_kodu=$2 AND birim_fiyat_kdv_haric > 0 " +
+    "   AND miktar > 0 " +                      // IADE_V1: iade satiri maliyet DEGILDIR
     " ORDER BY fatura_tarihi DESC LIMIT 1",
     [tenantId, kalemKodu]);
   const x = r.rows[0];
@@ -28023,6 +28024,9 @@ async function handleSahaApi(request, response, url, deps) {
               " FROM bi_satis_faturalari " +
               " WHERE tenant_id=$1::text AND ebat=$2 AND upper(marka)=upper($3) " +
               "   AND grup_adi LIKE 'LASTIK%' AND birim_fiyat > 0 " +
+              // IADE_V1: miktar<0 = iade/alacak dekontu. SATIS DEGIL.
+              //   Araliga ve "en ucuz musteri"ye karismasin.
+              "   AND miktar > 0 " +
               "   AND fatura_tarihi >= date_trunc('year', CURRENT_DATE)",
               [session.tenantId, k.ebat, k.marka]);
             const _medyan = _num(_med0.rows[0] && _med0.rows[0].med);
@@ -28090,6 +28094,9 @@ async function handleSahaApi(request, response, url, deps) {
               "         SUM(miktar) AS adet " +
               "    FROM bi_satis_faturalari " +
               "   WHERE tenant_id=$1::text AND kalem_kodu=$2 AND birim_fiyat>0 " +
+              // IADE_V1: agirlikli ortalamada negatif miktar TERS isaretli agirlik
+              //   verir ve sonucu SESSIZCE kaydirir. Hata vermez. En sinsi hali.
+              "     AND miktar > 0 " +
               "     AND vade_tarihi IS NOT NULL " +
               "     AND fatura_tarihi >= date_trunc('year', CURRENT_DATE)), " +
               "alis AS ( " +
@@ -28098,6 +28105,7 @@ async function handleSahaApi(request, response, url, deps) {
               "         SUM(miktar) AS adet " +
               "    FROM bi_tedarikci_faturalari " +
               "   WHERE tenant_id=$1::uuid AND kalem_kodu=$2 AND birim_fiyat_kdv_haric>0 " +
+              "     AND miktar > 0 " +          // IADE_V1: tedarikci iadesi de agirligi bozar
               "     AND vade_gun IS NOT NULL " +
               "     AND fatura_tarihi >= date_trunc('year', CURRENT_DATE)) " +
               "SELECT ROUND(sat.ag_fiyat) AS satis_fiyat, ROUND(sat.ag_vade) AS satis_vade, sat.adet AS satis_adet, " +
