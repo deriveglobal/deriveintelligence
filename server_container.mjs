@@ -28252,10 +28252,35 @@ async function handleSahaApi(request, response, url, deps) {
         // Price model #1: list price - incentives (net buy cost)
         let _liste = null, _iskPct = null, _netMaliyet = null, _fiyatDurumu = "liste_yok";
         let _tesvik_sezon = null, _tesvik_arac = null, _tesvik_kademe = null, _tesvik_eslesen = null;
+        // KDV_V1 — seffaflik: liste hangi bazda geldi, KDV cikarildi mi?
+        let _liste_kdv_haric_mi = null, _liste_ham = null;
         try {
-          const _pl = await pool.query("SELECT k2.liste_fiyati FROM bi_fiyat_listesi_kalemler k2 JOIN bi_fiyat_listesi_uploads u ON u.id=k2.upload_id WHERE k2.tenant_id=$1 AND u.aktif=true AND k2.liste_fiyati IS NOT NULL AND regexp_replace(upper(k2.ebat),'\\s+','','g')=regexp_replace(upper($2),'\\s+','','g') ORDER BY (upper(u.marka)=upper($3)) DESC, u.liste_tarihi DESC LIMIT 1", [session.tenantId, k.ebat || "", k.marka || ""]);
+          // KDV_V1 — IKI DUZELTME:
+          //   1) u.kdv_haric OKUNUYOR. false ise liste KDV DAHIL -> /1,20.
+          //      Brisa listeleri KDV DAHIL (kanit: BRIDGESTONE 205/55R16 = 8.974,
+          //      perakende listesindeki rakamin birebir aynisi). Conti KDV haric.
+          //      Okumadan once ayni ekranda IKI MARKA GRUBU FARKLI TEMELDEYDI.
+          //   2) MARKA ESLESMESI ZORUNLU. Eskiden WHERE'de marka filtresi YOKTU;
+          //      ORDER BY sadece TERCIH ediyordu. LASSA'da ebat bulunamayinca
+          //      CONTINENTAL'in liste fiyati aliniyordu. SESSIZCE.
+          //      Artik eslesmezse liste YOK deriz — BASKA MARKANIN fiyatini KULLANMAYIZ.
+          const _pl = await pool.query(
+            "SELECT k2.liste_fiyati, u.kdv_haric, u.marka AS liste_marka " +
+            "  FROM bi_fiyat_listesi_kalemler k2 " +
+            "  JOIN bi_fiyat_listesi_uploads u ON u.id = k2.upload_id " +
+            " WHERE k2.tenant_id = $1 AND u.aktif = true AND k2.liste_fiyati IS NOT NULL " +
+            "   AND regexp_replace(upper(k2.ebat),'\\s+','','g') = regexp_replace(upper($2),'\\s+','','g') " +
+            "   AND upper(u.marka) = upper($3) " +      // ⚠ ZORUNLU — sizma YOK
+            " ORDER BY u.liste_tarihi DESC LIMIT 1",
+            [session.tenantId, k.ebat || "", k.marka || ""]);
           if (_pl.rows[0] && _pl.rows[0].liste_fiyati != null) {
-            _liste = Number(_pl.rows[0].liste_fiyati);
+            const _ham = Number(_pl.rows[0].liste_fiyati);
+            const _kdvHaric = _pl.rows[0].kdv_haric === true;
+            // ⚠ kdv_haric=false -> liste KDV DAHIL -> KDV'yi CIKAR.
+            //   Cikarmazsak maliyet %20 siser, marj 20 puan dusuk gorunur.
+            _liste = _kdvHaric ? _ham : Math.round(_ham / 1.20 * 100) / 100;
+            _liste_kdv_haric_mi = _kdvHaric;
+            _liste_ham = _ham;
             _fiyatDurumu = "tesvik_yok";
             const _rm = String(k.ebat || "").match(/R\s*(\d{2})/i);
             const _rim = _rm ? parseInt(_rm[1]) : null;
@@ -28462,7 +28487,16 @@ async function handleSahaApi(request, response, url, deps) {
             // BAYILIK_V1 / V2
             tedarik: _tedarik,                // 'bayilik' | 'net_alim'
             ikame_kaynak: _ikameKaynak,       // 'liste_tesvik' | 'son_alis' | 'yok'
-            net_alim: _sonAlis                // son alis: fiyat/tarih/tedarikci/gun_once/bayat
+            net_alim: _sonAlis,               // son alis: fiyat/tarih/tedarikci/gun_once/bayat
+            // KDV_V1 — liste hangi bazda geldi? KDV cikarildi mi?
+            liste: _liste_ham == null ? null : {
+              ham: _liste_ham,
+              kdv_haric_mi: _liste_kdv_haric_mi,
+              kullanilan: _liste,
+              not: _liste_kdv_haric_mi
+                ? "Liste KDV hariç kaydedilmiş; aynen kullanıldı."
+                : "Liste KDV DAHİL kaydedilmiş; maliyet için KDV çıkarıldı (÷1,20)."
+            }
           } });
       }
       const rr = await pool.query("SELECT ozet, detay FROM saha_sinyal WHERE tenant_id=$1 AND kaynak_tip='teklif' AND kaynak_id=$2 AND tip='rakip' ORDER BY created_at DESC", [session.tenantId, _tid]);
