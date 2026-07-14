@@ -28456,6 +28456,24 @@ async function handleSahaApi(request, response, url, deps) {
       //   13 Temmuz'da Eftal'in 13 ziyaretinden toplanan saha gozlemi
       //   HIC KAYDEDILMEDI ve ona "✓" gosterildi. Sessiz veri kaybi.
       //   Kim neyi degistirdi sorusu, asagidaki denetim kaydiyla cevaplaniyor.
+      // ⚠ IL_ILCE_KAPI_V1 — SUNUCU KAPISI.
+      //   Arayuz kapisi kullanicinin insafina kalir (tarayicidan istek atan atlar).
+      //   Sunucu kapisi kalmaz. Gecersiz il/ilce KABUL EDILMEZ.
+      if (p.il != null && String(p.il).trim() !== "") {
+        const _ilOk = await query(
+          `SELECT 1 FROM tr_ilce_ref WHERE tr_norm(il) = tr_norm($1) LIMIT 1`, [p.il]);
+        if (!_ilOk.rowCount) {
+          sendJson(response, 400, { error: `Geçersiz il: "${p.il}". Listeden seçin.` }); return;
+        }
+      }
+      if (p.ilce != null && String(p.ilce).trim() !== "" && p.il) {
+        const _ilceOk = await query(
+          `SELECT 1 FROM tr_ilce_ref WHERE tr_norm(il)=tr_norm($1) AND tr_norm(ilce)=tr_norm($2) LIMIT 1`,
+          [p.il, p.ilce]);
+        if (!_ilceOk.rowCount) {
+          sendJson(response, 400, { error: `"${p.ilce}" ilçesi ${p.il} ilinde yok. Listeden seçin.` }); return;
+        }
+      }
       // Validate durum enum
       const VALID_MUSTERI_DURUM = ['YENI_NOKTA','ESKI_NOKTA','AKTIF_MUSTERI','PASIF_NOKTA','RISKLI_NOKTA'];
       if (p.durum != null && !VALID_MUSTERI_DURUM.includes(p.durum)) {

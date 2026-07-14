@@ -766,10 +766,12 @@ function yeniMusteriModal(firma, devam, musteriKodu = null) {
         <option value="TICARI" ${S.semsiye === "TICARI" ? "selected" : ""}>Ticari (TBR/OTR)</option>
       </select></label>
     <div class="yanyana">
-      <label>İl *<input class="giris" id="ym-il" list="ym-il-list" placeholder="Şehir seçin">
-        <datalist id="ym-il-list">${TR_ILLER.map(il => `<option>${esc(il)}</option>`).join("")}</datalist>
+      <label>İl *<select class="giris" id="ym-il">
+        <option value="">Seçin…</option>
+        ${(window.TR_ILLER_RESMI || []).map(il => `<option>${esc(il)}</option>`).join("")}
+      </select>
       </label>
-      <label>İlçe<input class="giris" id="ym-ilce"></label>
+      <label>İlçe<select class="giris" id="ym-ilce"><option value="">Önce il seçin…</option></select></label>
     </div>
     <label>Kayıt Kaynağı *
       <select class="giris" id="ym-kaynak">
@@ -827,9 +829,29 @@ function yeniMusteriModal(firma, devam, musteriKodu = null) {
     );
   });
 
+  // ⚠ IL_ILCE_V1 — il secilince ILCELER filtrelenir. Serbest yazim YOK.
+  //   Olcum: 1.033 musteride 100 farkli il yazimi, 206 farkli ilce yazimi vardi.
+  //   "Kocaeli|KOCAELİ|kocaeli" ayri kayit sayiliyordu; bolge bazli her rapor bozuktu.
+  //   Ve il alanina ILCE yaziliyordu: Izmit(20) · Korfez(9) · Gebze(3)...
+  //   Veri kalitesi sorunlari SESSIZDIR: kimse hata gormez, sadece raporlar yanlis cikar.
+  (function _ililceBagla() {
+    const ilEl = document.getElementById("ym-il");
+    const ilceEl = document.getElementById("ym-ilce");
+    if (!ilEl || !ilceEl) return;
+    const doldur = () => {
+      const il = ilEl.value;
+      const liste = (window.TR_IL_ILCE || {})[il] || [];
+      ilceEl.innerHTML = '<option value="">' + (il ? "İlçe seçin…" : "Önce il seçin…") + '</option>'
+        + liste.map(x => '<option>' + esc(x) + '</option>').join("");
+    };
+    ilEl.addEventListener("change", doldur);
+    doldur();
+  })();
+
   document.getElementById("ym-kaydet").addEventListener("click", async () => {
     const g = id => document.getElementById(id).value.trim();
     if (!g("ym-firma"))   { uyari("Firma zorunlu."); return; }
+    if (!g("ym-il"))      { uyari("İl seçin."); return; }
     if (!g("ym-tip"))     { uyari("Tip zorunlu."); return; }
     if (!g("ym-il"))      { uyari("İl zorunlu."); return; }
     if (!g("ym-yetkili")) { uyari("Yetkili kişi adı zorunlu."); return; }
