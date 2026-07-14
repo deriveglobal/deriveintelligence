@@ -23667,6 +23667,98 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
     } catch (e) { sendJson(response, 500, { error: e.message }); }
   }
 
+  // ── FINANS_V1 ─────────────────────────────────────────────────────────────
+  // ⚠ TEK SORU: "18 Kasım'da 36,6M nereden gelecek?"
+  //   Bu bir gosterge degil, bir TARIH. Oda o tarihin etrafinda kurulu.
+  //
+  // ⚠ TANIMLAR KILITLI (14 Tem, olculdu):
+  //   alacak  = hesap_bakiyesi (209,3M) — toplam_risk DEGIL (238,8M).
+  //             Fark: cek/senet 29,5M + bekleyen siparis 3,8M. Siparis henuz PARA DEGIL.
+  //   borc    = bi_cari_bakiye, tedarikci_bakiye < 0 (403,4M · Brisa 319,0M)
+  //   stok    = bi_stok_anlik × son tedarikci faturasi fiyati (268,3M)
+  //   NET     = 268,3 + 209,3 − 403,4 = 74,2M   ·   yillik yuk 29,7M
+  if (request.method === 'GET' && url.pathname === '/api/bi/finans') {
+    try {
+      const session = await requireModuleAccess(request, "intelligence");
+      const T = session.tenantId;
+      const [sermaye, odemeler, riskler, limitsiz, yaslandirma] = await Promise.all([
+        // 1) Deger agaci — her bacak KENDI kaynagindan
+        query(`
+          WITH sa AS (
+            SELECT DISTINCT ON (bi_sku_norm(kalem_kodu))
+                   bi_sku_norm(kalem_kodu) AS sku, birim_fiyat_kdv_haric AS fiyat
+              FROM bi_tedarikci_faturalari
+             WHERE tenant_id=$1::uuid AND miktar>0 AND birim_fiyat_kdv_haric>0
+             ORDER BY 1, fatura_tarihi DESC),
+          stok AS (
+            SELECT COALESCE(sum(st.adet*sa.fiyat),0) AS deger
+              FROM bi_stok_anlik st
+              LEFT JOIN sa ON sa.sku = bi_sku_norm(st.kalem_kodu)
+             WHERE st.tenant_id=$1::uuid AND st.adet>0
+               AND st.export_date=(SELECT max(export_date) FROM bi_stok_anlik WHERE tenant_id=$1::uuid)),
+          alacak AS (
+            -- ⚠ hesap_bakiyesi. toplam_risk DEGIL.
+            SELECT COALESCE(sum(hesap_bakiyesi),0) AS bakiye,
+                   COALESCE(sum(vadesi_gecmis),0)  AS gecikmis,
+                   COALESCE(sum(toplam_risk),0)    AS toplam_risk,
+                   count(*) FILTER (WHERE vadesi_gecmis>0) AS gecikmis_musteri
+              FROM bi_musteri_risk WHERE tenant_id=$1::uuid AND musteri_mi),
+          borc AS (
+            SELECT COALESCE(abs(sum(tedarikci_bakiye) FILTER (WHERE tedarikci_bakiye<0)),0) AS tutar,
+                   COALESCE(abs(min(tedarikci_bakiye)),0) AS en_buyuk,
+                   (SELECT tedarikci_adi FROM bi_cari_bakiye
+                     WHERE tenant_id=$1::uuid ORDER BY tedarikci_bakiye LIMIT 1) AS en_buyuk_ad
+              FROM bi_cari_bakiye WHERE tenant_id=$1::uuid)
+          SELECT s.deger AS stok, a.bakiye AS alacak, a.gecikmis, a.toplam_risk,
+                 a.gecikmis_musteri, b.tutar AS borc, b.en_buyuk, b.en_buyuk_ad,
+                 (s.deger + a.bakiye - b.tutar)              AS net_sermaye,
+                 ROUND((s.deger + a.bakiye - b.tutar) * 0.40) AS yillik_yuk
+            FROM stok s, alacak a, borc b`, [T]),
+        // 2) ⚠ ODEME TAKVIMI — odanin kalbi
+        query(`
+          SELECT son_tarih, baslik, ozet, tutar_tl,
+                 (son_tarih - CURRENT_DATE) AS kalan_gun
+            FROM bi_sinyal
+           WHERE tenant_id=$1::uuid AND tur='odeme' AND durum='acik'
+           ORDER BY son_tarih`, [T]),
+        // 3) GERCEK riskler — NET pozisyona gore (brut YANILTICI)
+        query(`
+          SELECT musteri_adi, net_pozisyon, son_bakiye AS brut, bizim_borcumuz,
+                 vadesi_gecmis, kredi_limiti,
+                 CASE WHEN kredi_limiti > 1 THEN round(net_pozisyon/kredi_limiti, 1) END AS limit_kati
+            FROM master_musteri
+           WHERE tenant_id=$1::uuid AND net_pozisyon > 1e6
+             AND (kredi_limiti <= 1 OR net_pozisyon > kredi_limiti * 1.5)
+           ORDER BY net_pozisyon DESC LIMIT 15`, [T]),
+        // 4) ⚠ LIMIT BOSLUGU — ihlal degil, KARAR
+        query(`
+          SELECT count(*) AS musteri,
+                 COALESCE(sum(net_pozisyon),0)  AS alacak,
+                 COALESCE(sum(vadesi_gecmis),0) AS gecikmis
+            FROM master_musteri
+           WHERE tenant_id=$1::uuid AND net_pozisyon > 0 AND kredi_limiti <= 1`, [T]),
+        // 5) YASLANDIRMA — parayi ne kadar bekliyoruz
+        query(`
+          SELECT CASE WHEN vadesi_gecmis = 0 THEN 'vadesi gelmemis'
+                      WHEN vadesi_gecmis > 0 AND hesap_bakiyesi > 0
+                           AND vadesi_gecmis >= hesap_bakiyesi THEN 'tamami gecikmis'
+                      ELSE 'kismen gecikmis' END AS dilim,
+                 count(*) AS musteri,
+                 COALESCE(sum(hesap_bakiyesi),0) AS tutar
+            FROM bi_musteri_risk
+           WHERE tenant_id=$1::uuid AND musteri_mi AND hesap_bakiyesi > 0
+           GROUP BY 1 ORDER BY 3 DESC`, [T])
+      ]);
+      sendJson(response, 200, {
+        sermaye:     sermaye.rows[0]     || {},
+        odemeler:    odemeler.rows       || [],
+        riskler:     riskler.rows        || [],
+        limit_bosluk: limitsiz.rows[0]   || {},
+        yaslandirma: yaslandirma.rows    || []
+      });
+    } catch (e) { sendJson(response, 500, { error: e.message }); }
+  }
+
   // Hangi dosyalar bekleniyor + hangisi ne zaman geldi
   // ⚠ Sistem hangi dosyayi bekledigini BILMELI. 'account balance' AYLARDIR
   //   gelmiyordu ve bunu TESADUFEN bulduk.
