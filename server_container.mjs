@@ -20068,17 +20068,8 @@ async function ensurePlatformSchema() {
       status text NOT NULL DEFAULT 'ok' CHECK (status IN ('ok','error','partial','duplicate')),
       error_detail text, file_hash text, ingest_version text NOT NULL DEFAULT '1'
     );
-    CREATE TABLE IF NOT EXISTS bi_stok_hareketleri (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
-      export_date date NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(),
-      belge_turu text, belge_no text, belge_tarihi date,
-      muhatap_kodu text, muhatap_tanimi text, temsilci text, depo text,
-      kalem_kodu text NOT NULL, grup_adi text, kategori text, marka text, kalem_tanimi text,
-      birim_maliyet numeric(14,4), giris_miktari numeric(14,4), giris_tutari numeric(14,2),
-      cikis_miktari numeric(14,4), cikis_tutari numeric(14,2),
-      stok_bakiye_tutari numeric(14,2), aciklama text
-    );
+    -- ⚠ OLU_GORUNUM_V1 — bi_stok_hareketleri artik TABLO DEGIL, GORUNUM.
+    --   Arkasinda canli veri var; CREATE TABLE burada olursa gorunumu ezer.
     CREATE TABLE IF NOT EXISTS bi_tedarikci_faturalari (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
@@ -20091,15 +20082,8 @@ async function ensurePlatformSchema() {
       vade_turu text, vade_gun integer,
       vade_tarihi date, odeme_tarihi date, odeme_durumu text
     );
-    CREATE TABLE IF NOT EXISTS bi_stok_durumu (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
-      export_date date NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(),
-      kalem_kodu text NOT NULL, kalem_tanimi text, grup_adi text, kategori text, marka text, depo text,
-      eldeki_miktar numeric(14,4), siparis_miktar numeric(14,4), min_stok numeric(14,4),
-      birim_maliyet numeric(14,4), toplam_deger numeric(14,2),
-      UNIQUE (tenant_id, kalem_kodu, depo, export_date)
-    );
+    -- ⚠ OLU_GORUNUM_V1 — bi_stok_durumu artik TABLO DEGIL, GORUNUM.
+    --   Arkasinda canli veri var; CREATE TABLE burada olursa gorunumu ezer.
     CREATE TABLE IF NOT EXISTS bi_satis_faturalari (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
@@ -20111,15 +20095,8 @@ async function ensurePlatformSchema() {
       kdv_orani numeric(5,2), kdv_tutari numeric(14,2), toplam_tutar numeric(14,2),
       vade_tarihi date, odeme_tarihi date, odeme_durumu text
     );
-    CREATE TABLE IF NOT EXISTS bi_musteri_bakiye (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
-      export_date date NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(),
-      musteri_kodu text NOT NULL, musteri_adi text, sube text,
-      borc_tutari numeric(14,2), alacak_tutari numeric(14,2), bakiye numeric(14,2),
-      vadesi_gecmis_tutar numeric(14,2), en_uzun_vade_gun integer,
-      UNIQUE (tenant_id, musteri_kodu, export_date)
-    );
+    -- ⚠ OLU_GORUNUM_V1 — bi_musteri_bakiye artik TABLO DEGIL, GORUNUM.
+    --   Arkasinda canli veri var; CREATE TABLE burada olursa gorunumu ezer.
     CREATE TABLE IF NOT EXISTS bi_kacan_satislar (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
@@ -20171,13 +20148,9 @@ async function ensurePlatformSchema() {
     CREATE INDEX IF NOT EXISTS idx_tu_tenant ON tenant_users (tenant_id, active);
     CREATE INDEX IF NOT EXISTS idx_tum_user ON tenant_user_modules (user_id, module_id, active);
     CREATE INDEX IF NOT EXISTS idx_bil_tenant ON bi_ingestion_log (tenant_id, query_type, export_date DESC);
-    CREATE INDEX IF NOT EXISTS idx_bsh_kalem ON bi_stok_hareketleri (tenant_id, kalem_kodu, belge_tarihi DESC);
-    CREATE INDEX IF NOT EXISTS idx_bsh_date ON bi_stok_hareketleri (tenant_id, belge_tarihi DESC);
     CREATE INDEX IF NOT EXISTS idx_btf_tedarikci ON bi_tedarikci_faturalari (tenant_id, tedarikci_kodu, fatura_tarihi DESC);
     CREATE INDEX IF NOT EXISTS idx_bsf_musteri ON bi_satis_faturalari (tenant_id, musteri_kodu, fatura_tarihi DESC);
     CREATE INDEX IF NOT EXISTS idx_bsf_date ON bi_satis_faturalari (tenant_id, fatura_tarihi DESC);
-    CREATE INDEX IF NOT EXISTS idx_bsd_item ON bi_stok_durumu (tenant_id, kalem_kodu, export_date DESC);
-    CREATE INDEX IF NOT EXISTS idx_bmb_musteri ON bi_musteri_bakiye (tenant_id, musteri_kodu, export_date DESC);
     CREATE INDEX IF NOT EXISTS idx_bog_musteri ON bi_odeme_gecmisi (tenant_id, musteri_kodu, odeme_tarihi DESC);
     CREATE INDEX IF NOT EXISTS idx_bconv_tenant ON bi_conversations (tenant_id, department, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_bmb2_tenant ON bi_morning_briefings (tenant_id, briefing_date DESC);
