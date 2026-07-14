@@ -23708,12 +23708,16 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
                    COALESCE(abs(min(tedarikci_bakiye)),0) AS en_buyuk,
                    (SELECT tedarikci_adi FROM bi_cari_bakiye
                      WHERE tenant_id=$1::uuid ORDER BY tedarikci_bakiye LIMIT 1) AS en_buyuk_ad
-              FROM bi_cari_bakiye WHERE tenant_id=$1::uuid)
+              FROM bi_cari_bakiye WHERE tenant_id=$1::uuid),
+          -- ⚠ SIFIR_SABIT_V1 — %40 KODDA SABIT DEGIL. Bu bir VARSAYIM ve ayardan gelir.
+          --   Ekranda "varsayim" diye etiketlenir. Olculmus bir gercek DEGIL.
+          ay AS (SELECT COALESCE(max(sermaye_maliyeti_pct),40) AS pct FROM bi_ayar WHERE tenant_id=$1::uuid)
           SELECT s.deger AS stok, a.bakiye AS alacak, a.gecikmis, a.toplam_risk,
                  a.gecikmis_musteri, b.tutar AS borc, b.en_buyuk, b.en_buyuk_ad,
-                 (s.deger + a.bakiye - b.tutar)              AS net_sermaye,
-                 ROUND((s.deger + a.bakiye - b.tutar) * 0.40) AS yillik_yuk
-            FROM stok s, alacak a, borc b`, [T]),
+                 (s.deger + a.bakiye - b.tutar)                       AS net_sermaye,
+                 ROUND((s.deger + a.bakiye - b.tutar) * ay.pct / 100) AS yillik_yuk,
+                 ay.pct                                               AS sermaye_maliyeti_pct
+            FROM stok s, alacak a, borc b, ay`, [T]),
         // 2) ⚠ ODEME TAKVIMI — odanin kalbi
         query(`
           SELECT son_tarih, baslik, ozet, tutar_tl,
@@ -23922,7 +23926,12 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
                  ROUND(s.deger  / NULLIF(c.gunluk,0))                AS stok_gun,
                  -- ⚠ GERCEK DSO: tahsil EDILMEYENI de icerir. Tablo 26,9 diyordu; yalan.
                  ROUND(a.risk   / NULLIF(c.gunluk,0))                AS dso_gun,
-                 ROUND((s.deger + a.risk - b.tutar) * 0.40)         AS sermaye_yuku
+                 -- ⚠ SIFIR_SABIT_V1 — %40 VARSAYIM, ayardan gelir.
+                 ROUND((s.deger + a.risk - b.tutar)
+                       * (SELECT COALESCE(max(sermaye_maliyeti_pct),40) FROM bi_ayar WHERE tenant_id=$2::uuid) / 100)
+                                                                    AS sermaye_yuku,
+                 (SELECT COALESCE(max(sermaye_maliyeti_pct),40) FROM bi_ayar WHERE tenant_id=$2::uuid)
+                                                                    AS sermaye_maliyeti_pct
             FROM stok s, alacak a, ciro c, borc b`, [T, T]),
 
         // 2) ⚠ KOR NOKTA — SADECE bayilik markalarinda anlamli.

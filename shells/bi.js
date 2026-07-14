@@ -263,32 +263,32 @@ export function initBiSurface(container, me, sub, callbacks) {
     h += '<div style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:10px;margin-bottom:8px">';
     /* NET_UI_V1 — ⚠ TEDARIKCI BORCU ARTIK GORUNUYOR. Onceki hali 'bagli sermaye 507,3M'
        diyordu; borcu (403,4M) hic saymamistim. Gercek: NET 103,9M. */
-    h += '<div class="kart dn" data-anahtar="net_sermaye" data-sor="' + esc('Net işletme sermayesi 104M. Brisa 319M borcu Kasım-Şubat ödenecek. Bu nakdi nereden bulacağız?') + '">'
+    h += '<div class="kart dn" data-anahtar="net_sermaye" data-sor="' + esc('Net işletme sermayesi ' + _M(s.net_sermaye) + '. En büyük tedarikçi borcu ' + _M(s.en_buyuk_borc) + '. Bu nakdi nereden bulacağız?') + '">'
        +   '<div style="font-size:12px;color:var(--tx-1)">Net işletme sermayesi</div>'
        +   '<div class="n n-buyuk" style="margin:6px 0">' + _M(s.net_sermaye) + '</div>'
        +   '<div class="satir" style="padding:1px 0"><span>stok</span><span class="n">' + _M(s.stok) + '</span></div>'
        +   '<div class="satir" style="padding:1px 0"><span>alacak</span><span class="n">' + _M(s.alacak) + '</span></div>'
        +   '<div class="satir" style="padding:1px 0"><span>tedarikçi borcu</span><span class="n d-yesil">−' + _M(s.tedarikci_borcu) + '</span></div>'
        + '</div>';
-    h += '<div class="kart dn" data-sor="' + esc('Yıllık sermaye yükü 203M. Faaliyet kârımla kıyasla — değer yaratıyor muyuz?') + '">'
+    h += '<div class="kart dn" data-sor="' + esc('Yıllık sermaye yükü ' + _M(s.sermaye_yuku) + '. Faaliyet kârımla kıyasla — değer yaratıyor muyuz?') + '">'
        +   '<div style="font-size:12px;color:var(--tx-1)">Yıllık sermaye yükü</div>'
        +   '<div class="n n-buyuk d-kirmizi" style="margin:6px 0">' + _M(s.yillik_yuk) + '</div>'
-       +   '<div style="font-size:12px;color:var(--tx-2)">%40 / yıl · net üzerinden</div>'
+       +   '<div style="font-size:12px;color:var(--tx-2)">%' + (s.sermaye_maliyeti_pct || 40) + ' / yıl · net üzerinden · <span class="d-sari">⚠ varsayım</span></div>'
        + '</div>';
-    h += '<div class="kart dn" data-anahtar="stok_gun" data-sor="' + esc('Stok 131 günden 90 güne inerse ne kadar sermaye serbest kalır? Hangi ürünler?') + '">'
+    h += '<div class="kart dn" data-anahtar="stok_gun" data-sor="' + esc('Stok ' + (s.stok_gun || '—') + ' günden hedefe inerse ne kadar sermaye serbest kalır? Hangi ürünler?') + '">'
        +   '<div style="font-size:12px;color:var(--tx-1)">Stok devri</div>'
        +   '<div class="n n-buyuk d-sari" style="margin:6px 0">' + ((d.marj && d.marj.gunluk_smm) ? Math.round(Number(s.stok)/d.marj.gunluk_smm) : _tl(s.stok_gun)) + '<span style="font-size:14px;color:var(--tx-2)"> gün</span></div>'
        +   '<div style="font-size:12px;color:var(--tx-2)">' + ((d.marj && d.marj.gunluk_smm) ? 'maliyet bazlı' : 'ciro bazlı') + ' · serbest ' + _M(s.stok_serbest) + '</div>'
        + '</div>';
     // ⚠ DSO: ekranda 26,9 gorunuyordu. YALANDI.
-    h += '<div class="kart dn" data-anahtar="dso_gun" data-sor="' + esc('Gerçek DSO 116 gün. Neden tahsilat tablosu 26,9 gösteriyor? Gecikmiş alacağı müşteri bazında sırala.') + '">'
+    h += '<div class="kart dn" data-anahtar="dso_gun" data-sor="' + esc('Tahsilat süresi ' + (s.dso_gun || '—') + ' gün. Gecikmiş alacağı müşteri bazında sırala — kim, ne kadar, kaç gündür?') + '">'
        +   '<div style="font-size:12px;color:var(--tx-1)">Tahsilat süresi</div>'
        +   '<div class="n n-buyuk d-kirmizi" style="margin:6px 0">' + _tl(s.dso_gun) + '<span style="font-size:14px;color:var(--tx-2)"> gün</span></div>'
        +   '<div style="font-size:12px;color:var(--tx-2)">gecikmiş ' + _M(s.gecikmis) + ' · ' + _tl(s.gecikmis_musteri) + ' müşteri</div>'
        + '</div>';
     h += '</div>';
     h += '<div style="font-size:12px;color:var(--tx-3);margin-bottom:24px;line-height:1.6">'
-       + 'Tahsilat süresi ödemeyenleri de içerir. Sistemin daha önce gösterdiği 26,9 gün yalnızca ödeyenleri ölçüyordu.</div>';
+       + 'Tahsilat süresi ödemeyenleri de içerir. Sadece ödeyenleri ölçen bir tablo, tahsilatı olduğundan hızlı gösterir.</div>';
 
     // ── MARJ_GERCEK_V1 — ARTIK GOSTEREBILIYORUZ ───────────────────────────
     /* DUZELT3 — ⚠ MARJ EKRANDAN KALKTI.
@@ -316,9 +316,9 @@ export function initBiSurface(container, me, sub, callbacks) {
          + '</div></div>';
       // ⚠ SINIR EKRANDA. Gizlemek yerine YAZMAK.
       h += '<div style="border-top:0.5px solid var(--cizgi);padding-top:10px;font-size:12px;line-height:1.7">'
-         + '<span class="d-yesil">✅ Maliyet tabanı doğrulandı</span> <span style="color:var(--tx-3)">— SAP’ın kendi stok değeri (282,4M), bağımsız hesabımızla (268,5M) %5,1 içinde tutuyor.</span><br>'
+         + '<span class="d-yesil">✅ Maliyet tabanı doğrulandı</span> <span style="color:var(--tx-3)">— stok değeri, tedarikçi faturasındaki fiilen ödenen fiyatla hesaplanır. Doğrulama tarihçesi için sayıya tıkla.</span><br>'
          + '<span class="d-sari">⚠ Alt sınır</span> <span style="color:var(--tx-3)">— ERP maliyeti fatura maliyetidir, prim öncesidir.</span><br>'
-         + '<span class="d-sari">⚠ Marka kırılımı yok</span> <span style="color:var(--tx-3)">— ERP’nin hareketli ortalaması alış faturasından markadan markaya sapıyor (Sailun −%40, Dayton +%48). Toplamda götürüyor, marka bazında güvenilmez.</span>'
+         + '<span class="d-sari">⚠ Marka kırılımı yok</span> <span style="color:var(--tx-3)">— ERP’nin hareketli ortalaması alış faturasından markadan markaya sapıyor. Toplamda götürüyor, marka bazında güvenilmez.</span>'
          + '</div>';
       h += '<div style="display:flex;gap:8px;margin-top:12px">'
          + '<button class="dg dg-sessiz sor" data-sor="' + esc('Marka bazında marj güvenilmez çünkü ERP maliyeti alış faturasından sapıyor. Marjı ALIŞ FATURASINDAN yeniden kurabilir miyiz? Ne gerekir?') + '" style="min-height:36px;font-size:13px">Marka kırılımı nasıl gelir?</button>'
@@ -331,15 +331,15 @@ export function initBiSurface(container, me, sub, callbacks) {
       h += '<div style="font-size:15px;margin-bottom:8px">Brüt marjı henüz gösteremiyorum</div>';
       h += '<div style="font-size:13px;color:var(--tx-1);line-height:1.7;margin-bottom:12px">'
          + 'ERP’nin kaydettiği maliyet, alış faturasıyla <span class="d-sari">çelişiyor</span>. '
-         + 'Sapma markadan markaya değişiyor: Sailun −%40, Dayton +%48, Continental %1.<br>'
+         + 'Sapma markadan markaya değişiyor — bu yüzden marka bazında marj gösterilmez.<br>'
          + 'Tek kaynağa dayanan bir marj rakamı yanlış olur — ve bir bayiliği bıraktırabilir.</div>';
       h += '<div class="satir"><span>ciro (lastik ticareti)</span><span class="n">' + _M(mj.ciro) + '</span></div>';
       h += '<div class="satir"><span>prim hakedişi</span><span class="n d-yesil">' + _M(mj.prim) + '</span></div>';
       h += '<div style="font-size:12px;color:var(--tx-2);margin-top:12px;line-height:1.6">'
          + 'Doğrulamak için üçüncü bir yol gerekiyor: <span class="d-sari">stok denkliği</span> — '
-         + 'açılış stoğu + alışlar − SMM = kapanış stoğu. Kapanış biliniyor (268,5M).</div>';
+         + 'açılış stoğu + alışlar − SMM = kapanış stoğu. Kapanış biliniyor.</div>';
       h += '<div style="margin-top:12px"><button class="dg sor" data-sor="'
-         + esc('Stok denkliğiyle SMM’yi doğrula: açılış stoğu + alışlar − SMM = kapanış stoğu (268,5M). ERP maliyeti mi doğru, alış faturası mı?')
+         + esc('Stok denkliğiyle SMM’yi doğrula: açılış stoğu + alışlar − SMM = kapanış stoğu. ERP maliyeti mi doğru, alış faturası mı?')
          + '" style="min-height:38px;font-size:13px">Doğrulamayı başlat</button></div>';
       h += '</div>';
     }
@@ -399,7 +399,7 @@ export function initBiSurface(container, me, sub, callbacks) {
            + 'Personel, kira, enerji daha sayılmadı. Servis ve kaplama kârı da bunun dışında — ayrı ölçülecek.<br>'
            + 'Ciro büyütmek bunu kapatmaz: büyüdükçe bağlı sermaye de büyür.</div>';
         h += '<div style="margin-top:12px"><button class="dg sor" data-sor="'
-           + esc('Sermaye yükü 203M, lastik brüt kârı ' + Math.round(brutToplam/1e6) + 'M. Bu farkı kapatmak için ne yapmalıyım? Stok mu, tahsilat mı, marj mı — hangisi en hızlı sonuç verir?')
+           + esc('Sermaye yükü ' + _M(yuk) + ', lastik brüt kârı ' + Math.round(brutToplam/1e6) + 'M. Bu farkı kapatmak için ne yapmalıyım? Stok mu, tahsilat mı, marj mı — hangisi en hızlı sonuç verir?')
            + '" style="min-height:38px;font-size:13px">Ne yapmalıyım?</button></div>';
         h += '</div>';
       }
@@ -450,9 +450,9 @@ export function initBiSurface(container, me, sub, callbacks) {
       });
       h += '<div style="font-size:12px;color:var(--tx-2);margin-top:10px;line-height:1.6">'
          + 'Risk artık <span class="d-yesil">net pozisyona</span> göre. Karşılıklı alım yapan müşterilerde brüt alacak yanıltıcı.<br>'
-         + 'MUTAFLAR brüt 47,6M görünüyor; KRB’nin ona borcu 46,6M — <span class="d-yesil">net 1,0M, tam limitte.</span> Yönetilen mahsuplaşma.</div>';
+         + 'Karşılıklı alım yapan müşterilerde <span class="d-yesil">net pozisyon</span> gösterilir; brüt alacağa bakmak yanlış alarm üretir.</div>';
       h += '<div style="margin-top:12px"><button class="dg dg-sessiz sor" data-sor="'
-         + esc('Net risk sıralamasını aç. YEDİ OTO 30,5M limitin 2 katı, TOROS 9,5M limitin 47 katı. Bunlarda ne yapmalıyım?')
+         + esc('Net risk sıralamasını aç. Limitini aşan ve limiti hiç tanımlanmamış müşterileri ayrı ayrı listele — her biri için ne yapmalıyım?')
          + '" style="min-height:36px;font-size:13px">Aç</button></div>';
       h += '</div>';
     }
@@ -732,7 +732,7 @@ export function initBiSurface(container, me, sub, callbacks) {
       h += '<div class="etiket" style="margin-bottom:6px">RİSKLİ MÜŞTERİLER — net pozisyona göre</div>';
       h += '<div style="font-size:12px;color:var(--tx-2);margin-bottom:10px;line-height:1.6">'
          + 'Brüt alacak yanıltıcıdır: bir müşteri aynı zamanda tedarikçi olabilir. '
-         + '<b>MUTAFLAR bu listede yok</b> — brüt 47,6M ama bizim ona borcumuz 46,6M, net 1,0M, tam limitinde.</div>';
+         + 'Bize de borcu olan müşteriler <b>net pozisyonlarıyla</b> değerlendirilir; brüt alacağı limitle kıyaslamak yanlış alarm üretir.</div>';
       h += '<div class="kart">';
       RS.slice(0, 10).forEach(function(r){
         var kat = r.limit_kati;
