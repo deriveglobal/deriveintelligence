@@ -28277,18 +28277,29 @@ async function handleSahaApi(request, response, url, deps) {
         WHERE tenant_id = $1 AND id = $2 RETURNING *
       `, params);
       if (!result.rowCount) { sendJson(response, 404, { error: "Müşteri bulunamadı." }); return; }
-      // ⚠ SAHA_FIX_V1 — kapi kalkti, KAYIT kaldi. Baskasinin musterisi degistiyse iz birakir.
+      // ⚠ SAHA_DENETIM_V2 — ONCEKI HALI CALISMIYORDU VE SUSUYORDU.
+      //   'PUT /api/saha/musteriler/'||$3  ifadesinde $3'un tipi belirsizdi
+      //   ("could not determine data type of parameter $3") -> sorgu patliyordu ->
+      //   ve catch bloğu hatayi SESSIZCE YUTUYORDU. Kapiyi kaldirdik ama IZ TUTMUYORDUK:
+      //   baskasinin musterisini kimin degistirdigi HIC KAYDEDILMIYORDU.
+      //   ⚠ Sessiz veri kaybini duzeltirken sessiz veri kaybi yazmisim. Iki duzeltme:
+      //     (1) $3::text — tip artik acik.
+      //     (2) catch ARTIK SUSMUYOR. Denetim kaydi isi bloklamaz ama SESSIZ de dusmez.
       try {
         const _o = result.rows[0];
         if (_o && _o.sorumlu_rep && String(_o.sorumlu_rep) !== String(session.userId)) {
           await query(
             `INSERT INTO saha_hata_log (tenant_id, user_id, tip, view_adi, endpoint, hata_mesaji, extra)
-             VALUES ($1,$2,'DENETIM','musteri','PUT /api/saha/musteriler/'||$3,
-                     'Baskasina atanmis musteri duzenlendi', $4::jsonb)`,
-            [session.tenantId, session.userId, m[1],
-             JSON.stringify({ sahip: _o.sorumlu_rep, alanlar: Object.keys(p || {}) })]);
+             VALUES ($1, $2, 'DENETIM', 'musteri',
+                     'PUT /api/saha/musteriler/' || $3::text,
+                     'Baskasina atanmis musteri duzenlendi',
+                     $4::jsonb)`,
+            [session.tenantId, session.userId, String(m[1]),
+             JSON.stringify({ sahip: String(_o.sorumlu_rep), alanlar: Object.keys(p || {}) })]);
         }
-      } catch (_e) { /* denetim kaydi asla isi bloklamaz */ }
+      } catch (_e) {
+        console.error("[saha] DENETIM kaydi dusurulemedi:", _e && _e.message, "musteri:", m[1]);
+      }
       sendJson(response, 200, { musteri: result.rows[0] });
       return;
     }
