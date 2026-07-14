@@ -962,12 +962,48 @@ async function ziyaretFormModal(mus, mod, presetDate = null) {
       <button class="btn" id="zf-kaydet">${mod === "planla" ? "Planla" : "✓ Kaydet"}</button>
     </div>`);
 
-  // Pre-select chips from customer profile (ticari only)
+  // ⚠ PROFIL_V1 — form artik musteriyi HATIRLIYOR.
+  //   Eski hali: sadece sektorler ve tedarikci_markalar seciliydi; digerleri
+  //   her ziyarette SIFIRDAN giriliyordu ve hicbir yere birikmiyordu.
+  //   Olcum: 2.420 ziyaretin 16'sinda arac parki vardi. Cunku kimse iki kez girmez.
+  const _cip = (kap, deger) => {
+    const arr = Array.isArray(deger) ? deger : [];
+    document.querySelectorAll(`#${kap} .cip`).forEach(b => {
+      if (arr.includes(b.dataset.v)) b.classList.add('on');
+    });
+  };
+  const _say = (id, deger) => {
+    const el = document.getElementById(id);
+    if (el && deger != null && deger !== "") el.value = deger;
+  };
   if (!tuketici) {
-    const mSek = Array.isArray(mus.sektorler) ? mus.sektorler : [];
-    const mTed = Array.isArray(mus.tedarikci_markalar) ? mus.tedarikci_markalar : [];
-    document.querySelectorAll('#zf-sektorler .cip').forEach(b => { if (mSek.includes(b.dataset.v)) b.classList.add('on'); });
-    document.querySelectorAll('#zf-tedarikci .cip').forEach(b => { if (mTed.includes(b.dataset.v)) b.classList.add('on'); });
+    _cip('zf-sektorler', mus.sektorler);
+    _cip('zf-tedarikci', mus.tedarikci_markalar);
+    _cip('zf-marka',     mus.kullanilan_markalar);
+    const ap = mus.arac_parki || {};
+    _say('zf-cekici', ap.cekici); _say('zf-dorse', ap.dorse);
+    _say('zf-kamyon', ap.kamyon); _say('zf-ismak',  ap.is_makinesi);
+    _say('zf-potansiyel', mus.yillik_potansiyel);
+  } else {
+    _cip('zf-raf',     mus.raf_markalar);
+    _cip('zf-bayilik', mus.bayilikler);
+    _cip('zf-rakip',   mus.rakip_toptancilar);
+    _say('zf-kis', mus.kis_stok);
+    _say('zf-yaz', mus.yaz_stok);
+  }
+  // ⚠ BU BILGI NE ZAMANKI? Tarihi gorunmeyen bir bilgi BUGUNUN bilgisi sanilir.
+  if (mus.profil_guncel_at) {
+    const _t = new Date(mus.profil_guncel_at);
+    const _g = Math.floor((Date.now() - _t.getTime()) / 86400000);
+    const _ilk = document.querySelector('.alan-grup');
+    if (_ilk) {
+      const _uy = document.createElement('div');
+      _uy.style.cssText = 'font-size:12px;color:' + (_g > 180 ? '#b45309' : '#64748b') + ';margin:0 0 8px';
+      _uy.textContent = (_g > 180 ? '⚠ ' : '') + 'Aşağıdaki bilgiler ' +
+        _t.toLocaleDateString('tr-TR') + ' tarihli ziyaretten geliyor' +
+        (_g > 180 ? ' — ' + Math.round(_g/30) + ' ay önce. Değişmiş olabilir.' : '.');
+      _ilk.parentNode.insertBefore(_uy, _ilk);
+    }
   }
 
   const konum = { lat: null, lng: null };
@@ -1032,11 +1068,27 @@ async function ziyaretFormModal(mus, mod, presetDate = null) {
       //   Sunucu PUT'ta kabul etmiyor; arayuz yine de gonderdigi icin
       //   Eftal bugun 11:28 ve 11:54'te "Guncellenecek alan yok" (400) aldi.
       //   Sessiz 403'u duzeltirken gorunur 400 uretmisim. Kaynak: BU ISTEK.
-      // Update customer profile with sektorler + tedarikci_markalar (ticari only)
-      if (!tuketici) {
+      // ⚠ PROFIL_V1 — TUM profil musteriye yaziliyor, sadece iki alan degil.
+      //   Boylece bir sonraki ziyarette form BOMBOS acilmiyor.
+      //   ⚠ Hata artik YUTULMUYOR: .catch(()=>{}) sessiz kayip uretiyordu.
+      try {
+        const _profil = !tuketici
+          ? { sektorler: sektorSecim, tedarikci_markalar: tedarikSecim,
+              kullanilan_markalar: cipDegerler("zf-marka"),
+              arac_parki: { cekici: n("zf-cekici"), dorse: n("zf-dorse"),
+                            kamyon: n("zf-kamyon"), is_makinesi: n("zf-ismak") },
+              yillik_potansiyel: n("zf-potansiyel") }
+          : { raf_markalar: cipDegerler("zf-raf"),
+              bayilikler: cipDegerler("zf-bayilik"),
+              rakip_toptancilar: cipDegerler("zf-rakip"),
+              kis_stok: n("zf-kis"), yaz_stok: n("zf-yaz") };
         await api(`/api/saha/musteriler/${mus.id}`, {
-          method: "PUT", body: JSON.stringify({ sektorler: sektorSecim, tedarikci_markalar: tedarikSecim })
-        }).catch(() => {});
+          method: "PUT", body: JSON.stringify(_profil)
+        });
+      } catch (e) {
+        // ⚠ SUSMAZ. Profil yazilamadiysa temsilci BILSIN.
+        console.error("[saha] musteri profili yazilamadi:", e && e.message);
+        uyari("⚠ Ziyaret kaydedildi ama müşteri profili güncellenemedi: " + (e.message || ""));
       }
       kapatModal();
       if (!planla) {

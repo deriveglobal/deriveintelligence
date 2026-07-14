@@ -28501,6 +28501,29 @@ async function handleSahaApi(request, response, url, deps) {
       // Array fields — stored on customer profile, updated from visit form
       if (Array.isArray(p.sektorler)) { params.push(p.sektorler); sets.push(`sektorler = $${params.length}`); }
       if (Array.isArray(p.tedarikci_markalar)) { params.push(p.tedarikci_markalar); sets.push(`tedarikci_markalar = $${params.length}`); }
+      // ⚠ PROFIL_V1 — form bir MUSTERI PROFILI topluyordu ama sistem onu
+      //   ZIYARET FOTOGRAFI olarak sakliyordu (ziyaret.detay). Ertesi ziyarette
+      //   musteri BOMBOS aciliyordu — profil hic olusmuyordu.
+      //   Olcum: 2.420 ziyaretin 16'sinda arac parki, 7'sinde yillik potansiyel vardi.
+      //   Artik profil MUSTERIYE yaziliyor: her ziyaret profili BUYUTUR.
+      if (Array.isArray(p.kullanilan_markalar)) { params.push(p.kullanilan_markalar); sets.push(`kullanilan_markalar = $${params.length}`); }
+      if (Array.isArray(p.raf_markalar))        { params.push(p.raf_markalar);        sets.push(`raf_markalar = $${params.length}`); }
+      if (Array.isArray(p.bayilikler))          { params.push(p.bayilikler);          sets.push(`bayilikler = $${params.length}`); }
+      if (Array.isArray(p.rakip_toptancilar))   { params.push(p.rakip_toptancilar);   sets.push(`rakip_toptancilar = $${params.length}`); }
+      // ⚠ Sayilar: 0 gecerli bir deger. null "bilinmiyor" demek. Ikisi ayri.
+      for (const f of ["yillik_potansiyel", "kis_stok", "yaz_stok"]) {
+        if (Object.prototype.hasOwnProperty.call(p, f) && p[f] !== undefined) {
+          params.push(p[f] === "" ? null : p[f]); sets.push(`${f} = $${params.length}`);
+        }
+      }
+      // ⚠ arac_parki: hepsi null ise KAYDETME. "Bos nesne" = "arac parki var" gibi gorunuyordu.
+      if (p.arac_parki && typeof p.arac_parki === "object") {
+        const _v = Object.values(p.arac_parki).filter(x => x !== null && x !== undefined && x !== "" && Number(x) !== 0);
+        if (_v.length) { params.push(JSON.stringify(p.arac_parki)); sets.push(`arac_parki = $${params.length}::jsonb`); }
+      }
+      // ⚠ PROFIL TARIHI — "bu bilgi ne zamanki?" sorusunun cevabi.
+      //   Secili gelen bir bilgi, tarihi gorunmuyorsa BUGUNUN bilgisi sanilir.
+      if (sets.length) { sets.push(`profil_guncel_at = now()`); }
       // ⚠ MUKERRER_V1 — 'durum' artik hesaplaniyor; sadece durum gonderildiyse
       //   bu bir HATA DEGIL. Eftal bugun bu yuzden iki kez 400 aldi.
       if (!sets.length) {
