@@ -865,12 +865,28 @@ def turet(tenant_id, tip):
                       FROM bi_marj_fact_yeni
                      WHERE ay >= CURRENT_DATE-365 AND maliyet_kaynak <> 'yok'""")
                 m = cur.fetchone()[0]
-                if m is None or abs(float(m) - 8.3) > 3:
+                # ⚠⚠ KAPI_DINAMIK_V1 — kapi ARTIK SABIT BIR SAYIYA BAGLI DEGIL.
+                #   Eski hali: abs(m - 8.3) > 3 -> KUP KURULMAZ.
+                #   Bu kapi VERININ DEGISMEDIGINI VARSAYIYORDU.
+                #   Alti ay sonra marj gercekten %5'e duserse, kapi DOGRU kubu
+                #   "bozuk" diye reddeder ve sistem BAYAT kupte donar. Kimse fark etmez.
+                #   ⚠ Olcmesi gereken seyi olcmeyen kapi, kapi degil ENGELDIR.
+                #   ✅ Kapi artik MEVCUT KUPE bakiyor: yeni kup eskisinden 3 puandan
+                #      fazla sapiyorsa DUR. Veri degisebilir; ANI SICRAMA yakalanir.
+                cur.execute("""
+                    SELECT round(100.0*sum(brut_kar)/NULLIF(sum(ciro),0), 1)
+                      FROM bi_marj_fact
+                     WHERE ay >= CURRENT_DATE-365 AND maliyet_kaynak <> 'yok'""")
+                _e = cur.fetchone()
+                eski = float(_e[0]) if _e and _e[0] is not None else None
+                referans = eski if eski is not None else 8.1   # ilk kurulum: olculmus deger
+                if m is None or abs(float(m) - referans) > 3:
                     cur.execute("DROP TABLE IF EXISTS bi_marj_fact_yeni")
                     uyari.append(
                         f"⚠ MARJ KUBU KURULMADI: yeni kup %{m} veriyor, "
-                        f"beklenen %8,3 (±3). ESKI KUP YERINDE KALDI. "
-                        f"Bozuk bir kup, eski bir kupten kotudur.")
+                        f"mevcut kup %{referans} (±3 puan tolerans). ESKI KUP YERINDE KALDI. "
+                        f"Bozuk bir kup, eski bir kupten kotudur. "
+                        f"⚠ Marj GERCEKTEN degistiyse tolerans elle gozden gecirilmeli.")
                 else:
                     cur.execute("DROP TABLE IF EXISTS bi_marj_fact")
                     cur.execute("ALTER TABLE bi_marj_fact_yeni RENAME TO bi_marj_fact")

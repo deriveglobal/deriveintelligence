@@ -438,7 +438,14 @@ export function initBiSurface(container, me, sub, callbacks) {
         h += '<div style="font-size:12px;color:var(--tx-3);font-family:var(--mono);margin-top:3px">'
            + 'alacak ' + _M(r.brut_alacak)
            + (Number(r.krb_borcu) < 0 ? ' · KRB borcu ' + _M(r.krb_borcu) : '')
-           + (r.kredi_limiti ? ' · limit ' + _M(r.kredi_limiti) + (kat ? ' · ' + kat + ' kat' : '') : ' · limit yok')
+           // ⚠ KAT_FIX_V1 — kredi_limiti = 1 TL, JS'te TRUTHY.
+           //   Eski hali "limit 0,0M · 3.523.352 kat" yaziyordu (3,5M ÷ 1 TL).
+           //   ERP limit yoklugunu bazen 0, bazen 1 ile ifade ediyor.
+           //   "Limit ASILDI" ile "limit HIC KONULMAMIS" ayni sey degil:
+           //   birincisi ihlal (mudahale), ikincisi bosluk (KARAR).
+           + (Number(r.kredi_limiti) > 1
+                ? ' · limit ' + _M(r.kredi_limiti) + (kat ? ' · ' + kat + ' kat' : '')
+                : ' · limit TANIMSIZ')
            + '</div></div>';
       });
       h += '<div style="font-size:12px;color:var(--tx-2);margin-top:10px;line-height:1.6">'
