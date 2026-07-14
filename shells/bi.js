@@ -215,7 +215,7 @@ export function initBiSurface(container, me, sub, callbacks) {
 
 
 
-  // ── ANA_UI_V1 + MARJ_GERCEK_V1 + NET_UI_V1 — 'Bugün' odasi ────────────────────────────────────────────
+  // ── ANA_UI_V1 + MARJ_GERCEK_V1 + NET_UI_V1 + DUZELT3 — 'Bugün' odasi ────────────────────────────────────────────
   {
     const _off2 = container.querySelector('.vmo-office');
     if (_off2 && !document.getElementById('vmo-room-bugun')) {
@@ -261,7 +261,7 @@ export function initBiSurface(container, me, sub, callbacks) {
     h += '<div style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:10px;margin-bottom:8px">';
     /* NET_UI_V1 — ⚠ TEDARIKCI BORCU ARTIK GORUNUYOR. Onceki hali 'bagli sermaye 507,3M'
        diyordu; borcu (403,4M) hic saymamistim. Gercek: NET 103,9M. */
-    h += '<div class="kart dn" data-sor="' + esc('Net işletme sermayesi 104M. Brisa 319M borcu Kasım-Şubat ödenecek. Bu nakdi nereden bulacağız?') + '">'
+    h += '<div class="kart dn" data-anahtar="net_sermaye" data-sor="' + esc('Net işletme sermayesi 104M. Brisa 319M borcu Kasım-Şubat ödenecek. Bu nakdi nereden bulacağız?') + '">'
        +   '<div style="font-size:12px;color:var(--tx-1)">Net işletme sermayesi</div>'
        +   '<div class="n n-buyuk" style="margin:6px 0">' + _M(s.net_sermaye) + '</div>'
        +   '<div class="satir" style="padding:1px 0"><span>stok</span><span class="n">' + _M(s.stok) + '</span></div>'
@@ -273,13 +273,13 @@ export function initBiSurface(container, me, sub, callbacks) {
        +   '<div class="n n-buyuk d-kirmizi" style="margin:6px 0">' + _M(s.yillik_yuk) + '</div>'
        +   '<div style="font-size:12px;color:var(--tx-2)">%40 / yıl · net üzerinden</div>'
        + '</div>';
-    h += '<div class="kart dn" data-sor="' + esc('Stok 131 günden 90 güne inerse ne kadar sermaye serbest kalır? Hangi ürünler?') + '">'
+    h += '<div class="kart dn" data-anahtar="stok_gun" data-sor="' + esc('Stok 131 günden 90 güne inerse ne kadar sermaye serbest kalır? Hangi ürünler?') + '">'
        +   '<div style="font-size:12px;color:var(--tx-1)">Stok devri</div>'
        +   '<div class="n n-buyuk d-sari" style="margin:6px 0">' + ((d.marj && d.marj.gunluk_smm) ? Math.round(Number(s.stok)/d.marj.gunluk_smm) : _tl(s.stok_gun)) + '<span style="font-size:14px;color:var(--tx-2)"> gün</span></div>'
        +   '<div style="font-size:12px;color:var(--tx-2)">' + ((d.marj && d.marj.gunluk_smm) ? 'maliyet bazlı' : 'ciro bazlı') + ' · serbest ' + _M(s.stok_serbest) + '</div>'
        + '</div>';
     // ⚠ DSO: ekranda 26,9 gorunuyordu. YALANDI.
-    h += '<div class="kart dn" data-sor="' + esc('Gerçek DSO 116 gün. Neden tahsilat tablosu 26,9 gösteriyor? Gecikmiş alacağı müşteri bazında sırala.') + '">'
+    h += '<div class="kart dn" data-anahtar="dso_gun" data-sor="' + esc('Gerçek DSO 116 gün. Neden tahsilat tablosu 26,9 gösteriyor? Gecikmiş alacağı müşteri bazında sırala.') + '">'
        +   '<div style="font-size:12px;color:var(--tx-1)">Tahsilat süresi</div>'
        +   '<div class="n n-buyuk d-kirmizi" style="margin:6px 0">' + _tl(s.dso_gun) + '<span style="font-size:14px;color:var(--tx-2)"> gün</span></div>'
        +   '<div style="font-size:12px;color:var(--tx-2)">gecikmiş ' + _M(s.gecikmis) + ' · ' + _tl(s.gecikmis_musteri) + ' müşteri</div>'
@@ -289,8 +289,29 @@ export function initBiSurface(container, me, sub, callbacks) {
        + 'Tahsilat süresi ödemeyenleri de içerir. Sistemin daha önce gösterdiği 26,9 gün yalnızca ödeyenleri ölçüyordu.</div>';
 
     // ── MARJ_GERCEK_V1 — ARTIK GOSTEREBILIYORUZ ───────────────────────────
+    /* DUZELT3 — ⚠ MARJ EKRANDAN KALKTI.
+       %8,3'un arkasinda TEK kaynak var (ERP hareket maliyeti) ve o kaynak
+       ALIS FATURASIYLA CELISIYOR: markadan markaya -%40 (Sailun) / +%48 (Dayton).
+       Bir sayiyi IKI BAGIMSIZ yoldan dogrulayamiyorsam, EKRANDA DURMAMALI. */
     const mj = d.marj || {};
     if (mj.ciro) {
+      h += '<div class="kart kart-dikkat" style="margin-bottom:24px">';
+      h += '<div style="font-size:15px;margin-bottom:8px">Brüt marjı henüz gösteremiyorum</div>';
+      h += '<div style="font-size:13px;color:var(--tx-1);line-height:1.7;margin-bottom:12px">'
+         + 'ERP’nin kaydettiği maliyet, alış faturasıyla <span class="d-sari">çelişiyor</span>. '
+         + 'Sapma markadan markaya değişiyor: Sailun −%40, Dayton +%48, Continental %1.<br>'
+         + 'Tek kaynağa dayanan bir marj rakamı yanlış olur — ve bir bayiliği bıraktırabilir.</div>';
+      h += '<div class="satir"><span>ciro (lastik ticareti)</span><span class="n">' + _M(mj.ciro) + '</span></div>';
+      h += '<div class="satir"><span>prim hakedişi</span><span class="n d-yesil">' + _M(mj.prim) + '</span></div>';
+      h += '<div style="font-size:12px;color:var(--tx-2);margin-top:12px;line-height:1.6">'
+         + 'Doğrulamak için üçüncü bir yol gerekiyor: <span class="d-sari">stok denkliği</span> — '
+         + 'açılış stoğu + alışlar − SMM = kapanış stoğu. Kapanış biliniyor (268,5M).</div>';
+      h += '<div style="margin-top:12px"><button class="dg sor" data-sor="'
+         + esc('Stok denkliğiyle SMM’yi doğrula: açılış stoğu + alışlar − SMM = kapanış stoğu (268,5M). ERP maliyeti mi doğru, alış faturası mı?')
+         + '" style="min-height:38px;font-size:13px">Doğrulamayı başlat</button></div>';
+      h += '</div>';
+    }
+    if (false) {
       const stokGunSMM = mj.gunluk_smm ? Math.round(Number(s.stok) / mj.gunluk_smm) : null;
       h += '<div class="kart" style="margin-bottom:10px">';
       h += '<div class="etiket" style="margin-bottom:12px">LASTİK TİCARETİ — BRÜT MARJ</div>';
@@ -456,16 +477,103 @@ export function initBiSurface(container, me, sub, callbacks) {
     g.innerHTML = h;
 
     // dokunma noktalari + butonlar -> asistana git
-    g.querySelectorAll('.dn, .sor').forEach(function(el){
-      el.addEventListener('click', function(){
-        const q = el.dataset.sor;
-        if (q) _bugun_sor(q);
+    // ⚠ DUZELT3 — sayiya tiklamak KOKENI acar. Beyne gitmek HICBIR SEY ifade etmiyordu.
+    g.querySelectorAll('.dn').forEach(function(el){
+      el.addEventListener('click', function(e){
+        e.stopPropagation();
+        if (el.dataset.anahtar) _kokenAc(el.dataset.anahtar);
+        else if (el.dataset.sor) _bugun_sor(el.dataset.sor);
       });
+    });
+    g.querySelectorAll('.sor').forEach(function(el){
+      el.addEventListener('click', function(){ if (el.dataset.sor) _bugun_sor(el.dataset.sor); });
+    });
+    // itiraz edilen sayiya ETIKET — gizlemek yalanin devami olur
+    g.querySelectorAll('[data-anahtar]').forEach(function(el){
+      if (_itirazlar[el.dataset.anahtar]) {
+        const b = document.createElement('div');
+        b.className = 'n d-kirmizi';
+        b.style.cssText = 'font-size:11px;margin-top:4px';
+        b.textContent = '⚠ itiraz edildi (' + _itirazlar[el.dataset.anahtar] + ')';
+        el.appendChild(b);
+      }
     });
     const inp = document.getElementById('bugun-sor');
     if (inp) inp.addEventListener('keydown', function(e){
       if (e.key === 'Enter' && inp.value.trim()) { _bugun_sor(inp.value.trim()); inp.value=''; }
     });
+  }
+
+  // ── DUZELT3 / ITIRAZ_UI ──────────────────────────────────────────────────
+  // ⚠ Sayiya tiklamak KOKENI acar — beyne GITMEZ. Beyne gitmek hicbir sey ifade etmiyordu.
+  let _itirazlar = {};
+  async function _itirazlariYukle() {
+    try {
+      const r = await fetch('/api/bi/itiraz/acik', { credentials:'same-origin' });
+      const d = await r.json();
+      (d.itirazlar||[]).forEach(function(x){ _itirazlar[x.anahtar] = x.adet; });
+    } catch(e) {}
+  }
+  async function _kokenAc(anahtar) {
+    let d;
+    try {
+      const r = await fetch('/api/bi/koken?anahtar=' + encodeURIComponent(anahtar), { credentials:'same-origin' });
+      d = await r.json();
+    } catch(e) { return; }
+    const k = d.koken;
+    const eski = document.getElementById('koken-panel');
+    if (eski) eski.remove();
+    const el = document.createElement('div');
+    el.id = 'koken-panel';
+    el.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:20px';
+    let h = '<div class="kart" style="max-width:560px;width:100%;max-height:82vh;overflow-y:auto;background:var(--zemin-1);border-color:var(--cizgi-g)" onclick="event.stopPropagation()">';
+    if (!k) {
+      h += '<div style="font-size:15px;margin-bottom:8px" class="d-sari">Bu sayının kökeni kayıtlı değil</div>'
+         + '<div style="font-size:13px;color:var(--tx-1);line-height:1.6">Kaynağını söylemeyen bir sayı, uydurulmuş bir sayıdır.</div>';
+    } else {
+      const gR = k.guven === 'yuksek' ? 'd-yesil' : (k.guven === 'dusuk' || k.guven === 'yok' ? 'd-kirmizi' : 'd-sari');
+      h += '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px">'
+         + '<div style="font-size:16px">' + esc(k.baslik) + '</div>'
+         + '<div class="n ' + gR + '" style="font-size:12px">güven: ' + esc(k.guven) + '</div></div>';
+      h += '<div class="etiket" style="margin-bottom:6px">KAYNAK</div><div style="font-family:var(--mono);font-size:12px;color:var(--tx-1);margin-bottom:14px;line-height:1.6">' + esc(k.kaynak) + '</div>';
+      if (k.formul)   h += '<div class="etiket" style="margin-bottom:6px">FORMÜL</div><div style="font-family:var(--mono);font-size:12px;color:var(--tx-1);margin-bottom:14px">' + esc(k.formul) + '</div>';
+      if (k.varsayim) h += '<div class="etiket" style="margin-bottom:6px">VARSAYIM</div><div style="font-size:13px;color:var(--tx-1);margin-bottom:14px;line-height:1.6">' + esc(k.varsayim) + '</div>';
+      // ⚠ EN ONEMLI ALAN: bu sayi NEYI ICERMIYOR. Bugun her hata bir SINIR bilinmedigi icin olustu.
+      if (k.sinir) h += '<div class="etiket d-sari" style="margin-bottom:6px">SINIR — bu sayı neyi içermiyor</div>'
+                      + '<div style="font-size:13px;color:var(--sari);margin-bottom:16px;line-height:1.7;padding-left:10px;border-left:2px solid var(--sari)">'
+                      + esc(k.sinir).replace(/\n/g,'<br>') + '</div>';
+    }
+    if ((d.acik_itiraz||[]).length) {
+      h += '<div class="etiket d-kirmizi" style="margin-bottom:6px">AÇIK İTİRAZ</div>';
+      (d.acik_itiraz||[]).forEach(function(i){
+        h += '<div style="font-size:13px;color:var(--tx-1);margin-bottom:8px;padding-left:10px;border-left:2px solid var(--kirmizi);line-height:1.6">'
+           + esc(i.gerekce) + '<div style="font-size:11px;color:var(--tx-3);margin-top:2px">' + esc(i.kullanici||'') + '</div></div>';
+      });
+    }
+    h += '<div style="border-top:0.5px solid var(--cizgi);padding-top:14px;margin-top:8px">'
+       + '<div class="etiket" style="margin-bottom:8px">BU SAYI YANLIŞ MI?</div>'
+       + '<textarea id="itiraz-metin" rows="3" placeholder="Neyi kaçırıyorum? Örnek: “Mutaflar’a bizim de borcumuz var.”" style="width:100%;box-sizing:border-box;background:var(--zemin-2);border:0.5px solid var(--cizgi-g);border-radius:8px;padding:10px;color:var(--tx-0);font-size:14px;font-family:var(--sans);resize:vertical;outline:none"></textarea>'
+       + '<div style="display:flex;gap:8px;margin-top:10px">'
+       + '<button class="dg" id="itiraz-gonder" style="min-height:38px;font-size:13px">İtiraz et</button>'
+       + '<button class="dg dg-sessiz" id="koken-kapat" style="min-height:38px;font-size:13px">Kapat</button></div>'
+       + '<div id="itiraz-sonuc" style="font-size:13px;color:var(--yesil);margin-top:10px"></div></div></div>';
+    el.innerHTML = h;
+    el.addEventListener('click', function(e){ if (e.target === el) el.remove(); });
+    document.body.appendChild(el);
+    document.getElementById('koken-kapat').onclick = function(){ el.remove(); };
+    document.getElementById('itiraz-gonder').onclick = async function(){
+      const t = document.getElementById('itiraz-metin').value.trim();
+      if (!t) { document.getElementById('itiraz-metin').focus(); return; }
+      try {
+        const r = await fetch('/api/bi/itiraz', { method:'POST', credentials:'same-origin',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ anahtar: anahtar, gerekce: t }) });
+        const j = await r.json();
+        document.getElementById('itiraz-sonuc').textContent = j.mesaj || 'Not aldım.';
+        _itirazlar[anahtar] = (_itirazlar[anahtar]||0) + 1;
+        setTimeout(function(){ el.remove(); _itirazlariYukle().then(ciz_bugun); }, 1600);
+      } catch(e) { document.getElementById('itiraz-sonuc').textContent = 'Gönderilemedi.'; }
+    };
   }
 
   // Asistan odasina gecip soruyu sor
@@ -493,7 +601,7 @@ export function initBiSurface(container, me, sub, callbacks) {
     });
   }, 0);
 
-  ciz_bugun();
+  _itirazlariYukle().then(ciz_bugun);
 
   // ── Brain Room (created outside OFFICERS map) ────────────────────────────
   {
