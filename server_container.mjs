@@ -25617,9 +25617,12 @@ function buildDeptSystemPrompt(dept, context, session) {
     '    ⚠ MUSTERI BAKIYESI BURADAN. Musteri icin: WHERE musteri_mi = true.\n' +
     '  bi_cari_bakiye (tenant_id UUID): musteri_kodu, tedarikci_kodu, tedarikci_adi,\n' +
     '    musteri_bakiye, tedarikci_bakiye, net_pozisyon\n' +
-    '    ⚠⚠ RISK SORULURSA NET_POZISYON KULLAN, BRUT DEGIL. Bir musteri ayni zamanda\n' +
-    '    tedarikci olabilir. MUTAFLAR: alacak 47,5M ama bizim borcumuz 46,5M, NET 1,0M\n' +
-    '    (limiti 1,0M). Brut bakip \'limitin 47 kati\' demek YANLIS ALARM olur.\n' +
+    '    ⚠⚠ BEYIN_TEMIZ_V1 — RISK SORULURSA net_pozisyon KULLAN, brut DEGIL.\n' +
+    '    Bir musteri ayni zamanda tedarikci olabilir; ona olan borcumuz alacagimizdan\n' +
+    '    dusulur. Brut alacagi kredi limitiyle kiyaslamak YANLIS ALARM uretir.\n' +
+    '    ⚠ ORNEK VERME, SORGU CALISTIR: rakami her zaman veritabanindan oku.\n' +
+    '    (Bu prompta bir ornek musteri ve rakamlari yazilmisti; musteri borcunu\n' +
+    '     kapatinca prompt YALAN SOYLEMEYE devam ediyordu. Kaldirildi.)\n' +
     '    ⚠ bi_musteri_bakiye ARTIK KULLANILMIYOR: kolonlari kaymisti, 12 Haziran\'da oldu.\n' +
     '  bi_tedarikci_faturalari (tenant_id UUID): tedarikci_adi, fatura_tarihi, fatura_no, toplam_tutar\n' +
     '  bi_tedarikci_tesvik: marka, tesvik_adi, indirim_orani, baslangic_tarihi, bitis_tarihi\n' +
