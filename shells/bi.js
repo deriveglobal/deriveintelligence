@@ -83,6 +83,7 @@ export function initBiSurface(container, me, sub, callbacks) {
             </button>`).join("")}
           <button class="vmo-tab active" data-dept="bugun" style="--c:#8A8A8F">Bugün</button>
           <button class="vmo-tab" data-dept="veri" style="--c:#8A8A8F">Veri</button>
+          <button class="vmo-tab" data-dept="finans" style="--c:#8A8A8F">Finans</button>
           <button class="vmo-tab" data-dept="brain" style="--c:#e11d48">
             <span>🧠</span> CEO Assistant
           </button>
@@ -623,6 +624,147 @@ export function initBiSurface(container, me, sub, callbacks) {
     }
   }
 
+  // ── FINANS_UI_V1 — 'Finans' odasi ────────────────────────────────────────
+  // ⚠ Tepede GOSTERGE degil TARIH var. Bir gosterge bakilir ve unutulur; bir tarih YAKLASIR.
+  {
+    const _o = container.querySelector('.vmo-office');
+    if (_o && !document.getElementById('vmo-room-finans')) {
+      const _f = document.createElement('div');
+      _f.id = 'vmo-room-finans';
+      _f.dataset.dept = 'finans';
+      _f.className = 'vmo-room vmo-room-hidden';
+      _f.style.cssText = 'background:var(--zemin-0);color:var(--tx-0);overflow-y:auto;padding:0';
+      _f.innerHTML = '<div id="finans-govde" style="max-width:1080px;margin:0 auto;padding:26px 28px 40px"><div style="color:var(--tx-2);font-size:13px">Yükleniyor…</div></div>';
+      _o.appendChild(_f);
+    }
+  }
+
+  async function ciz_finans() {
+    const g = document.getElementById('finans-govde');
+    if (!g) return;
+    let d;
+    try {
+      const r = await fetch('/api/bi/finans', { credentials:'same-origin' });
+      const _t = await r.text();
+      // ⚠ HATA MESAJINI ATMA. "HTTP 500" deyip govdeyi cope atmak, hatayi SAKLAMAKTIR.
+      try { d = JSON.parse(_t); } catch(_) { throw new Error('HTTP ' + r.status + ' — ' + _t.slice(0,200)); }
+      if (d.error) throw new Error(d.error);
+    } catch(e) {
+      g.innerHTML = '<div class="kart kart-karar"><div class="d-kirmizi" style="font-size:14px">Finans verisi gelmedi</div>'
+                  + '<div style="font-size:13px;color:var(--tx-1);margin-top:6px;font-family:var(--mono)">' + esc(e.message) + '</div></div>';
+      return;
+    }
+
+    const S = d.sermaye || {}, OD = d.odemeler || [], RS = d.riskler || [], LB = d.limit_bosluk || {};
+    const ilk = OD[0];
+    let h = '';
+
+    if (ilk) {
+      const acil = ilk.kalan_gun < 60;
+      h += '<div class="kart ' + (acil ? 'kart-karar' : 'kart-dikkat') + '" style="margin-bottom:22px">'
+         + '<div class="etiket" style="margin-bottom:8px">EN YAKIN NAKİT ÇIKIŞI</div>'
+         + '<div class="n n-buyuk ' + (acil ? 'd-kirmizi' : 'd-sari') + '">'
+         + _M(ilk.tutar_tl) + ' ₺ · ' + ilk.kalan_gun + ' gün</div>'
+         + '<div style="font-size:14px;color:var(--tx-1);margin-top:8px;line-height:1.6">'
+         + esc(ilk.baslik) + '<br><span style="color:var(--tx-2);font-size:13px">' + esc(ilk.ozet || '') + '</span></div>'
+         + '<div class="d-sari" style="font-size:13px;margin-top:10px;padding-left:10px;border-left:2px solid var(--sari);line-height:1.6">'
+         + '⚠ Bu tarihte ne kadar tahsilat bekleniyor — <b>tanımlı değil</b>. Çıkış belli, giriş belli değil.</div>'
+         + '<button class="dg dg-sessiz sor" data-sor="' + esc(ilk.baslik + ' — o tarihe kadar hangi müşterilerden ne kadar tahsilat bekleyebiliriz? Vadesi geçmiş alacağın ne kadarı bu tarihe kadar tahsil edilebilir?')
+         + '" style="margin-top:12px;min-height:38px;font-size:13px">Bu nakdi nereden bulacağız?</button>'
+         + '</div>';
+    }
+
+    h += '<div class="etiket" style="margin-bottom:10px">NET İŞLETME SERMAYESİ</div>';
+    h += '<div class="kart" style="margin-bottom:22px">';
+    h += '<div class="dn" data-anahtar="net_sermaye" style="margin-bottom:14px;cursor:pointer">'
+       + '<div class="n n-buyuk">' + _M(S.net_sermaye) + ' ₺</div>'
+       + '<div style="font-size:13px;color:var(--tx-2);margin-top:2px">yıllık sermaye yükü ' + _M(S.yillik_yuk) + ' ₺</div></div>';
+    h += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">';
+    h += '<div class="dn" data-anahtar="stok_gun" style="cursor:pointer"><div class="etiket">STOK</div>'
+       + '<div class="n n-orta">' + _M(S.stok) + '</div></div>';
+    h += '<div class="dn" data-anahtar="alacak_bakiye" style="cursor:pointer"><div class="etiket">ALACAK</div>'
+       + '<div class="n n-orta">' + _M(S.alacak) + '</div>'
+       + '<div class="d-kirmizi" style="font-size:12px;margin-top:2px">' + _M(S.gecikmis) + ' gecikmiş</div></div>';
+    h += '<div class="dn" data-anahtar="tedarikci_borcu" style="cursor:pointer"><div class="etiket">TEDARİKÇİ BORCU</div>'
+       + '<div class="n n-orta d-yesil">−' + _M(S.borc) + '</div>'
+       + '<div style="font-size:12px;color:var(--tx-2);margin-top:2px">' + esc(String(S.en_buyuk_ad || '').slice(0,18)) + ' ' + _M(S.en_buyuk) + '</div></div>';
+    h += '</div>';
+    h += '<div style="font-size:12px;color:var(--tx-2);margin-top:12px;line-height:1.6">'
+       + 'Tedarikçi borcu yeşil çünkü <b>senin sermayeni finanse ediyor</b>. Bu borç kapandıkça bağlı sermaye artar.</div>';
+    h += '</div>';
+
+    if (OD.length) {
+      var _tp = 0;
+      OD.forEach(function(x){ _tp += Number(x.tutar_tl || 0); });
+      h += '<div class="etiket" style="margin-bottom:10px">ÖDEME TAKVİMİ — dört ayda ' + _M(_tp) + ' ₺</div>';
+      h += '<div class="kart dn" data-anahtar="brisa_takvim" style="margin-bottom:22px;cursor:pointer">';
+      OD.forEach(function(o){
+        h += '<div class="satir"><div>' + esc(o.baslik) + '</div>'
+           + '<div class="n">' + o.kalan_gun + ' gün</div></div>';
+      });
+      var _kat = Number(S.net_sermaye) > 0 ? (_tp / Number(S.net_sermaye)).toFixed(1) : '—';
+      h += '<div style="font-size:12px;color:var(--tx-2);margin-top:10px;line-height:1.6">'
+         + 'Net işletme sermayesi ' + _M(S.net_sermaye) + '. Dört aylık yükümlülük bunun <b>' + _kat + ' katı</b>.</div>';
+      h += '</div>';
+    }
+
+    if (Number(LB.musteri) > 0) {
+      var _pct = Number(LB.alacak) > 0 ? Math.round(100 * Number(LB.gecikmis) / Number(LB.alacak)) : 0;
+      h += '<div class="etiket" style="margin-bottom:10px">KREDİ POLİTİKASI</div>';
+      h += '<div class="kart kart-karar dn" data-anahtar="limitsiz_alacak" style="margin-bottom:22px;cursor:pointer">'
+         + '<div class="n n-orta d-kirmizi">' + _M(LB.alacak) + ' ₺ · ' + LB.musteri + ' müşteri</div>'
+         + '<div style="font-size:14px;color:var(--tx-1);margin-top:6px;line-height:1.6">'
+         + 'Kredi limiti <b>hiç tanımlanmamış</b> müşterilerdeki alacak. '
+         + _M(LB.gecikmis) + ' ₺ zaten gecikmiş — limitsiz verilen kredinin <b>%' + _pct + '</b>\'i geri gelmemiş.</div>'
+         + '<div class="d-sari" style="font-size:13px;margin-top:10px;padding-left:10px;border-left:2px solid var(--sari);line-height:1.6">'
+         + '⚠ Bu bir <b>ihlal</b> değil, bir <b>boşluk</b>. "Limit aşıldı" müdahale ister; "limit hiç yok" <b>karar</b> ister.</div>'
+         + '</div>';
+    }
+
+    if (RS.length) {
+      h += '<div class="etiket" style="margin-bottom:6px">RİSKLİ MÜŞTERİLER — net pozisyona göre</div>';
+      h += '<div style="font-size:12px;color:var(--tx-2);margin-bottom:10px;line-height:1.6">'
+         + 'Brüt alacak yanıltıcıdır: bir müşteri aynı zamanda tedarikçi olabilir. '
+         + '<b>MUTAFLAR bu listede yok</b> — brüt 47,6M ama bizim ona borcumuz 46,6M, net 1,0M, tam limitinde.</div>';
+      h += '<div class="kart">';
+      RS.slice(0, 10).forEach(function(r){
+        var kat = r.limit_kati;
+        var et  = (Number(r.kredi_limiti) <= 1)
+                ? '<span class="d-sari">limit YOK</span>'
+                : '<span class="' + (Number(kat) >= 10 ? 'd-kirmizi' : 'd-sari') + '">' + kat + '× limit</span>';
+        var nb  = Number(r.bizim_borcumuz || 0);
+        var alt = nb < -100000
+                ? '<div style="font-size:11px;color:var(--tx-3)">brüt ' + _M(r.brut) + ' · bizim borcumuz ' + _M(Math.abs(nb)) + '</div>'
+                : '';
+        h += '<div class="satir"><div>' + esc(String(r.musteri_adi || '').slice(0,30)) + alt + '</div>'
+           + '<div class="n">' + _M(r.net_pozisyon) + ' · ' + et + '</div></div>';
+      });
+      h += '</div>';
+    }
+
+    g.innerHTML = h;
+
+    g.querySelectorAll('.dn').forEach(function(el){
+      el.addEventListener('click', function(e){
+        e.stopPropagation();
+        if (el.dataset.anahtar) _kokenAc(el.dataset.anahtar);
+        else if (el.dataset.sor) _bugun_sor(el.dataset.sor);
+      });
+    });
+    g.querySelectorAll('.sor').forEach(function(el){
+      el.addEventListener('click', function(e){ e.stopPropagation(); if (el.dataset.sor) _bugun_sor(el.dataset.sor); });
+    });
+    g.querySelectorAll('[data-anahtar]').forEach(function(el){
+      if (_itirazlar[el.dataset.anahtar]) {
+        var b = document.createElement('div');
+        b.className = 'n d-kirmizi';
+        b.style.cssText = 'font-size:11px;margin-top:4px';
+        b.textContent = '⚠ itiraz edildi (' + _itirazlar[el.dataset.anahtar] + ')';
+        el.appendChild(b);
+      }
+    });
+  }
+
   async function ciz_veri() {
     const g = document.getElementById('veri-govde');
     if (!g) return;
@@ -770,6 +912,11 @@ export function initBiSurface(container, me, sub, callbacks) {
   container.addEventListener('click', function(e){
     const t = e.target.closest('.vmo-tab[data-dept="veri"]');
     if (t) setTimeout(ciz_veri, 60);
+  });
+  // FINANS_UI_V1
+  container.addEventListener('click', function(e){
+    const t = e.target.closest('.vmo-tab[data-dept="finans"]');
+    if (t) setTimeout(ciz_finans, 60);
   });
 
   // ── Brain Room (created outside OFFICERS map) ────────────────────────────
