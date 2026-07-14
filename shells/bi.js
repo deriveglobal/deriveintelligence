@@ -306,7 +306,8 @@ export function initBiSurface(container, me, sub, callbacks) {
     // ── KARAR KUYRUGU ─────────────────────────────────────────────────────
     h += '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:11px">'
        + '<div class="etiket">KARAR GEREKİYOR</div>'
-       + '<div style="font-size:12px;color:var(--tx-3)">' + (d.kararlar||[]).length + ' açık</div></div>';
+       + '<div style="font-size:12px;color:var(--tx-3)">' + (d.kararlar||[]).length + ' açık'
+       + (d.sinyal_yasi != null ? ' · ' + d.sinyal_yasi + ' saat önce hesaplandı' : '') + '</div></div>';
 
     (d.kararlar||[]).forEach(function(c){
       const acil = Number(c.puan) >= 50;
@@ -343,9 +344,11 @@ export function initBiSurface(container, me, sub, callbacks) {
       h += '<div class="etiket" style="margin-bottom:11px">SİSTEM NE BULDU</div>';
       h += '<div style="font-family:var(--mono);font-size:12px;color:var(--tx-2);line-height:2;margin-bottom:26px">';
       (d.vardiya||[]).forEach(function(v){
-        const t = new Date(v.olusma);
+        const t = new Date(v.zaman);
+        const c = v.durum === 'dikkat' ? 'var(--sari)' : 'var(--tx-2)';
         h += '<div><span style="color:var(--tx-3)">' + t.toLocaleDateString('tr-TR',{day:'2-digit',month:'2-digit'})
-           + ' ' + t.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'}) + '</span>  ' + esc(v.baslik) + '</div>';
+           + ' ' + t.toLocaleTimeString('tr-TR',{hour:'2-digit',minute:'2-digit'})
+           + '</span>  <span style="color:' + c + '">' + esc(v.metin) + '</span></div>';
       });
       h += '</div>';
     }

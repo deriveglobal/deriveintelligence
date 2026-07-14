@@ -23668,7 +23668,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
 
         // 3) KARAR KUYRUGU — ⚠ planli odemeler HARIC, susturulmus HARIC
         query(`
-          SELECT id, tur, baslik, ozet, tutar_tl, son_tarih, oda, eylem_var, detay,
+          SELECT id, tur, baslik, ozet, tutar_tl, son_tarih, oda, eylem_var, detay, olusma,
                  bi_sinyal_puan(tutar_tl, son_tarih, eylem_var) AS puan,
                  bi_sinyal_puan_detay(tutar_tl, son_tarih, eylem_var) AS puan_detay
             FROM bi_sinyal
@@ -23682,12 +23682,40 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
             FROM bi_sinyal
            WHERE tenant_id=$1::uuid AND durum='acik' AND tur='odeme'`, [T]),
 
-        // 5) VARDIYA DEFTERI — sistem ne yapti
+        // 5) VARDIYA_V1 — ⚠ GERCEK kaynaklar. Eskisi SAHTEYDI (6 satir, ayni damga).
         query(`
-          SELECT olusma, tur, baslik
-            FROM bi_sinyal
-           WHERE tenant_id=$1::uuid AND olusma >= now() - interval '48 hours'
-           ORDER BY olusma DESC LIMIT 6`, [T])
+          WITH kontrol AS (   -- gunluk saglik kontrolleri (ops_health)
+            SELECT checked_at AS zaman,
+                   CASE WHEN status='ok' THEN 'normal' ELSE 'dikkat' END AS durum,
+                   title || ' — ' || COALESCE(value,'') AS metin,
+                   1 AS oncelik
+              FROM ops_health
+             WHERE checked_at >= now() - interval '72 hours'
+               AND (status <> 'ok' OR check_key IN ('dq.ebat_parse','app.errors'))),
+          yukleme AS (        -- ERP yuklemeleri (bi_ingestion_log)
+            SELECT processed_at AS zaman,
+                   CASE WHEN status='ok' THEN 'normal' ELSE 'dikkat' END AS durum,
+                   query_type || ' — ' || row_count_kept || '/' || row_count_raw || ' satır' ||
+                   CASE WHEN row_count_raw > row_count_kept
+                        THEN ' (' || (row_count_raw - row_count_kept) || ' reddedildi)' ELSE '' END AS metin,
+                   2 AS oncelik
+              FROM bi_ingestion_log
+             WHERE tenant_id=$1::uuid AND processed_at >= now() - interval '72 hours'),
+          tarama AS (         -- rakip fiyat taramasi
+            SELECT max(scraped_at) AS zaman, 'normal' AS durum,
+                   'E-ticaret taraması — ' || count(*) || ' fiyat · ' ||
+                   count(DISTINCT marka) || ' marka' AS metin,
+                   3 AS oncelik
+              FROM bi_rakip_fiyat
+             WHERE scraped_at >= now() - interval '72 hours'
+             HAVING count(*) > 0)
+          SELECT zaman, durum, metin FROM (
+            SELECT * FROM kontrol UNION ALL
+            SELECT * FROM yukleme UNION ALL
+            SELECT * FROM tarama
+          ) x
+           WHERE zaman IS NOT NULL
+           ORDER BY zaman DESC LIMIT 8`, [T])
       ]);
 
       const s  = sermaye.rows[0] || {};
@@ -23734,6 +23762,11 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
           aciklama       : 'Bayilik markalarının maliyeti liste × (1−iskonto kaskadı) ile hesaplanır. İskonto kademesi olmayan kategoride maliyet bilinmiyor — marj uydurulmuyor.'
         },
         kararlar : sinyaller.rows,
+        // ⚠ SINYALLER BAYAT DEGIL (canli veriyle birebir uyusuyor) ama ANLIK GORUNTU.
+        //   Bayatligi GIZLEMIYORUZ — ne zaman hesaplandigini SOYLUYORUZ.
+        sinyal_yasi: sinyaller.rows.length
+          ? Math.round((Date.now() - new Date(sinyaller.rows[0].olusma || Date.now()).getTime())/3600000)
+          : null,
         bilgi    : odemeler.rows[0] || {},
         vardiya  : vardiya.rows
       });
