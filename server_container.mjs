@@ -23737,8 +23737,8 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
                       THEN ROUND(b.net_pozisyon / r.kredi_limiti, 1) END AS net_kat
             FROM bi_cari_bakiye b
             LEFT JOIN bi_musteri_risk r ON r.tenant_id=b.tenant_id AND r.muhatap_kodu=b.musteri_kodu
-           WHERE b.tenant_id=$2::uuid AND b.net_pozisyon > 2e6
-           ORDER BY b.net_pozisyon DESC LIMIT 6`, [T, T]),
+           WHERE b.tenant_id=$1::uuid AND b.net_pozisyon > 2e6
+           ORDER BY b.net_pozisyon DESC LIMIT 6`, [T]),
 
         // 5) VARDIYA_V1 — ⚠ GERCEK kaynaklar. Eskisi SAHTEYDI (6 satir, ayni damga).
         query(`
