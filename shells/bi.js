@@ -703,7 +703,9 @@ export function initBiSurface(container, me, sub, callbacks) {
                   + (r.mod === 'tarih_araligi' ? 'zaman serisi — aralık değiştirme' : 'anlık görüntü — tam değiştirme')
                   + '</span></div>';
     if (r.silinen != null) h += '<div class="satir"><span>silinen (aralıkta)</span><span class="n">' + Number(r.silinen).toLocaleString('tr-TR') + '</span></div>';
-    if (r.yukleme_sonrasi_mukerrer) h += '<div class="satir"><span class="d-kirmizi">⚠ yükleme sonrası mükerrer</span><span class="n d-kirmizi">' + r.yukleme_sonrasi_mukerrer + '</span></div>';
+    // ⚠ 'yukleme_sonrasi_mukerrer' YANLIS ALARMDI: ayni belge/kalem/depo
+    //   birden fazla satirda olabilir (parti, lot, farkli fiyat) — NORMAL.
+    //   Cakismayi TARIH ARALIGI DEGISTIRME cozuyor. Ekrandan kaldirildi.
 
     const t = r.tarih_onarim || {};
     if (t.takas) h += '<div class="satir"><span>tarih onarımı (gün/ay takası)</span><span class="n d-sari">' + Number(t.takas).toLocaleString('tr-TR') + '</span></div>';

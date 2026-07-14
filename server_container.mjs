@@ -23639,7 +23639,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
       const dosyaAdi = m ? m[1] : 'yukleme.xlsx';
 
       const { writeFile, unlink } = await import('node:fs/promises');
-      const yol = '/opt/krb-assessment/yukleme/' + Date.now() + '_' +
+      const yol = '/app/yukleme/' + Date.now() + '_' +   // ⚠ KONTEYNER yolu, host degil
                   dosyaAdi.replace(/[^\w.\-]/g, '_');
       await writeFile(yol, govde);
 
@@ -23647,11 +23647,17 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
       const { execFile } = await import('node:child_process');
       const sonuc = await new Promise((ok) => {
         execFile('python3',
-          ['/opt/krb-assessment/erp_ingest.py', yol, session.tenantId],
+          ['/app/erp_ingest.py', yol, session.tenantId],   // ⚠ KONTEYNER yolu
           { maxBuffer: 32 * 1024 * 1024, timeout: 20 * 60 * 1000,
             env: { ...process.env, PGPASSWORD: process.env.PGPASSWORD || '' } },
           (err, stdout, stderr) => {
-            if (err && !stdout) { ok({ ok: false, hata: String(stderr || err).slice(0, 400) }); return; }
+            if (err && !stdout) {
+              // ⚠ "Yuklenmedi" demek YETMEZ. Neden yuklenmedigini SOYLE.
+              ok({ ok: false,
+                   hata: 'Motor çalışmadı: ' + String(stderr || err.message || err).slice(0, 400),
+                   ipucu: 'Sunucu logunda ayrıntı var. Dosya yüklenmedi, eski veri yerinde.' });
+              return;
+            }
             try { ok(JSON.parse(stdout)); }
             catch (e) { ok({ ok: false, hata: 'motor çıktısı okunamadı', ham: String(stdout).slice(0, 300) }); }
           });
