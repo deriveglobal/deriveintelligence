@@ -23595,6 +23595,105 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
 }
 
 
+
+  // ── YUKLEME_V1 ────────────────────────────────────────────────────────────
+  // ⚠ Bugune kadar dosyalari BEN donusturuyordum. Sistem ayda bir BANA BAGIMLIYDI.
+  // ⚠ 5MB limiti KALKTI — dosyalar 150MB'a cikiyor.
+  // ⚠ Motor kendi kendini kalibre ediyor; ondalik basamagi DOSYADAN okuyor.
+  //   Bilmiyorsa DOKUNMUYOR ve SOYLUYOR.
+  if (request.method === 'POST' && url.pathname === '/api/bi/yukle') {
+    try {
+      const session = await requireModuleAccess(request, "intelligence");
+      const ct = request.headers['content-type'] || '';
+      if (!ct.includes('multipart/form-data')) {
+        sendJson(response, 400, { error: 'multipart/form-data gerekli' }); return;
+      }
+      const sinir = ct.split('boundary=')[1];
+      if (!sinir) { sendJson(response, 400, { error: 'boundary yok' }); return; }
+
+      // ⚠ 200MB. Eski 5MB limiti dosyalari SESSIZCE reddediyordu.
+      const parcalar = [];
+      let boyut = 0;
+      const MAKS = 200 * 1024 * 1024;
+      await new Promise((ok, hata) => {
+        request.on('data', c => {
+          boyut += c.length;
+          if (boyut > MAKS) { hata(new Error('Dosya 200MB sınırını aştı')); request.destroy(); return; }
+          parcalar.push(c);
+        });
+        request.on('end', ok);
+        request.on('error', hata);
+      });
+      const ham = Buffer.concat(parcalar);
+
+      // basit multipart ayikla — tek dosya
+      const bs = Buffer.from('--' + sinir);
+      const i0 = ham.indexOf(bs);
+      const bas = ham.indexOf(Buffer.from('\r\n\r\n'), i0);
+      const son = ham.indexOf(bs, bas);
+      if (i0 < 0 || bas < 0 || son < 0) { sendJson(response, 400, { error: 'dosya ayrıştırılamadı' }); return; }
+      const govde = ham.slice(bas + 4, son - 2);
+
+      const basliklar = ham.slice(i0, bas).toString('utf8');
+      const m = basliklar.match(/filename="([^"]+)"/);
+      const dosyaAdi = m ? m[1] : 'yukleme.xlsx';
+
+      const { writeFile, unlink } = await import('node:fs/promises');
+      const yol = '/opt/krb-assessment/yukleme/' + Date.now() + '_' +
+                  dosyaAdi.replace(/[^\w.\-]/g, '_');
+      await writeFile(yol, govde);
+
+      // ⚠ MOTORU CAGIR. Kapi duserse VERI YUKLENMEZ, eski veri yerinde kalir.
+      const { execFile } = await import('node:child_process');
+      const sonuc = await new Promise((ok) => {
+        execFile('python3',
+          ['/opt/krb-assessment/erp_ingest.py', yol, session.tenantId],
+          { maxBuffer: 32 * 1024 * 1024, timeout: 20 * 60 * 1000,
+            env: { ...process.env, PGPASSWORD: process.env.PGPASSWORD || '' } },
+          (err, stdout, stderr) => {
+            if (err && !stdout) { ok({ ok: false, hata: String(stderr || err).slice(0, 400) }); return; }
+            try { ok(JSON.parse(stdout)); }
+            catch (e) { ok({ ok: false, hata: 'motor çıktısı okunamadı', ham: String(stdout).slice(0, 300) }); }
+          });
+      });
+      await unlink(yol).catch(() => {});
+
+      sendJson(response, sonuc.ok ? 200 : 422, { dosya: dosyaAdi, boyut, ...sonuc });
+    } catch (e) { sendJson(response, 500, { error: e.message }); }
+  }
+
+  // Hangi dosyalar bekleniyor + hangisi ne zaman geldi
+  // ⚠ Sistem hangi dosyayi bekledigini BILMELI. 'account balance' AYLARDIR
+  //   gelmiyordu ve bunu TESADUFEN bulduk.
+  if (request.method === 'GET' && url.pathname === '/api/bi/yukle/durum') {
+    try {
+      const session = await requireModuleAccess(request, "intelligence");
+      const r = await query(`
+        WITH bek(tip, ad, tablo) AS (VALUES
+          ('stok_hareket',  'Stok hareketleri (stockmoving)',        'bi_stok_hareket'),
+          ('stok_anlik',    'Anlık stok (inventory)',                'bi_stok_anlik'),
+          ('musteri_risk',  'Müşteri risk raporu',                   'bi_musteri_risk'),
+          ('cari_bakiye',   'Cari bakiye (account balance)',         'bi_cari_bakiye'),
+          ('on_siparis',    'Ön sipariş',                            'bi_on_siparis')
+        )
+        SELECT b.tip, b.ad,
+               l.son, l.satir,
+               CASE WHEN l.son IS NULL THEN 'hiç gelmedi'
+                    WHEN CURRENT_DATE - l.son::date > 30 THEN 'çok bayat'
+                    WHEN CURRENT_DATE - l.son::date > 7  THEN 'bayat'
+                    ELSE 'taze' END AS durum,
+               CASE WHEN l.son IS NOT NULL
+                    THEN CURRENT_DATE - l.son::date END AS gun
+          FROM bek b
+          LEFT JOIN LATERAL (
+            SELECT max(processed_at) AS son, max(row_count_kept) AS satir
+              FROM bi_ingestion_log
+             WHERE tenant_id=$1::uuid AND query_type=b.tip) l ON true
+         ORDER BY (l.son IS NULL) DESC, l.son`, [session.tenantId]);
+      sendJson(response, 200, { dosyalar: r.rows });
+    } catch (e) { sendJson(response, 500, { error: e.message }); }
+  }
+
   // ── ITIRAZ_V1 ─────────────────────────────────────────────────────────────
   // ⚠ Kullanici "bu yanlis" dediginde sistem sayiyi SAVUNMAZ.
   //   Kaynagini acar, varsayimini gosterir, SINIRINI yazar, ogrenir.
