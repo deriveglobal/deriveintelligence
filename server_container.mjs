@@ -23893,7 +23893,14 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
                      WHERE tenant_id=$2::uuid ORDER BY tedarikci_bakiye LIMIT 1) AS en_buyuk_ad
               FROM bi_cari_bakiye WHERE tenant_id=$2::uuid),
           alacak AS (
-            SELECT COALESCE(sum(toplam_risk),0)    AS risk,
+            -- ⚠ TEK_GERCEK_V1 — 14 Tem: toplam_risk -> hesap_bakiyesi
+            --   Bugun ve Finans odalari BIRBIRINI YALANLIYORDU:
+            --     Bugun  net 103,9M · alacak 238,8M · yuk 41,6M
+            --     Finans net  74,4M · alacak 209,3M · yuk 29,7M
+            --   toplam_risk = hesap_bakiyesi + cek/senet (29,5M) + bekleyen siparis (3,8M).
+            --   ⚠ BEKLEYEN SIPARIS HENUZ PARA DEGIL — isletme sermayesinde YERI YOK.
+            --   Ayni uygulamada iki sayi olamaz. Kaynak: bi_musteri_risk.hesap_bakiyesi.
+            SELECT COALESCE(sum(hesap_bakiyesi),0) AS risk,
                    COALESCE(sum(vadesi_gecmis),0)  AS gecikmis,
                    count(*) FILTER (WHERE vadesi_gecmis>0)  AS gecikmis_musteri,
                    count(*) FILTER (WHERE limit_asimi>0)    AS limit_asan
