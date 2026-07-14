@@ -23664,7 +23664,33 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
       });
       await unlink(yol).catch(() => {});
 
-      sendJson(response, sonuc.ok ? 200 : 422, { dosya: dosyaAdi, boyut, ...sonuc });
+      // ⚠ ZINCIR_V1 — YUKLEME BITTI, AMA IS BITMEDI.
+      //   master_musteri SUNUCU ACILISINDA kuruluyordu, ERP yuklenince DEGIL.
+      //   (kanit: refreshed_at 04:58:14.237 · konteyner basladi 04:58:13.319)
+      //   Yani yeni satis faturasi yuklenir, konteyner yeniden baslamazsa:
+      //     master dunku kalir · yeni musteriler typeahead'de cikmaz ·
+      //     ciro kirilimlari eskir · durum eski master'dan hesaplanir
+      //   ve HICBIR YERDE HATA GORUNMEZ. Bugune kadar fark edilmedi cunku her
+      //   dagitimda konteyner yeniden basliyor, master TESADUFEN tazeleniyordu.
+      //   ⚠ ERP monitorunun 30 gun boyunca emekli bir hatti izlemesiyle ayni desen.
+      //   Sunucunun KENDI fonksiyonlari cagriliyor; ikinci bir SQL yazilmiyor.
+      const tazelenen = [];
+      if (sonuc.ok && ["satis_faturalari", "cari_bakiye", "musteri_risk"].includes(sonuc.tip)) {
+        try {
+          await refreshSahaMasters();       // master_musteri + kirilimlar + fiyat eslesme
+          tazelenen.push("master_musteri");
+          await refreshSahaCariCache();     // typeahead
+          tazelenen.push("cari_cache");
+          const d = await query("SELECT * FROM saha_musteri_durum_yenile()");
+          tazelenen.push(`musteri_durum (${d.rows[0]?.degisen ?? 0} kayit)`);
+        } catch (e) {
+          // ⚠ SUSMAZ. Sessiz catch = sessiz kayip. Kullanici NE TAZELENMEDIGINI gorsun.
+          console.error("[yukle] tazeleme basarisiz:", e && e.message);
+          tazelenen.push("⚠ TAZELEME HATASI: " + String(e && e.message).slice(0, 160));
+        }
+      }
+
+      sendJson(response, sonuc.ok ? 200 : 422, { dosya: dosyaAdi, boyut, ...sonuc, tazelenen });
     } catch (e) { sendJson(response, 500, { error: e.message }); }
   }
 
