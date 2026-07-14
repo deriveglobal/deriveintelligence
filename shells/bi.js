@@ -223,7 +223,8 @@ export function initBiSurface(container, me, sub, callbacks) {
       _br.id = 'vmo-room-bugun';
       _br.dataset.dept = 'bugun';
       _br.className = 'vmo-room';
-      _br.style.cssText = 'background:var(--zemin-0);overflow-y:auto;padding:0';  /* ANA_UI_FIX: display satir ici OLMAZ — .vmo-room-hidden'i ezer */
+      document.documentElement.setAttribute('data-tema','koyu');  /* BI koyu — tum odalar donusene kadar */
+      _br.style.cssText = 'background:var(--zemin-0);color:var(--tx-0);overflow-y:auto;padding:0';  /* ANA_UI_FIX: display satir ici OLMAZ — .vmo-room-hidden'i ezer */
       _br.innerHTML = '<div id="bugun-govde" style="max-width:1080px;margin:0 auto;padding:26px 28px 0"><div style="color:var(--tx-2);font-size:13px">Yükleniyor…</div></div>';
       _off2.appendChild(_br);
     }
@@ -7424,6 +7425,16 @@ body {
   .vmo-office { flex:1; overflow:hidden; position:relative; }
   .vmo-room { display:flex; height:100%; }
   .vmo-room-hidden { display:none !important; }  /* ANA_UI_FIX */
+  /* ⚠ Eski koyu-tema CSS'i (#e2e8f0 vb.) metin rengini eziyordu.
+     ID secicisi + inherit ile yeni odada TOKENLER kazansin. */
+  #vmo-room-bugun, #vmo-room-bugun * { color: inherit; }
+  #vmo-room-bugun { color: var(--tx-0) !important; background: var(--zemin-0) !important; }
+  #vmo-room-bugun .etiket { color: var(--tx-2) !important; }
+  #vmo-room-bugun .d-kirmizi { color: var(--kirmizi) !important; }
+  #vmo-room-bugun .d-sari    { color: var(--sari)    !important; }
+  #vmo-room-bugun .d-yesil   { color: var(--yesil)   !important; }
+  #vmo-room-bugun .kart      { background: var(--zemin-1) !important; border-color: var(--cizgi) !important; }
+  #vmo-room-bugun .dg        { color: var(--tx-0) !important; border-color: var(--cizgi-g) !important; }
   /* ── Hub ── */
   .vmo-hub-wrap{position:relative;width:100%;height:100%;background:radial-gradient(ellipse at 50% 42%,#0c1b3a 0%,#080818 65%);display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden}
   .vmo-hub-glow{position:absolute;top:42%;left:50%;transform:translate(-50%,-50%);width:440px;height:440px;background:radial-gradient(circle,rgba(225,29,72,0.07) 0%,transparent 70%);pointer-events:none}

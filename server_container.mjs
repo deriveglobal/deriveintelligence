@@ -23672,7 +23672,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
                  bi_sinyal_puan(tutar_tl, son_tarih, eylem_var) AS puan,
                  bi_sinyal_puan_detay(tutar_tl, son_tarih, eylem_var) AS puan_detay
             FROM bi_sinyal
-           WHERE tenant_id=$1::text AND durum='acik' AND tur <> 'odeme'
+           WHERE tenant_id=$1::uuid AND durum='acik' AND tur <> 'odeme'
            ORDER BY puan DESC LIMIT 6`, [T]),
 
         // 4) ⚠ BILGI (karar degil) — Brisa odeme takvimi
@@ -23680,13 +23680,13 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
           SELECT count(*)::int AS adet, COALESCE(sum(tutar_tl),0) AS toplam,
                  min(son_tarih) AS en_yakin
             FROM bi_sinyal
-           WHERE tenant_id=$1::text AND durum='acik' AND tur='odeme'`, [T]),
+           WHERE tenant_id=$1::uuid AND durum='acik' AND tur='odeme'`, [T]),
 
         // 5) VARDIYA DEFTERI — sistem ne yapti
         query(`
           SELECT olusma, tur, baslik
             FROM bi_sinyal
-           WHERE tenant_id=$1::text AND olusma >= now() - interval '48 hours'
+           WHERE tenant_id=$1::uuid AND olusma >= now() - interval '48 hours'
            ORDER BY olusma DESC LIMIT 6`, [T])
       ]);
 
