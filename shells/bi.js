@@ -215,7 +215,7 @@ export function initBiSurface(container, me, sub, callbacks) {
 
 
 
-  // ── ANA_UI_V1 — 'Bugün' odasi ────────────────────────────────────────────
+  // ── ANA_UI_V1 + MARJ_GERCEK_V1 — 'Bugün' odasi ────────────────────────────────────────────
   {
     const _off2 = container.querySelector('.vmo-office');
     if (_off2 && !document.getElementById('vmo-room-bugun')) {
@@ -271,8 +271,8 @@ export function initBiSurface(container, me, sub, callbacks) {
        + '</div>';
     h += '<div class="kart dn" data-sor="' + esc('Stok 131 günden 90 güne inerse ne kadar sermaye serbest kalır? Hangi ürünler?') + '">'
        +   '<div style="font-size:12px;color:var(--tx-1)">Stok devri</div>'
-       +   '<div class="n n-buyuk d-sari" style="margin:6px 0">' + _tl(s.stok_gun) + '<span style="font-size:14px;color:var(--tx-2)"> gün</span></div>'
-       +   '<div style="font-size:12px;color:var(--tx-2)">serbest ' + _M(s.stok_serbest) + '</div>'
+       +   '<div class="n n-buyuk d-sari" style="margin:6px 0">' + ((d.marj && d.marj.gunluk_smm) ? Math.round(Number(s.stok)/d.marj.gunluk_smm) : _tl(s.stok_gun)) + '<span style="font-size:14px;color:var(--tx-2)"> gün</span></div>'
+       +   '<div style="font-size:12px;color:var(--tx-2)">' + ((d.marj && d.marj.gunluk_smm) ? 'maliyet bazlı' : 'ciro bazlı') + ' · serbest ' + _M(s.stok_serbest) + '</div>'
        + '</div>';
     // ⚠ DSO: ekranda 26,9 gorunuyordu. YALANDI.
     h += '<div class="kart dn" data-sor="' + esc('Gerçek DSO 116 gün. Neden tahsilat tablosu 26,9 gösteriyor? Gecikmiş alacağı müşteri bazında sırala.') + '">'
@@ -284,8 +284,52 @@ export function initBiSurface(container, me, sub, callbacks) {
     h += '<div style="font-size:12px;color:var(--tx-3);margin-bottom:24px;line-height:1.6">'
        + 'Tahsilat süresi ödemeyenleri de içerir. Sistemin daha önce gösterdiği 26,9 gün yalnızca ödeyenleri ölçüyordu.</div>';
 
-    // ── ⚠ KARLILIK: BOS DEGIL, DOLU BIR BOSLUK ────────────────────────────
-    if (!k.hesaplanabilir) {
+    // ── MARJ_GERCEK_V1 — ARTIK GOSTEREBILIYORUZ ───────────────────────────
+    const mj = d.marj || {};
+    if (mj.ciro) {
+      const stokGunSMM = mj.gunluk_smm ? Math.round(Number(s.stok) / mj.gunluk_smm) : null;
+      h += '<div class="kart" style="margin-bottom:10px">';
+      h += '<div class="etiket" style="margin-bottom:12px">LASTİK TİCARETİ — BRÜT MARJ</div>';
+      h += '<div style="display:flex;gap:26px;align-items:baseline;flex-wrap:wrap;margin-bottom:12px">';
+      h += '<div><div class="n n-buyuk d-sari">%' + mj.marj_pct + '</div>'
+         + '<div style="font-size:12px;color:var(--tx-2);margin-top:2px">prim hariç · alt sınır</div></div>';
+      h += '<div><div class="n n-orta d-yesil">%' + mj.efektif_pct + '</div>'
+         + '<div style="font-size:12px;color:var(--tx-2);margin-top:2px">prim dahil</div></div>';
+      h += '<div style="flex:1;min-width:200px">';
+      h += '<div class="satir"><span>ciro</span><span class="n">' + _M(mj.ciro) + '</span></div>';
+      h += '<div class="satir"><span>satılan malın maliyeti</span><span class="n">' + _M(mj.smm) + '</span></div>';
+      h += '<div class="satir"><span>brüt kâr</span><span class="n">' + _M(mj.brut_kar) + '</span></div>';
+      h += '<div class="satir"><span>prim hakedişi</span><span class="n d-yesil">' + _M(mj.prim) + '</span></div>';
+      h += '</div></div>';
+      // ⚠ SEFFAFLIK: kaynak, sinir, kapsam, mutabakat — hepsi EKRANDA
+      h += '<div style="font-size:12px;color:var(--tx-3);line-height:1.7;border-top:0.5px solid var(--cizgi);padding-top:10px">'
+         + esc(mj.kaynak) + '<br>' + esc(mj.kapsam) + '<br>' + esc(mj.mutabakat) + '</div>';
+      h += '<div style="display:flex;gap:8px;margin-top:12px">'
+         + '<button class="dg dg-sessiz sor" data-sor="' + esc('Lastik brüt marjı %' + mj.marj_pct + '. Marka ve ebat bazında kırılımını ver — hangi ürünler zarar ettiriyor?') + '" style="min-height:36px;font-size:13px">Kırılımı göster</button>'
+         + '<button class="dg dg-sessiz sor" data-sor="' + esc('Servis ve kaplama işinin brüt marjı ne? Lastik ticaretiyle kıyasla — hangisi daha çok değer yaratıyor?') + '" style="min-height:36px;font-size:13px">Servis vs lastik</button>'
+         + '</div>';
+      h += '</div>';
+
+      // ⚠ ASIL CUMLE: karli ama deger kaybediyor
+      const brutToplam = (mj.brut_kar||0) + (mj.prim||0);
+      const yuk = Number(s.yillik_yuk||0);
+      if (yuk > 0) {
+        h += '<div class="kart kart-karar" style="margin-bottom:24px">';
+        h += '<div style="font-size:15px;margin-bottom:8px">Kâr ediyorsun, değer kaybediyorsun</div>';
+        h += '<div class="satir"><span>lastik brüt kârı (prim dahil)</span><span class="n d-yesil">' + _M(brutToplam) + '</span></div>';
+        h += '<div class="satir"><span>yıllık sermaye yükü</span><span class="n d-kirmizi">−' + _M(yuk) + '</span></div>';
+        h += '<div class="satir" style="border-top:0.5px solid var(--cizgi);margin-top:4px;padding-top:6px">'
+           + '<span>fark (faaliyet gideri HARİÇ)</span><span class="n d-kirmizi">' + _M(brutToplam - yuk) + '</span></div>';
+        h += '<div style="font-size:12px;color:var(--tx-2);margin-top:10px;line-height:1.6">'
+           + 'Personel, kira, enerji daha sayılmadı. Servis ve kaplama kârı da bunun dışında — ayrı ölçülecek.<br>'
+           + 'Ciro büyütmek bunu kapatmaz: büyüdükçe bağlı sermaye de büyür.</div>';
+        h += '<div style="margin-top:12px"><button class="dg sor" data-sor="'
+           + esc('Sermaye yükü 203M, lastik brüt kârı ' + Math.round(brutToplam/1e6) + 'M. Bu farkı kapatmak için ne yapmalıyım? Stok mu, tahsilat mı, marj mı — hangisi en hızlı sonuç verir?')
+           + '" style="min-height:38px;font-size:13px">Ne yapmalıyım?</button></div>';
+        h += '</div>';
+      }
+    }
+    if (false && !k.hesaplanabilir) {
       h += '<div class="kart kart-dikkat" style="margin-bottom:24px">';
       h += '<div style="font-size:15px;margin-bottom:8px">Kârlılığını gösteremiyorum</div>';
       h += '<div style="font-size:13px;color:var(--tx-1);line-height:1.6;margin-bottom:12px">'

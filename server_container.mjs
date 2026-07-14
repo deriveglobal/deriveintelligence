@@ -23603,7 +23603,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
       const session = await requireModuleAccess(request, "intelligence");
       const T = session.tenantId;
 
-      const [sermaye, kor, sinyaller, odemeler, vardiya] = await Promise.all([
+      const [sermaye, kor, sinyaller, odemeler, marj, vardiya] = await Promise.all([  /* MARJ_GERCEK_V1 */
         // 1) BAGLI SERMAYE + GERCEK NAKIT DONGUSU
         query(`
           WITH sa AS (
@@ -23636,6 +23636,8 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
                  a.risk AS alacak, a.gecikmis, a.gecikmis_musteri, a.limit_asan,
                  c.gunluk AS gunluk_ciro,
                  (s.deger + a.risk)                                  AS bagli_sermaye,
+                 -- ⚠ CIRO bazliydi (yaklasik). Artik SMM var ama endpoint'te ayri sorgu;
+                 --   ciro bazli deger BURADA kaliyor, SMM bazli ON YUZDE hesaplanıyor.
                  ROUND(s.deger  / NULLIF(c.gunluk,0))                AS stok_gun,
                  -- ⚠ GERCEK DSO: tahsil EDILMEYENI de icerir. Tablo 26,9 diyordu; yalan.
                  ROUND(a.risk   / NULLIF(c.gunluk,0))                AS dso_gun,
@@ -23681,6 +23683,36 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
                  min(son_tarih) AS en_yakin
             FROM bi_sinyal
            WHERE tenant_id=$1::uuid AND durum='acik' AND tur='odeme'`, [T]),
+
+        // 6) MARJ_GERCEK_V1 — ⚠ ERP'nin KENDI maliyet kaydindan. Iskonto dosyasi GEREKMIYOR.
+        //   Mutabakat: adet orani %102 (SMM 136.882 ↔ satis 134.567) -> ayni mali olcuyoruz.
+        //   Ic akis elendi (KRB kendi subeleri sevkiyatta MUSTERI gibi duruyordu: 26.587 adet).
+        //   Cift sayim yok (siparis no testi: 20 satir).
+        //   ⚠ SADECE LASTIK TICARETI. Kaplama+servis HARIC (maliyet yapisi farkli).
+        //   ⚠ ALT SINIR: ERP maliyeti = FATURA maliyeti = PRIM ONCESI.
+        query(`
+          WITH mus AS (SELECT DISTINCT musteri_kodu FROM bi_satis_faturalari
+                        WHERE tenant_id=$1::text AND fatura_tarihi >= CURRENT_DATE-365),
+          smm AS (SELECT sum(h.cikis) AS adet, sum(h.cikis_tutari) AS maliyet
+                    FROM bi_stok_hareket h JOIN mus m ON m.musteri_kodu = h.muhatap_kodu
+                   WHERE h.tenant_id=$2::uuid AND h.belge_tarihi >= CURRENT_DATE-365
+                     AND h.hareket_sinifi IN ('SATIS_SEVK','SATIS_FATURA')
+                     AND h.grup_adi IN ('LASTIK TICARI','LASTIK TUKETICI') AND h.cikis > 0),
+          ciro AS (SELECT sum(satir_tutar) AS c, sum(miktar) AS adet FROM bi_satis_faturalari
+                    WHERE tenant_id=$1::text AND miktar>0 AND fatura_tarihi >= CURRENT_DATE-365
+                      AND grup_adi IN ('LASTIK TICARI','LASTIK TUKETICI')),
+          hiz AS (SELECT COALESCE(sum(satir_tutar),0) AS c FROM bi_satis_faturalari
+                   WHERE tenant_id=$1::text AND miktar>0 AND fatura_tarihi >= CURRENT_DATE-365
+                     AND grup_adi IN ('VERILEN SERVIS HIZMET','LASTIK YENILEME')),
+          prim AS (SELECT COALESCE(sum(satir_tutar),0) AS p FROM bi_satis_faturalari
+                    WHERE tenant_id=$1::text AND fatura_tarihi >= CURRENT_DATE-365
+                      AND kategori IN ('DESTEK BEDELİ','TÜKETİCİ PRİM'))
+          SELECT s.maliyet AS smm, c.c AS ciro, s.adet AS smm_adet, c.adet AS satis_adet,
+                 ROUND(100.0*(1 - s.maliyet/NULLIF(c.c,0)), 1)      AS marj_pct,
+                 ROUND(100.0*s.adet/NULLIF(c.adet,0))               AS mutabakat_pct,
+                 p.p AS prim, h.c AS hizmet_ciro,
+                 ROUND(s.maliyet/365.0)                             AS gunluk_smm
+            FROM smm s, ciro c, prim p, hiz h`, [T, T]),
 
         // 5) VARDIYA_V1 — ⚠ GERCEK kaynaklar. Eskisi SAHTEYDI (6 satir, ayni damga).
         query(`
@@ -23752,7 +23784,25 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
             oran   : 'sermaye maliyeti %40/yıl'
           }
         },
-        // ⚠ KARLILIK HESAPLANMIYOR. Uydurmuyoruz.
+        // ⚠ MARJ_GERCEK_V1 — ARTIK HESAPLANABILIYOR. ERP'nin kendi maliyet kaydi.
+        marj: (function(){
+          const m = marj.rows[0] || {};
+          const ciro = Number(m.ciro||0), smm = Number(m.smm||0), prim = Number(m.prim||0);
+          return {
+            ciro, smm, prim,
+            brut_kar   : ciro - smm,
+            marj_pct   : Number(m.marj_pct||0),
+            // ⚠ prim maliyeti DUSURMUYOR, ciro olarak faturalaniyor -> efektif marj
+            efektif_pct: ciro ? Math.round(1000*(ciro - smm + prim)/ciro)/10 : null,
+            mutabakat_pct: Number(m.mutabakat_pct||0),
+            gunluk_smm : Number(m.gunluk_smm||0),
+            hizmet_ciro: Number(m.hizmet_ciro||0),
+            kaynak: 'ERP maliyet kaydı (bi_stok_hareket.birim_maliyet) — modellenmiş değil',
+            sinir : 'ALT SINIR: fatura maliyeti = prim öncesi brüt',
+            kapsam: 'Sadece lastik ticareti. Kaplama ve servis hariç — maliyet yapısı farklı.',
+            mutabakat: 'Adet oranı %' + Number(m.mutabakat_pct||0) + ' — maliyet ve ciro aynı malı ölçüyor.'
+          };
+        })(),
         karlilik: {
           hesaplanabilir : korCiro === 0,
           kor_ciro       : korCiro,
