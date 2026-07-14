@@ -28093,7 +28093,12 @@ async function handleSahaApi(request, response, url, deps) {
       let sql = `
         SELECT m.*, u.full_name AS sorumlu_rep_adi,
                sz.son_ziyaret, sz.ziyaret_sayisi,
-               erp.erp_fatura_sayisi, erp.erp_ilk_satis, erp.erp_son_satis,
+               mm2.fatura_sayisi AS erp_fatura_sayisi,
+               mm2.ilk_fatura    AS erp_ilk_satis,
+               mm2.son_fatura    AS erp_son_satis,
+               mm2.toplam_ciro   AS erp_toplam_ciro,
+               mm2.son_bakiye    AS erp_bakiye,
+               mm2.vadesi_gecmis AS erp_vadesi_gecmis,
                COALESCE(m.vergi_no, mm.vergi_no) AS kimlik_vergi_no,
                COALESCE(m.tc_no, mm.tc_no) AS kimlik_tc_no,
                CASE
@@ -28112,13 +28117,12 @@ async function handleSahaApi(request, response, url, deps) {
         ) sz ON true
         -- ⚠ DURUM_TURETILIYOR — ekranda ETIKET degil KANIT dursun.
         --   Temsilci "yeni nokta" yazisini degil, "1.453 fatura · son satis 10 Tem"i gorsun.
-        LEFT JOIN LATERAL (
-          SELECT count(*) AS erp_fatura_sayisi,
-                 min(f.fatura_tarihi) AS erp_ilk_satis,
-                 max(f.fatura_tarihi) AS erp_son_satis
-          FROM bi_satis_faturalari f
-          WHERE m.musteri_kodu IS NOT NULL AND f.musteri_kodu = m.musteri_kodu
-        ) erp ON true
+        -- ⚠ KANIT_MASTER — kaynak bi_satis_faturalari degil, master_musteri.
+        --   Ikisi BIREBIR AYNI (38.627/38.627, sapma 0 gun — olculdu), ama master zaten
+        --   hesapli: her istekte fatura tablosunu taramaya gerek yok. Ve TEK GERCEK olur.
+        --   Ustelik ciro/bakiye/vadesi_gecmis de buradan gelir.
+        LEFT JOIN master_musteri mm2
+          ON mm2.tenant_id = m.tenant_id AND mm2.musteri_kodu = m.musteri_kodu
         LEFT JOIN LATERAL (
           SELECT COUNT(*) AS aktif_teklif
           FROM saha_teklif t
