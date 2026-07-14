@@ -608,6 +608,7 @@ async function ziyaretDetayModal(zid) {
     <div class="modal-btnlar">
       <button class="btn gri" data-kapat>Kapat</button>
       <button class="btn cizgili" id="det-duzenle">✏️ Düzenle</button>
+      <button class="btn cizgili" id="det-sil" style="color:#dc2626;border-color:#fecaca">🗑 Sil</button>
       <button class="btn" id="det-teklif">＋ Teklif</button>
     </div>`);
 
@@ -615,6 +616,37 @@ async function ziyaretDetayModal(zid) {
     kapatModal(); teklifFormModal({ id: z.musteri_id, firma: z.firma }, zid);
   });
 
+  // ⚠ ZIYARET_SIL_V1 — UYARI TAHMIN DEGIL SAYIM.
+  //   "Emin misiniz?" hicbir sey anlatmaz. "2 fotograf, 1 rakip fiyat" anlatir.
+  const _silBtn = document.getElementById("det-sil");
+  if (_silBtn) _silBtn.addEventListener("click", async () => {
+    let o;
+    try { o = await api(`/api/saha/ziyaretler/${zid}/silme-onizleme`); }
+    catch (e) { uyari(e.message); return; }
+    if (!o.silebilir) { uyari(o.neden || "Bu ziyareti silemezsiniz."); return; }
+    const kayiplar = [];
+    if (o.not_uzunluk > 0) kayiplar.push(`${o.not_uzunluk} karakterlik ziyaret notu`);
+    if (o.foto > 0)        kayiplar.push(`${o.foto} fotoğraf`);
+    if (o.teklif > 0)      kayiplar.push(`${o.teklif} rakip fiyat kaydı`);
+    const liste = kayiplar.length
+      ? kayiplar.map(k => "• " + k).join("\n")
+      : "• (bu ziyarette not, fotoğraf veya rakip fiyat kaydı yok)";
+    const ok = confirm(
+      `${o.firma || "Ziyaret"} — ${o.tarih || ""}\n\n` +
+      `Bu ziyaret KALICI OLARAK silinecek.\n\nSilinecekler:\n${liste}\n\n` +
+      `⚠ Geri alınamaz.`);
+    if (!ok) return;
+    _silBtn.disabled = true; _silBtn.textContent = "Siliniyor…";
+    try {
+      await api(`/api/saha/ziyaretler/${zid}`, { method: "DELETE" });
+      kapatModal();
+      uyari("✓ Ziyaret silindi.", true);
+      await loadView("ziyaretler");
+    } catch (e) {
+      _silBtn.disabled = false; _silBtn.textContent = "🗑 Sil";
+      uyari(e.message);
+    }
+  });
   document.getElementById("det-duzenle")?.addEventListener("click", () => {
     kapatModal(); ziyaretDuzenleModal(z);
   });

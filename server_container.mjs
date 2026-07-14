@@ -28697,6 +28697,101 @@ async function handleSahaApi(request, response, url, deps) {
       return;
     }
 
+    // ── ZIYARET_SIL_V1 ────────────────────────────────────────────────────
+    // ⚠ Eftal'in onerisi (0a12fe05): "Ziyaret kayitlarinin silinebilmesi."
+    //   Mukerrer kaydin SEBEBINI kestik; bu, yanlislikla acilan kayitlar icin.
+    //
+    // ⚠ SILME ONIZLEME — kullanici NE KAYBEDECEGINI RAKAMLA gorsun.
+    //   "Emin misiniz?" hicbir sey anlatmaz. "2 fotograf, 1 rakip fiyat" anlatir.
+    if (method === "GET" && (m = path.match(new RegExp(`^/api/saha/ziyaretler/(${SAHA_UUID_RE})/silme-onizleme$`)))) {
+      const session = await requireSahaAccess(request);
+      const r = await query(`
+        SELECT z.id, z.rep_id, z.durum, z.ziyaret_tarihi,
+               coalesce(length(z.notlar),0) AS not_uzunluk,
+               mu.firma,
+               (SELECT count(*) FROM saha_ziyaret_foto f WHERE f.ziyaret_id = z.id)   AS foto,
+               (SELECT count(*) FROM saha_rakip_teklif t WHERE t.ziyaret_id = z.id)   AS teklif
+          FROM saha_ziyaret z
+          LEFT JOIN saha_musteri mu ON mu.id = z.musteri_id
+         WHERE z.tenant_id=$1 AND z.id=$2`, [session.tenantId, m[1]]);
+      if (!r.rowCount) { sendJson(response, 404, { error: "Ziyaret bulunamadı." }); return; }
+      const z = r.rows[0];
+      const kendisi = String(z.rep_id) === String(session.userId);
+      const yonetici = session.sahaRole !== "rep";
+      // ⚠ ZAMAN SINIRI — temsilci sadece BUGUN ve DUNKU ziyaretini silebilir.
+      //   Daha eskisi rapora, prime, gecmise girmis olabilir. Yonetici SINIRSIZ.
+      const _t = z.ziyaret_tarihi ? new Date(z.ziyaret_tarihi) : null;
+      const _gun = _t ? Math.floor((Date.now() - _t.getTime()) / 86400000) : 0;
+      const zamanOk = yonetici || _gun <= 1;
+      let neden = null;
+      if (!kendisi && !yonetici)      neden = "Bu ziyaret size ait değil.";
+      else if (!zamanOk)              neden = "Sadece bugünkü ve dünkü ziyaretler silinebilir. Daha eskisi için yöneticine yaz.";
+      sendJson(response, 200, {
+        firma: z.firma, tarih: z.ziyaret_tarihi, durum: z.durum,
+        not_uzunluk: Number(z.not_uzunluk),
+        foto: Number(z.foto), teklif: Number(z.teklif),
+        gun: _gun,
+        silebilir: (kendisi || yonetici) && zamanOk,
+        neden: neden
+      });
+      return;
+    }
+
+    // ⚠ SILME — geri alinamaz. Arsive kopyalanir, iz birakilir.
+    if (method === "DELETE" && (m = path.match(new RegExp(`^/api/saha/ziyaretler/(${SAHA_UUID_RE})$`)))) {
+      const session = await requireSahaAccess(request);
+      const r = await query(
+        `SELECT * FROM saha_ziyaret WHERE tenant_id=$1 AND id=$2`, [session.tenantId, m[1]]);
+      if (!r.rowCount) { sendJson(response, 404, { error: "Ziyaret bulunamadı." }); return; }
+      const z = r.rows[0];
+      // ⚠ Temsilci SADECE kendi ziyaretini siler. Silme geri alinamaz — ayri muamele.
+      if (session.sahaRole === "rep" && String(z.rep_id) !== String(session.userId)) {
+        sendJson(response, 403, { error: "Sadece kendi ziyaretinizi silebilirsiniz." }); return;
+      }
+      // ⚠ ZAMAN SINIRI — temsilci: BUGUN + DUN. Yonetici: sinirsiz.
+      //   Bir gunden eski ziyaret rapora, prime, gecmise girmis olabilir.
+      //   Kapiyi SUNUCUDA tutuyorum; arayuz kapisi kullanicinin insafina kalir.
+      if (session.sahaRole === "rep" && z.ziyaret_tarihi) {
+        const _g = Math.floor((Date.now() - new Date(z.ziyaret_tarihi).getTime()) / 86400000);
+        if (_g > 1) {
+          sendJson(response, 403, {
+            error: "Sadece bugünkü ve dünkü ziyaretler silinebilir. Daha eskisi için yöneticine yaz."
+          });
+          return;
+        }
+      }
+      const _f = await query(`SELECT count(*) n FROM saha_ziyaret_foto WHERE ziyaret_id=$1`, [m[1]]);
+      const _t = await query(`SELECT count(*) n FROM saha_rakip_teklif WHERE ziyaret_id=$1`, [m[1]]);
+      try {
+        // ⚠ ARSIV. Kullaniciya "geri alinamaz" diyoruz ve arayuzde geri alma YOK.
+        //   Ama veri kaybi SESSIZ olmuyor. Bugun butun gun sessiz kaybi kovaladik.
+        await query(`
+          INSERT INTO saha_ziyaret_silinen
+          SELECT z.*, $2::uuid, $3::text, now(), $4::int, $5::int
+            FROM saha_ziyaret z WHERE z.id = $1`,
+          [m[1], session.userId, session.name || session.email || "", Number(_f.rows[0].n), Number(_t.rows[0].n)]);
+      } catch (e) {
+        console.error("[saha] silme arsivi yazilamadi:", e && e.message);
+        sendJson(response, 500, { error: "Arşiv yazılamadı, silme yapılmadı." }); return;
+      }
+      // ⚠ Bagli kayitlar da gider. Ziyaret yoksa fotografin anlami yok.
+      await query(`DELETE FROM saha_rakip_teklif WHERE ziyaret_id=$1`, [m[1]]);
+      await query(`DELETE FROM saha_ziyaret_foto  WHERE ziyaret_id=$1`, [m[1]]);
+      await query(`DELETE FROM saha_ziyaret       WHERE tenant_id=$1 AND id=$2`, [session.tenantId, m[1]]);
+      // ⚠ IZ. Kim, ne zaman, neyi.
+      try {
+        await query(
+          `INSERT INTO saha_denetim (tenant_id, user_id, eylem, varlik, varlik_id, sahip_id, alanlar, detay)
+           VALUES ($1,$2,'ZIYARET_SIL','saha_ziyaret',$3::uuid,$4::uuid,ARRAY['silindi']::text[],$5::jsonb)`,
+          [session.tenantId, session.userId, m[1], z.rep_id,
+           JSON.stringify({ musteri_id: z.musteri_id, tarih: z.ziyaret_tarihi,
+                            not_uzunluk: (z.notlar || "").length,
+                            foto: Number(_f.rows[0].n), teklif: Number(_t.rows[0].n) })]);
+      } catch (e) { console.error("[saha] silme izi dusurulemedi:", e && e.message); }
+      sendJson(response, 200, { ok: true, silinen: m[1] });
+      return;
+    }
+
     if (method === "PUT" && (m = path.match(new RegExp(`^/api/saha/ziyaretler/(${SAHA_UUID_RE})$`)))) {
       const session = await requireSahaAccess(request);
       const p = await readJson(request);
