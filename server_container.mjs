@@ -27655,6 +27655,17 @@ async function refreshSahaMasters(db) {
   //   Yeni: 38.403 musteri · 12 Temmuz · bakiye 209,3M · vadesi gecmis 145,4M
   //         -> ALACAGIN %69'U GECIKMIS.
   //   ⚠ Eskiden master'in 38.628 musterisinin sadece 372'sinde bakiye vardi.
+  // ⚠ KALINTI_TEMIZ — ONCE SIL, SONRA YAZ.
+  //   Ilk denemede sadece ESLESEN satirlari guncelledim; eslesmeyenler
+  //   olu tablodan kalma 12 Haziran degerlerini KORUDU (9,7M kalinti).
+  //   Yeni dogruyu yazip eski yalani silmemek — bugun defalarca kovaladigim desen.
+  //   ⚠ 0 YAZMIYORUM: 0 "borcu yok" demektir. Dogrusu BILINMIYOR -> NULL.
+  await client.query(`
+    UPDATE master_musteri
+       SET son_bakiye = NULL, vadesi_gecmis = NULL,
+           kredi_limiti = NULL, toplam_risk = NULL,
+           bizim_borcumuz = NULL, net_pozisyon = NULL, risk_tarihi = NULL
+  `);
   await client.query(`
     UPDATE master_musteri mm
     SET son_bakiye    = r.hesap_bakiyesi,
