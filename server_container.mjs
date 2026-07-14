@@ -23603,7 +23603,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
       const session = await requireModuleAccess(request, "intelligence");
       const T = session.tenantId;
 
-      const [sermaye, kor, sinyaller, odemeler, marj, vardiya] = await Promise.all([  /* MARJ_GERCEK_V1 */
+      const [sermaye, kor, sinyaller, odemeler, marj, netrisk, vardiya] = await Promise.all([  /* MARJ_GERCEK_V1 */
         // 1) BAGLI SERMAYE + GERCEK NAKIT DONGUSU
         query(`
           WITH sa AS (
@@ -23620,6 +23620,15 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
               FROM bi_stok_anlik st
               LEFT JOIN sa ON sa.sku=bi_sku_norm(st.kalem_kodu)
              WHERE st.tenant_id=$2::uuid AND st.adet>0),
+          -- ⚠ NET_UI_V1 — TEDARIKCI BORCU. Bunu saymadigim icin 'bagli sermaye 507,3M'
+          --   demis, 'deger kaybediyorsun' TEZI kurmustum. IKISI DE YANLISTI.
+          --   Gercek: 268,5 + 238,8 - 403,4 = 103,9M net · yuk 41,6M · brut kar ~96M
+          borc AS (
+            SELECT COALESCE(abs(sum(tedarikci_bakiye) FILTER (WHERE tedarikci_bakiye<0)),0) AS tutar,
+                   COALESCE(abs(min(tedarikci_bakiye)),0) AS en_buyuk,
+                   (SELECT tedarikci_adi FROM bi_cari_bakiye
+                     WHERE tenant_id=$2::uuid ORDER BY tedarikci_bakiye LIMIT 1) AS en_buyuk_ad
+              FROM bi_cari_bakiye WHERE tenant_id=$2::uuid),
           alacak AS (
             SELECT COALESCE(sum(toplam_risk),0)    AS risk,
                    COALESCE(sum(vadesi_gecmis),0)  AS gecikmis,
@@ -23635,14 +23644,16 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
           SELECT s.deger AS stok, s.taahhutlu, s.serbest, s.adet,
                  a.risk AS alacak, a.gecikmis, a.gecikmis_musteri, a.limit_asan,
                  c.gunluk AS gunluk_ciro,
+                 b.tutar AS tedarikci_borcu, b.en_buyuk AS en_buyuk_borc, b.en_buyuk_ad,
+                 (s.deger + a.risk - b.tutar)                        AS net_sermaye,
                  (s.deger + a.risk)                                  AS bagli_sermaye,
                  -- ⚠ CIRO bazliydi (yaklasik). Artik SMM var ama endpoint'te ayri sorgu;
                  --   ciro bazli deger BURADA kaliyor, SMM bazli ON YUZDE hesaplanıyor.
                  ROUND(s.deger  / NULLIF(c.gunluk,0))                AS stok_gun,
                  -- ⚠ GERCEK DSO: tahsil EDILMEYENI de icerir. Tablo 26,9 diyordu; yalan.
                  ROUND(a.risk   / NULLIF(c.gunluk,0))                AS dso_gun,
-                 ROUND((s.deger + a.risk) * 0.40)                    AS sermaye_yuku
-            FROM stok s, alacak a, ciro c`, [T, T]),
+                 ROUND((s.deger + a.risk - b.tutar) * 0.40)         AS sermaye_yuku
+            FROM stok s, alacak a, ciro c, borc b`, [T, T]),
 
         // 2) ⚠ KOR NOKTA — SADECE bayilik markalarinda anlamli.
         //    Net-fiyat markalarinin maliyeti son alistir ve DOGRUDUR.
@@ -23714,6 +23725,21 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
                  ROUND(s.maliyet/365.0)                             AS gunluk_smm
             FROM smm s, ciro c, prim p, hiz h`, [T, T]),
 
+        // 7) NET_UI_V1 — ⚠ RISK BRUT ALACAGA DEGIL, NET POZISYONA gore.
+        //   MUTAFLAR brut 47,6M ama NET 1,0M (limit 1,0M): YONETILEN MAHSUPLASMA.
+        //   47.556.434 - 46.555.721 = 1.000.714. Tesadüf DEGIL — iliski yonetiliyor.
+        //   Sistem bunu 'limitin 138 kati' diye HER GUN bagiriyordu.
+        query(`
+          SELECT b.tedarikci_adi AS musteri, b.musteri_kodu,
+                 b.musteri_bakiye AS brut_alacak, b.tedarikci_bakiye AS krb_borcu,
+                 b.net_pozisyon AS net, r.kredi_limiti,
+                 CASE WHEN r.kredi_limiti > 0
+                      THEN ROUND(b.net_pozisyon / r.kredi_limiti, 1) END AS net_kat
+            FROM bi_cari_bakiye b
+            LEFT JOIN bi_musteri_risk r ON r.tenant_id=b.tenant_id AND r.muhatap_kodu=b.musteri_kodu
+           WHERE b.tenant_id=$2::uuid AND b.net_pozisyon > 2e6
+           ORDER BY b.net_pozisyon DESC LIMIT 6`, [T, T]),
+
         // 5) VARDIYA_V1 — ⚠ GERCEK kaynaklar. Eskisi SAHTEYDI (6 satir, ayni damga).
         query(`
           WITH kontrol AS (   -- gunluk saglik kontrolleri (ops_health)
@@ -23770,6 +23796,10 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
           stok_taahhut : Number(s.taahhutlu||0),
           alacak       : Number(s.alacak||0),
           gecikmis     : Number(s.gecikmis||0),
+          tedarikci_borcu : Number(s.tedarikci_borcu||0),
+          en_buyuk_borc   : Number(s.en_buyuk_borc||0),
+          en_buyuk_ad     : s.en_buyuk_ad || '',
+          net_sermaye     : Number(s.net_sermaye||0),
           gecikmis_musteri: Number(s.gecikmis_musteri||0),
           limit_asan   : Number(s.limit_asan||0),
           stok_gun     : Number(s.stok_gun||0),
@@ -23811,6 +23841,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
           eksik          : eksik,
           aciklama       : 'Bayilik markalarının maliyeti liste × (1−iskonto kaskadı) ile hesaplanır. İskonto kademesi olmayan kategoride maliyet bilinmiyor — marj uydurulmuyor.'
         },
+        net_risk : netrisk.rows,
         kararlar : sinyaller.rows,
         // ⚠ SINYALLER BAYAT DEGIL (canli veriyle birebir uyusuyor) ama ANLIK GORUNTU.
         //   Bayatligi GIZLEMIYORUZ — ne zaman hesaplandigini SOYLUYORUZ.
