@@ -25528,12 +25528,23 @@ function buildDeptSystemPrompt(dept, context, session) {
     '  bi_satis_faturalari (tenant_id TEXT): marka, musteri_adi, musteri_kodu, satir_tutar,\n' +
     '    para_birimi, miktar, fatura_tarihi, satis_temsilcisi, grup_adi, kategori, ebat,\n' +
     '    kalem_kodu, kalem_tanimi, depo_adi, sube, odeme_kosulu, fatura_no, vade_tarihi\n' +
-    '  bi_stok_durumu (tenant_id UUID): kalem_kodu, kalem_tanimi, grup_adi, kategori, marka,\n' +
-    '    depo, eldeki_miktar, siparis_miktar, min_stok, birim_maliyet, toplam_deger, export_date\n' +
-    '  bi_musteri_bakiye (tenant_id UUID): musteri_kodu, musteri_adi, bakiye, vade_tarihi\n' +
+    '  bi_stok_anlik (tenant_id UUID): kalem_kodu, kalem_tanimi, marka, depo,\n' +
+    '    miktar, birim_maliyet, toplam_deger, export_date   [CANLI stok]\n' +
+    '  bi_musteri_risk (tenant_id UUID): muhatap_kodu, muhatap_adi, musteri_mi,\n' +
+    '    hesap_bakiyesi, vadesi_gecmis, kredi_limiti, limit_asimi, toplam_risk,\n' +
+    '    odenmemis_cekler, odenmemis_senetler, cek_senet_riski, export_date\n' +
+    '    ⚠ MUSTERI BAKIYESI BURADAN. Musteri icin: WHERE musteri_mi = true.\n' +
+    '  bi_cari_bakiye (tenant_id UUID): musteri_kodu, tedarikci_kodu, tedarikci_adi,\n' +
+    '    musteri_bakiye, tedarikci_bakiye, net_pozisyon\n' +
+    '    ⚠⚠ RISK SORULURSA NET_POZISYON KULLAN, BRUT DEGIL. Bir musteri ayni zamanda\n' +
+    '    tedarikci olabilir. MUTAFLAR: alacak 47,5M ama bizim borcumuz 46,5M, NET 1,0M\n' +
+    '    (limiti 1,0M). Brut bakip \'limitin 47 kati\' demek YANLIS ALARM olur.\n' +
+    '    ⚠ bi_musteri_bakiye ARTIK KULLANILMIYOR: kolonlari kaymisti, 12 Haziran\'da oldu.\n' +
     '  bi_tedarikci_faturalari (tenant_id UUID): tedarikci_adi, fatura_tarihi, fatura_no, toplam_tutar\n' +
     '  bi_tedarikci_tesvik: marka, tesvik_adi, indirim_orani, baslangic_tarihi, bitis_tarihi\n' +
-    '  bi_stok_hareketleri (tenant_id UUID): kalem_kodu, belge_tarihi, hareket_tipi, miktar\n' +
+    '  bi_stok_hareket (tenant_id UUID): kalem_kodu, belge_tarihi, giris, cikis,\n' +
+    '    giris_tutari, cikis_tutari, depo, hareket_sinifi   [CANLI — 579.771 satir]\n' +
+    '    ⚠ bi_stok_hareketleri (sonu -leri) ARTIK KULLANILMIYOR: 358.028 satirda donmus.\n' +
     'DİKKAT: bi_satis_faturalari.tenant_id TEXT, digerleri UUID. Cross-join gerekirse ::text cast.\n' +
     '$1 = tenant UUID (otomatik enjekte edilir).\n' +
     'Ogrenilenlerini save_note ile kaydet.';
@@ -27536,7 +27547,11 @@ async function refreshSahaCariCache(db) {
     INSERT INTO saha_cari_cache (tenant_id, musteri_kodu, musteri_adi)
     SELECT tenant_id::uuid, musteri_kodu, musteri_adi FROM (
       SELECT DISTINCT ON (tenant_id, musteri_kodu) tenant_id, musteri_kodu, musteri_adi
-      FROM bi_musteri_bakiye
+      -- ⚠ BAKIYE_NET_V2 — typeahead OLU tablodan besleniyordu: 399 cari, 12 Haziran.
+      --   Artik canli risk raporundan: 38.403 cari, 12 Temmuz.
+      --   "Musteriyi aramada bulamiyorum" sikayetinin sebebi buydu.
+      FROM (SELECT tenant_id, muhatap_kodu AS musteri_kodu, muhatap_adi AS musteri_adi, export_date
+              FROM bi_musteri_risk WHERE musteri_mi) x
       WHERE musteri_kodu IS NOT NULL AND NULLIF(TRIM(musteri_adi), '') IS NOT NULL
       ORDER BY tenant_id, musteri_kodu, export_date DESC
     ) b
@@ -27634,14 +27649,51 @@ async function refreshSahaMasters(db) {
       WHERE mm.tenant_id = g.tid AND mm.musteri_kodu = g.musteri_kodu
     `);
   } catch (e) { console.error("master_musteri gecikme hesabı atlandı:", e.message); }
+  // ⚠ BAKIYE_NET_V2 — KAYNAK: bi_musteri_bakiye (OLU) -> bi_musteri_risk (CANLI)
+  //   Eski: 399 musteri · 12 Haziran · KOLONLARI KAYMIS ("bakiye" dedigi 145,4M,
+  //         aslinda VADESI GECMIS tutardi; "vadesi_gecmis" 663,5M diyordu — imkansiz)
+  //   Yeni: 38.403 musteri · 12 Temmuz · bakiye 209,3M · vadesi gecmis 145,4M
+  //         -> ALACAGIN %69'U GECIKMIS.
+  //   ⚠ Eskiden master'in 38.628 musterisinin sadece 372'sinde bakiye vardi.
   await client.query(`
     UPDATE master_musteri mm
-    SET son_bakiye = b.bakiye, vadesi_gecmis = b.vadesi_gecmis_tutar
+    SET son_bakiye    = r.hesap_bakiyesi,
+        vadesi_gecmis = r.vadesi_gecmis,
+        kredi_limiti  = r.kredi_limiti,
+        toplam_risk   = r.toplam_risk,
+        risk_tarihi   = r.export_date
     FROM (
-      SELECT DISTINCT ON (tenant_id, musteri_kodu) tenant_id, musteri_kodu, bakiye, vadesi_gecmis_tutar
-      FROM bi_musteri_bakiye ORDER BY tenant_id, musteri_kodu, export_date DESC
-    ) b
-    WHERE mm.tenant_id = b.tenant_id::uuid AND mm.musteri_kodu = b.musteri_kodu
+      SELECT DISTINCT ON (tenant_id, muhatap_kodu)
+             tenant_id, muhatap_kodu, hesap_bakiyesi, vadesi_gecmis,
+             kredi_limiti, toplam_risk, export_date
+        FROM bi_musteri_risk WHERE musteri_mi
+       ORDER BY tenant_id, muhatap_kodu, export_date DESC
+    ) r
+    WHERE mm.tenant_id = r.tenant_id AND mm.musteri_kodu = r.muhatap_kodu
+  `);
+  // ⚠ NET POZISYON — ERP'NIN KENDI KOLONU. Formulu BEN YAZMIYORUM.
+  //   Bir musteri ayni zamanda tedarikci olabilir (KRB ona da borclu).
+  //   MUTAFLAR: alacak 47.556.434 · bizim borcumuz -46.555.721 · NET 1.000.714 (limit 1.000.000)
+  //   Brut bakmak yanilticidir: sistem MUTAFLAR'a "limitin 138 kati" diye bagiriyordu.
+  //   ⚠ Netlestirmeyi kendim hesaplamaya kalktim ve isareti ters aldim:
+  //     tedarikci_bakiye NEGATIF geliyor; "brut - borc" yazinca 47,5M -> 94,1M oldu.
+  //     Duzeltmeye calistigim yalanin iki katini urettim. Bu yuzden: KOLONU OKU.
+  await client.query(`
+    UPDATE master_musteri mm
+    SET bizim_borcumuz = c.tedarikci_bakiye,
+        net_pozisyon   = c.net_pozisyon
+    FROM (
+      SELECT DISTINCT ON (tenant_id, musteri_kodu)
+             tenant_id, musteri_kodu, tedarikci_bakiye, net_pozisyon
+        FROM bi_cari_bakiye WHERE musteri_kodu IS NOT NULL
+       ORDER BY tenant_id, musteri_kodu, export_date DESC
+    ) c
+    WHERE mm.tenant_id = c.tenant_id AND mm.musteri_kodu = c.musteri_kodu
+  `);
+  // Netlestirmesi olmayan musteride net = brut.
+  await client.query(`
+    UPDATE master_musteri SET net_pozisyon = son_bakiye
+     WHERE net_pozisyon IS NULL AND son_bakiye IS NOT NULL
   `);
   // 2. master_urun — kalem bazında katalog + istatistikler
   await client.query(`
