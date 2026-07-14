@@ -28093,6 +28093,7 @@ async function handleSahaApi(request, response, url, deps) {
       let sql = `
         SELECT m.*, u.full_name AS sorumlu_rep_adi,
                sz.son_ziyaret, sz.ziyaret_sayisi,
+               erp.erp_fatura_sayisi, erp.erp_ilk_satis, erp.erp_son_satis,
                COALESCE(m.vergi_no, mm.vergi_no) AS kimlik_vergi_no,
                COALESCE(m.tc_no, mm.tc_no) AS kimlik_tc_no,
                CASE
@@ -28109,6 +28110,15 @@ async function handleSahaApi(request, response, url, deps) {
           FROM saha_ziyaret z
           WHERE z.musteri_id = m.id AND z.durum = 'TAMAMLANDI'
         ) sz ON true
+        -- ⚠ DURUM_TURETILIYOR — ekranda ETIKET degil KANIT dursun.
+        --   Temsilci "yeni nokta" yazisini degil, "1.453 fatura · son satis 10 Tem"i gorsun.
+        LEFT JOIN LATERAL (
+          SELECT count(*) AS erp_fatura_sayisi,
+                 min(f.fatura_tarihi) AS erp_ilk_satis,
+                 max(f.fatura_tarihi) AS erp_son_satis
+          FROM bi_satis_faturalari f
+          WHERE m.musteri_kodu IS NOT NULL AND f.musteri_kodu = m.musteri_kodu
+        ) erp ON true
         LEFT JOIN LATERAL (
           SELECT COUNT(*) AS aktif_teklif
           FROM saha_teklif t
@@ -28247,7 +28257,14 @@ async function handleSahaApi(request, response, url, deps) {
           sendJson(response, 400, { error: "Geçersiz temsilci." }); return;
         }
       }
-      const fields = ["tip", "firma", "musteri_kodu", "il", "ilce", "segment", "durum",
+      // ⚠ DURUM_TURETILIYOR — 'durum' listeden CIKARILDI.
+      //   durum artik ELLE YAZILMIYOR: ERP satis gecmisinden hesaplaniyor
+      //   (saha_musteri_durum_yenile(), her ERP yuklemesinde tazelenir).
+      //   Onceden elle seciliyordu ve kimse guncellemiyordu: 1.028 musterinin
+      //   674'u yanlisti. 201 musteriye BU AY fatura kesilmisken ekran "eski nokta"
+      //   diyordu; PRATIK OTOMOTIV'in 1.453 faturasi vardi ve "YENI NOKTA" yaziyordu.
+      //   Alan hesaplaniyorsa, elle secim onu TEKRAR BOZAR. Bu yuzden kabul edilmiyor.
+      const fields = ["tip", "firma", "musteri_kodu", "il", "ilce", "segment",
                       "lat", "lng", "telefon", "yetkili", "notlar", "sorumlu_rep"];
       const sets = [];
       const params = [session.tenantId, m[1]];
