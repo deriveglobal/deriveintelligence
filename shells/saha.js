@@ -995,12 +995,11 @@ async function ziyaretFormModal(mus, mod, presetDate = null) {
           method: "POST", body: JSON.stringify({ data: f, mime: "image/jpeg" })
         }).catch(() => {});
       }
-      const durumSecim = document.getElementById("zf-durum")?.value;
-      if (durumSecim) {
-        await api(`/api/saha/musteriler/${mus.id}`, {
-          method: "PUT", body: JSON.stringify({ durum: durumSecim })
-        }).catch(() => {});
-      }
+      // ⚠ UC_ARIZA_V1 — 'durum' ARTIK GONDERILMIYOR.
+      //   durum ERP satis gecmisinden HESAPLANIYOR (saha_musteri_durum_yenile).
+      //   Sunucu PUT'ta kabul etmiyor; arayuz yine de gonderdigi icin
+      //   Eftal bugun 11:28 ve 11:54'te "Guncellenecek alan yok" (400) aldi.
+      //   Sessiz 403'u duzeltirken gorunur 400 uretmisim. Kaynak: BU ISTEK.
       // Update customer profile with sektorler + tedarikci_markalar (ticari only)
       if (!tuketici) {
         await api(`/api/saha/musteriler/${mus.id}`, {
@@ -1251,11 +1250,7 @@ async function planTamamlaModal(z) {
       for (const f of fotolar) {
         await api(`/api/saha/ziyaretler/${z.id}/foto`, { method: "POST", body: JSON.stringify({ data: f, mime: "image/jpeg" }) }).catch(() => {});
       }
-      // Update nokta durumu (tuketici)
-      const durumSecim = tuketici ? document.getElementById("pt-durum")?.value : null;
-      if (durumSecim && z.musteri_id) {
-        await api(`/api/saha/musteriler/${z.musteri_id}`, { method: "PUT", body: JSON.stringify({ durum: durumSecim }) }).catch(() => {});
-      }
+      // ⚠ UC_ARIZA_V1 — 'durum' ARTIK GONDERILMIYOR (ERP'den hesaplaniyor).
       // Update customer profile with sektorler + tedarikci_markalar (ticari)
       if (!tuketici && z.musteri_id) {
         await api(`/api/saha/musteriler/${z.musteri_id}`, { method: "PUT", body: JSON.stringify({ sektorler: sektorSecim, tedarikci_markalar: tedarikSecim }) }).catch(() => {});
@@ -5370,6 +5365,10 @@ async function vPiyasa() {
 }
 
 function rakipFiyatModal(onSave) {
+  // ⚠ UC_ARIZA_V1 — 'g' bu kapsamda TANIMLI DEGILDI.
+  //   Eftal 14 Tem 10:17 ve 10:23'te 16 kez denedi: "Can't find variable: g".
+  //   Piyasa ekraninin UC BUTONU DA bu yuzden oluydu.
+  const g = id => document.getElementById(id)?.value.trim() || "";
   modal(`
     <h3>🏁 Rakip Fiyat Ekle</h3>
     <label>Rakip Marka *<input class="giris" id="rf-marka" placeholder="Michelin, Pirelli…"></label>
@@ -5390,6 +5389,8 @@ function rakipFiyatModal(onSave) {
 }
 
 function dosyaYukleModal(onSave) {
+  // ⚠ UC_ARIZA_V1 — 'g' bu kapsamda da yoktu.
+  const g = id => document.getElementById(id)?.value.trim() || "";
   modal(`
     <h3>📎 Dosya / Foto Yükle</h3>
     <label>Tür<select class="giris" id="dy-tip"><option value="FIYAT_LISTESI">📋 Fiyat Listesi</option><option value="KAMPANYA">🎯 Kampanya Broşürü</option><option value="RAKIP_TEKLIF">🏁 Rakip Teklif</option><option value="DIGER">📎 Diğer</option></select></label>
@@ -5419,6 +5420,8 @@ function dosyaYukleModal(onSave) {
 }
 
 function piyasaNotuModal(onSave) {
+  // ⚠ UC_ARIZA_V1 — 'g' bu kapsamda da yoktu.
+  const g = id => document.getElementById(id)?.value.trim() || "";
   modal(`
     <h3>📝 Piyasa Notu Paylaş</h3>
     <label>Başlık *<input class="giris" id="pn-baslik" placeholder="ör. Michelin zam yaptı"></label>

@@ -26161,16 +26161,15 @@ function buildDeptSystemPrompt(dept, context, session) {
                 'ekraninda GERCEKTEN patlayan hatalar; bunlari kucumseme.',
               BILINEN_SORUNLAR: [
                 'ERP VERISI 13.07 GECESI TAMAMEN YENIDEN YUKLENDI (BAYAT_V2). ' +
+                'Satis: 364.785 satir (2021-10 .. 2026-07). Alis: 146.680 satir. ' +
+                'Haziran 2026 cirosu = 121,76 M TL — Fatih Bilen\'in 09.07\'de soyledigi 121,79M ile ORTUSUYOR. ' +
                 'ESKI SORUN NEYDI: (a) SAP tarihleri GG/AA yazar, Excel AA/GG okuyordu; gunu <=12 olan ' +
                 'faturalar Agustos-Aralik\'a savruluyordu — Haziran yarim gorunuyordu. (b) Export SADECE ' +
-                'lastik kalem gruplarini iceriyordu; servis/jant/aku/yedek parca hic yoktu. IKISI DE DUZELTILDI. ' +
-                '⚠ SATIR SAYISI, AY CIROSU, KALEM PAYI GIBI RAKAMLAR BURADA YAZILI DEGILDIR — sorgudan oku. ' +
-                '⚠ "Artik rakamlara guvenilebilir" DEME. Bu kosulsuz bir guven beyanidir ve bir sonraki ' +
-                'bozuk yuklemede de ayni seyi soyler. Verinin saglikli oldugunu iddia etmeden once ' +
-                'bi_ingestion_log\'a bak: son yukleme ne zaman, kac satir reddedildi.',
-                'ALIS VADESI ARTIK HESAPLANIYOR: onceden vade_tarihi TAMAMEN NULL\'du. Ortalama alis vadesi ' +
-                'yillar icinde KISALDI — tedarikciler KRB\'nin vadesini daraltti. Bu, sistemin ilk kez ' +
-                'gorebildigi bir sey. ⚠ Gun sayilari burada YAZILI DEGILDIR: bi_tedarikci_faturalari\'ndan hesapla.',
+                'lastik kalem gruplarini iceriyordu; servis/jant/aku/yedek parca (cironun ~%26\'si) hic yoktu. ' +
+                'IKISI DE DUZELTILDI. Artik ciro rakamlarina guvenilebilir.',
+                'ALIS VADESI ARTIK HESAPLANIYOR: onceden 28.252 satirin TAMAMINDA vade_tarihi NULL\'du. ' +
+                'Ortalama alis vadesi 2021\'de 66,7 gun iken 2025\'te 40,7 gune dusmus — tedarikciler ' +
+                'KRB\'nin vadesini 4 yilda 26 gun kismis. Bu, sistemin ilk kez gorebildigi bir sey.',
                 'DKIM/DMARC yayinlanmadi (deriveglobal.com) — bildirim e-postalari Junk klasorune dusuyor.',
                 'Ticari (kamyon/van) pazar verisi 12.07\'ye kadar BOZUKTU (ebat parse hatasi); duzeltildi.',
                 'Asistan yanitlari max_tokens=1024 ile KESILIYORDU; "gonderiyorum" deyip eylem yapamiyordu. ' +
@@ -26627,17 +26626,8 @@ async function _buildBrainPrompt(tenantId) {
               (t.assigned_to ? ' → ' + t.assigned_to : '') +
               (t.due_date ? ' (📅 ' + t.due_date + ')' : '')
             ).join('\n');
-          } else {
-            tasksCtx = '\n\nAçık görev YOK. Tüm görevler kapalı.';
           }
-          tasksCtx += '\n⚠ BU LİSTE TAMDIR — şu an veritabanından okundu. Burada olmayan bir görev' +
-                      ' AÇIK DEĞİLDİR. Geçmiş konuşmalardan görev hatırlama; kapatılmış olabilir.' +
-                      ' Bir görevi "gecikmiş" ya da "açık" diye ancak BU listede görüyorsan söyle.';
-        } catch (_te) {
-          console.error('[brain] gorev listesi OKUNAMADI:', _te.message);
-          tasksCtx = '\n\n⚠ GÖREV LİSTESİ OKUNAMADI. Görevler hakkında HİÇBİR ŞEY söyleme —' +
-                     ' "açık görev yok" da deme, "gecikmiş görev var" da deme. Bilmiyorsun.';
-        }
+        } catch {}
         let notesCtx = '';
         try {
           const r = await query('SELECT content FROM brain_notes WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 5', [tenantId]);
@@ -26675,16 +26665,7 @@ async function _buildBrainPrompt(tenantId) {
           const r = await query('SELECT role, content FROM brain_conversations WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 30', [tenantId]);
           hist = r.rows.reverse();
         } catch {}
-        // ⚠ GECMIS_ZEHRI_V1 — 14 Tem. KOK NEDEN BURASIYDI.
-        //   14 Tem sabahi karsilama, Fatih Bilen'e "3 acik gecikmis gorev" dedi.
-        //   Ucu de 13 Tem'de 'done' idi. tasksCtx sorgusu DOGRUYDU.
-        //   Model sorguyu degil, gecmisteki KENDI dunku cumlesini okudu ve tekrarladi.
-        //   Ve o listeden hukum kurdu: "ciro/stok rakamlari guvenilmez" — oysa duzelmisti.
-        //   Bir KARSILAMA, o anki durumun BEYANIDIR. Gecmis miras ALMAZ.
-        const _isGreet = !!body.is_greeting;
-        const messages = (!_isGreet && hist.length)
-          ? hist.map(r => ({ role: r.role, content: r.content }))
-          : [{ role: 'user', content: userMsg }];
+        const messages = hist.length ? hist.map(r => ({ role: r.role, content: r.content })) : [{ role: 'user', content: userMsg }];
         if (messages[messages.length - 1].content !== userMsg || messages[messages.length - 1].role !== 'user') {
           messages.push({ role: 'user', content: userMsg });
         }
@@ -26699,7 +26680,7 @@ async function _buildBrainPrompt(tenantId) {
             const _mail = (_who.rows[0] || {}).email || '';
             if (_mail === 'fbilen@krb.com.tr') {
               // CANLI rakamlar — hicbiri sabit yazilmadi.
-              const [_kam, _lassa, _ucuz, _haz] = await Promise.all([
+              const [_kam, _lassa, _ucuz] = await Promise.all([
                 query(`SELECT count(*)::int AS ilan, count(DISTINCT marka)::int AS marka,
                               count(DISTINCT kaynak)::int AS pazaryeri
                          FROM bi_rakip_fiyat
@@ -26716,23 +26697,10 @@ async function _buildBrainPrompt(tenantId) {
                          SELECT DISTINCT ON (sm_key) sm_key, kaynak FROM bi_rakip_fiyat_son
                           WHERE sm_key IS NOT NULL ORDER BY sm_key, fiyat ASC) t
                         GROUP BY kaynak ORDER BY n DESC LIMIT 1`)
-                ,
-                // ⚠ HAZIRAN CIROSU — CANLI. Onceden 121,76 diye SABIT yaziliydi ve altinda
-                //   "Rakamlari DEGISTIRME" yaziyordu. ERP yeniden yuklenip Haziran kayarsa,
-                //   sabit sayi adama hala "senin rakamin" derdi. Simdi her acilista SAYILIYOR.
-                query("SELECT round(sum(satir_tutar)/1000000.0, 2)::text AS m_tl, count(*)::int AS satir" +
-                      "  FROM bi_satis_faturalari" +
-                      " WHERE tenant_id=$1::text" +
-                      "   AND fatura_tarihi >= DATE '2026-06-01'" +
-                      "   AND fatura_tarihi <  DATE '2026-07-01'", [tenantId])
               ]);
               const k = _kam.rows[0] || {};
               const l = _lassa.rows[0] || {};
               const u = _ucuz.rows[0] || {};
-              const h = _haz.rows[0] || {};
-              // ⚠ KAPI: sayi yoksa BRIFING HIC GOSTERILMEZ. Sessizce "0 M TL" yazmaktansa
-              //   ozru hic soylememek yeglenir. catch (_be) bunu loglar.
-              if (!h.m_tl) throw new Error('brisa: Haziran cirosu okunamadi — brifing gosterilmiyor');
               systemPrompt += `
 
 ## ⚠ BU KARSILAMA OZEL — TEK SEFERLIK "UYANDIM" BRIFINGI (Fatih Bilen)
@@ -26756,9 +26724,8 @@ Bu karsilamayi SEN yaz, kendi sesinle. Su akista:
      yarisi kayboldu — veri hep oradaydi, YANLIS AYA yazilmisti.
    • Ayrica export SADECE lastik kalemlerini iceriyordu. Servis, jant, aku,
      yedek parca — cironun dortte biri — sisteme HIC girmemisti.
-   Ikisi de duzeltildi. 6 yil yeniden yuklendi: ${h.satir || 0} satis satiri.
-   HAZIRAN 2026 = ${h.m_tl} M TL. Senin rakamin. Artik ayni seyi konusuyoruz.
-   (Bu sayi SU AN veritabanindan okundu — sabit yazilmadi. Veri degisirse yeniden sayilir.)
+   Ikisi de duzeltildi. 6 yil yeniden yuklendi: 364.785 satis satiri.
+   HAZIRAN 2026 = 121,76 M TL. Senin rakamin. Artik ayni seyi konusuyoruz.
 
    Bunu ovunerek degil, HESAP VERIR gibi soyle. Yanlis teshis koydugunu da
    sakla-ma. Onemli olan: bu sefer konusmadi, YAPILDI.
@@ -26777,7 +26744,7 @@ Bu karsilamayi SEN yaz, kendi sesinle. Su akista:
 
 4) KAPAT: bugun ne yapmak istedigini sor.
    Soz VERME — soz vermeyi zaten cok yaptin. Bunun yerine kontrol etmesini iste:
-   "Haziran'i sor bana. ${h.m_tl} diyorsam dogrudur; degilse yuzume vur."
+   "Haziran'i sor bana. 121,76 diyorsam dogrudur; degilse yuzume vur."
    Kendi cumlenle kur, ama TON bu olsun: guven talep etme, DOGRULANMAYI iste.
 
 TON: sicak, zeki, hafif ozelestirili, ABARTMA. Emoji en fazla 1-2.
@@ -28501,15 +28468,7 @@ async function handleSahaApi(request, response, url, deps) {
       // Array fields — stored on customer profile, updated from visit form
       if (Array.isArray(p.sektorler)) { params.push(p.sektorler); sets.push(`sektorler = $${params.length}`); }
       if (Array.isArray(p.tedarikci_markalar)) { params.push(p.tedarikci_markalar); sets.push(`tedarikci_markalar = $${params.length}`); }
-      // ⚠ MUKERRER_V1 — 'durum' artik hesaplaniyor; sadece durum gonderildiyse
-      //   bu bir HATA DEGIL. Eftal bugun bu yuzden iki kez 400 aldi.
-      if (!sets.length) {
-        if (Object.prototype.hasOwnProperty.call(p, "durum")) {
-          sendJson(response, 200, { ok: true, not: "Nokta durumu artık ERP satış geçmişinden otomatik hesaplanıyor; elle güncellenmiyor." });
-          return;
-        }
-        sendJson(response, 400, { error: "Güncellenecek alan yok." }); return;
-      }
+      if (!sets.length) { sendJson(response, 400, { error: "Güncellenecek alan yok." }); return; }
       const result = await query(`
         UPDATE saha_musteri SET ${sets.join(", ")}, updated_at = now()
         WHERE tenant_id = $1 AND id = $2 RETURNING *
@@ -28599,11 +28558,7 @@ async function handleSahaApi(request, response, url, deps) {
         JOIN saha_musteri m ON m.id = z.musteri_id
         LEFT JOIN users u ON u.id = z.rep_id
         LEFT JOIN saha_musteri_lokasyon l ON l.id = z.lokasyon_id
-        -- ⚠ MUKERRER_V1 — eski hali TUM foto tablosunu grupluyordu (her cagrida).
-        --   Yavaslik mukerrer kayit URETIYORDU: kullanici "olmadi" sanip tekrar basiyordu.
-        LEFT JOIN LATERAL (
-          SELECT count(*) AS foto_sayisi FROM saha_ziyaret_foto f WHERE f.ziyaret_id = z.id
-        ) fot ON true
+        LEFT JOIN (SELECT ziyaret_id, COUNT(*) AS foto_sayisi FROM saha_ziyaret_foto GROUP BY ziyaret_id) fot ON fot.ziyaret_id = z.id
         WHERE z.tenant_id = $1`;
       if (session.sahaRole === "rep") {
         params.push(session.userId);
@@ -28636,29 +28591,6 @@ async function handleSahaApi(request, response, url, deps) {
         [session.tenantId, p.musteri_id]);
       if (!mus.rowCount) { sendJson(response, 404, { error: "Müşteri bulunamadı." }); return; }
       const tamamla = p.tamamla === true;
-      // ⚠⚠ MUKERRER_V1 — AYNI KAYDI IKI KEZ YAZMA.
-      //   Sistemde 35 mukerrer grup, 37 fazladan kayit vardi.
-      //   HARUN BOZBAG: 1,16 saniye arayla iki kayit (cift tiklama).
-      //   UZUNLAR (Huseyin): 33 saniye — ve o saatlerde YAVAS_API uyarilari.
-      //   ZINCIR: yavas kaydet -> kullanici "olmadi" saniyor -> tekrar basiyor -> IKI KAYIT.
-      //   ⚠ Eftal "silme butonu" istedi. Hakli — ama silme SEBEBI DURDURMAZ.
-      //   Ayni rep + ayni musteri + ayni gun, son 3 dakika icinde kayit varsa:
-      //   YENI KAYIT ACMA, MEVCUDU DONDUR. Kullanici icin fark yok; veri temiz kalir.
-      const _tarih = tamamla ? (p.ziyaret_tarihi || new Date().toISOString().slice(0, 10)) : null;
-      if (tamamla) {
-        const _var = await query(`
-          SELECT * FROM saha_ziyaret
-           WHERE tenant_id=$1 AND musteri_id=$2 AND rep_id=$3
-             AND ziyaret_tarihi=$4 AND durum='TAMAMLANDI'
-             AND created_at > now() - interval '3 minutes'
-           ORDER BY created_at DESC LIMIT 1`,
-          [session.tenantId, p.musteri_id, session.userId, _tarih]);
-        if (_var.rowCount) {
-          console.warn("[saha] mukerrer ziyaret engellendi:", session.userId, p.musteri_id, _tarih);
-          sendJson(response, 200, { ziyaret: _var.rows[0], asistan: null, mukerrer_engellendi: true });
-          return;
-        }
-      }
       const result = await query(`
         INSERT INTO saha_ziyaret (tenant_id, musteri_id, rep_id, tip, durum,
                                   planlanan_tarih, ziyaret_tarihi, katilimci, notlar, detay, lokasyon_id, created_by)
