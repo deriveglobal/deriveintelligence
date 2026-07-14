@@ -6,6 +6,7 @@
 # then pings the app to email NEW critical incidents (Graph email lives in app).
 # It NEVER remediates — observe & report only. Stdlib only (no pip deps).
 import subprocess, uuid, re
+import datetime as _dt   # MONITOR_TABLO
 
 PGBASE = ["docker", "exec", "-i", "krb-assessment-postgres", "psql",
           "-U", "assessment_app", "-d", "assessment_platform", "-tA", "-F", "|", "-c"]
@@ -42,15 +43,52 @@ sw = float(ayar("scrape_warn_hours", "36")); sc = float(ayar("scrape_crit_hours"
 dw = float(ayar("disk_warn_pct", "80"));  dc = float(ayar("disk_crit_pct", "90"))
 
 # ─── A) PIPELINE ────────────────────────────────────────────────────────────
+# ─── MONITOR_TABLO ───────────────────────────────────────────────────────────
+# ⚠ LOGU DEGIL, TABLOLARIN KENDISINI oku.
+#   Log = yukleyicinin SOYLEDIGI · tablo = GERCEKTE OLAN.
+#   bi_ingestion_log'da Haziran'in EMEKLI query_type'lari duruyordu
+#   (stok_durumu, musteri_bakiye, odeme_gecmisi, stok_hareketleri) ->
+#   monitor HAKLI olarak "31,9 gundur beslenmiyor" diyordu -> 4 SAHTE crit.
+#   Her gun 4 sahte crit ureten alarm, insanlari alarma BAKMAMAYA egitir;
+#   gercek yangin o zaman gorulmez.
+# ⚠ Yeni besleme eklenince BU LISTEYE eklenir — tek dogruluk kaynagi.
+BESLEMELER = [
+    ("satis_faturalari", "bi_satis_faturalari",     "export_date", None),
+    ("tedarikci_fatura", "bi_tedarikci_faturalari", "export_date", None),
+    ("stok_anlik",       "bi_stok_anlik",           "export_date", "ingested_at"),
+    ("musteri_risk",     "bi_musteri_risk",         "export_date", "ingested_at"),
+    ("stok_hareket",     "bi_stok_hareket",         None,          "ingested_at"),
+    ("cari_bakiye",      "bi_cari_bakiye",          "export_date", "ingested_at"),
+]
 ing = []
-for qt, days in psql("SELECT query_type, ROUND(EXTRACT(EPOCH FROM now()-MAX(processed_at))/86400,1) "
-                     "FROM bi_ingestion_log GROUP BY query_type"):
-    d = float(days); st = "crit" if d > ic else ("warn" if d > iw else "ok"); ing.append(st)
-    add("pipeline.ingest.%s" % qt, "pipeline", "ERP aktarim: %s" % qt, st,
-        "%.1f gun" % d, "Son islenen veri %.1f gun once." % d, d)
+for _ad, _tab, _kol, _yed in BESLEMELER:
+    try:
+        if _kol and _yed:
+            _sql = "SELECT GREATEST(MAX(%s)::date, MAX(%s)::date), COUNT(*) FROM %s" % (_kol, _yed, _tab)
+        else:
+            _sql = "SELECT MAX(%s)::date, COUNT(*) FROM %s" % (_kol or _yed, _tab)
+        _r = psql(_sql)
+        if not _r or _r[0][0] in (None, ""):
+            add("pipeline.ingest.%s" % _ad, "pipeline", "ERP aktarim: %s" % _ad, "crit",
+                "veri yok", "Tablo BOS: %s" % _tab, None)
+            ing.append("crit"); continue
+        _son = _r[0][0]; _n = int(_r[0][1])
+        if isinstance(_son, str):
+            _son = _dt.datetime.strptime(_son[:10], "%Y-%m-%d").date()
+        _d = (_dt.date.today() - _son).days
+        _st = "crit" if _d > ic else ("warn" if _d > iw else "ok")
+        add("pipeline.ingest.%s" % _ad, "pipeline", "ERP aktarim: %s" % _ad, _st,
+            "%d gun" % _d,
+            "Son veri %s (%d gun once) - %d satir - kaynak: %s" % (_son, _d, _n, _tab), _d)
+        ing.append(_st)
+    except Exception as _e:
+        add("pipeline.ingest.%s" % _ad, "pipeline", "ERP aktarim: %s" % _ad, "warn",
+            "okunamadi", "Kontrol hatasi: %s" % _e, None)
+        ing.append("warn")
+
 if ing:
     add("pipeline.ingest.overall", "pipeline", "ERP veri aktarimi (genel)", worst(ing), "",
-        "En kotu besleme durumu.")
+        "En kotu besleme durumu. Kaynak: TABLOLARIN KENDISI (log degil).")
 
 for kaynak, hrs in psql("SELECT kaynak, ROUND(EXTRACT(EPOCH FROM now()-MAX(scraped_at))/3600,1) "
                         "FROM bi_rakip_fiyat_son GROUP BY kaynak"):

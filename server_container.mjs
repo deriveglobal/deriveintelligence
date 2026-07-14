@@ -28224,15 +28224,15 @@ async function handleSahaApi(request, response, url, deps) {
     if (method === "PUT" && (m = path.match(new RegExp(`^/api/saha/musteriler/(${SAHA_UUID_RE})$`)))) {
       const session = await requireSahaAccess(request);
       const p = await readJson(request);
-      // Rep ownership check — reps can only edit customers assigned to them
-      if (session.sahaRole === "rep") {
-        const ownerCheck = await query(
-          `SELECT id FROM saha_musteri WHERE tenant_id=$1 AND id=$2 AND sorumlu_rep=$3 AND aktif=true`,
-          [session.tenantId, m[1], session.userId]);
-        if (!ownerCheck.rowCount) {
-          sendJson(response, 403, { error: "Bu müşteri size atanmamış." }); return;
-        }
-      }
+      // ⚠ SAHA_FIX_V1 — SAHIPLIK KAPISI KALDIRILDI.
+      //   Eski hali: temsilci sadece KENDI musterisini duzenleyebiliyordu.
+      //   Boyle bir kural hic konulmadi; kod varsaymis. Gercek kural: herkes duzenleyebilir.
+      //   Bedeli agirdi: arayüz ziyaret kaydinda musteri profiline
+      //     { sektorler, tedarikci_markalar } ve { durum } yaziyor (saha.js:1004, 1258),
+      //   sunucu 403 veriyor, satirin sonundaki .catch(()=>{}) hatayi yutuyordu.
+      //   13 Temmuz'da Eftal'in 13 ziyaretinden toplanan saha gozlemi
+      //   HIC KAYDEDILMEDI ve ona "✓" gosterildi. Sessiz veri kaybi.
+      //   Kim neyi degistirdi sorusu, asagidaki denetim kaydiyla cevaplaniyor.
       // Validate durum enum
       const VALID_MUSTERI_DURUM = ['YENI_NOKTA','ESKI_NOKTA','AKTIF_MUSTERI','PASIF_NOKTA','RISKLI_NOKTA'];
       if (p.durum != null && !VALID_MUSTERI_DURUM.includes(p.durum)) {
@@ -28277,6 +28277,18 @@ async function handleSahaApi(request, response, url, deps) {
         WHERE tenant_id = $1 AND id = $2 RETURNING *
       `, params);
       if (!result.rowCount) { sendJson(response, 404, { error: "Müşteri bulunamadı." }); return; }
+      // ⚠ SAHA_FIX_V1 — kapi kalkti, KAYIT kaldi. Baskasinin musterisi degistiyse iz birakir.
+      try {
+        const _o = result.rows[0];
+        if (_o && _o.sorumlu_rep && String(_o.sorumlu_rep) !== String(session.userId)) {
+          await query(
+            `INSERT INTO saha_hata_log (tenant_id, user_id, tip, view_adi, endpoint, hata_mesaji, extra)
+             VALUES ($1,$2,'DENETIM','musteri','PUT /api/saha/musteriler/'||$3,
+                     'Baskasina atanmis musteri duzenlendi', $4::jsonb)`,
+            [session.tenantId, session.userId, m[1],
+             JSON.stringify({ sahip: _o.sorumlu_rep, alanlar: Object.keys(p || {}) })]);
+        }
+      } catch (_e) { /* denetim kaydi asla isi bloklamaz */ }
       sendJson(response, 200, { musteri: result.rows[0] });
       return;
     }
@@ -28390,6 +28402,26 @@ async function handleSahaApi(request, response, url, deps) {
     }
 
     // ── Ziyaret güncelle: checkin / tamamla / iptal / guncelle ──
+    // ⚠ SAHA_FIX_V1 — TEKIL ZIYARET. Bu uc nokta HIC YAZILMAMISTI.
+    //   saha.js:574 bunu cagiriyordu; sunucu "Bilinmeyen saha endpoint'i" (404) donuyordu.
+    //   404 -> catch yutuyor -> z bos -> ekran cizilmiyor -> #det-yorum-gonder olusmuyor
+    //   -> saha.js:667 patliyor ("null is not an object"). TEK KOK, IKI BELIRTI.
+    if (method === "GET" && (m = path.match(new RegExp(`^/api/saha/ziyaretler/(${SAHA_UUID_RE})$`)))) {
+      const session = await requireSahaAccess(request);
+      const r = await query(`
+        SELECT z.*, mu.firma, mu.il, mu.ilce, mu.tip AS musteri_tip,
+               mu.sektorler, mu.tedarikci_markalar, mu.durum AS musteri_durum,
+               u.full_name AS rep_adi
+          FROM saha_ziyaret z
+          LEFT JOIN saha_musteri mu ON mu.id = z.musteri_id
+          LEFT JOIN users u ON u.id = z.rep_id
+         WHERE z.tenant_id = $1 AND z.id = $2
+      `, [session.tenantId, m[1]]);
+      if (!r.rowCount) { sendJson(response, 404, { error: "Ziyaret bulunamadı." }); return; }
+      sendJson(response, 200, { ziyaret: r.rows[0] });
+      return;
+    }
+
     if (method === "PUT" && (m = path.match(new RegExp(`^/api/saha/ziyaretler/(${SAHA_UUID_RE})$`)))) {
       const session = await requireSahaAccess(request);
       const p = await readJson(request);

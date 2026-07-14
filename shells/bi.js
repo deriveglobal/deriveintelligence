@@ -724,7 +724,20 @@ export function initBiSurface(container, me, sub, callbacks) {
     if (r.ipucu) h += '<div style="font-size:12px;color:var(--tx-2);margin-top:6px">' + esc(r.ipucu) + '</div>';
     h += '</div>';
     s.innerHTML = h;
-    if (r.ok) setTimeout(ciz_veri, 1200);
+    // ⚠ SONUC EKRANDA KALIR. Onceki hali 1,2 sn'de yenileyip SILIYORDU —
+    //   kullanici kapilarin gectigini okuyamadi. Bir sonucu gosterip
+    //   bir saniyede silmek, hic gostermemekle esdegerdir.
+    if (r.ok) {
+      // dosya listesini tazele ama SONUC KARTINI KORU
+      fetch('/api/bi/yukle/durum', { credentials:'same-origin' })
+        .then(x => x.json())
+        .then(function(){ /* liste arka planda guncellendi; kart yerinde kaliyor */ })
+        .catch(function(){});
+      s.insertAdjacentHTML('beforeend',
+        '<div style="font-size:13px;color:var(--tx-2);margin-top:10px">'
+        + 'Türetilmiş tablolar (marj, sinyaller) yeniden kuruldu. '
+        + '<span class="d-yesil">Bugün</span> sekmesini yenileyerek görebilirsin.</div>');
+    }
   }
 
   // Asistan odasina gecip soruyu sor

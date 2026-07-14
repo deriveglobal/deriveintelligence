@@ -664,7 +664,10 @@ async function ziyaretDetayModal(zid) {
     renderYorumlar(yorumlar);
   } catch { yorumlarEl.innerHTML = `<div style="font-size:12px;color:#94a3b8">Yorumlar yüklenemedi.</div>`; }
 
-  document.getElementById("det-yorum-gonder").addEventListener("click", async () => {
+  // ⚠ SAHA_FIX_V1 — kok sebep (404) kapandi, ama ekran bir daha ASLA
+  //   var olmayan bir butona olay baglayip patlamasin.
+  const _detYorumBtn = document.getElementById("det-yorum-gonder");
+  if (_detYorumBtn) _detYorumBtn.addEventListener("click", async () => {
     const inp = document.getElementById("det-yorum-input");
     const text = inp?.value.trim();
     if (!text) return;

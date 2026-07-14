@@ -689,7 +689,15 @@ def yukle(yol, tenant_id):
     finally:
         cn.close()
 
+    # ⚠ TURET_SONRASI — yeni veri geldi, turetilmis tablolar YENILENMELI.
+    #   Yoksa yukleme "calisir" ama EKRAN ESKI VERIYI gosterir: sessiz yalan.
+    try:
+        t = turet(tenant_id, tip)
+    except Exception as e:
+        t = {"turetilen": [], "uyari": [f"⚠ türetme hatası: {str(e)[:160]}"]}
+
     return {"ok": True, "tip": tip, "ad": k["ad"], "satir": len(satir),
+            "turetme": t,
             "mod": mod,
             "aralik": [str(aralik[0]), str(aralik[1])] if aralik else None,
             "silinen": silinen,
@@ -730,3 +738,147 @@ if __name__ == "__main__":
         print(json.dumps(yukle(sys.argv[1], sys.argv[2]), ensure_ascii=False, default=str))
     else:
         sys.exit("kullanım: erp_ingest.py --kuru <dosya.xlsx>  |  erp_ingest.py <dosya.xlsx> <tenant_id>")
+
+
+# ══════════════════════════════════════════════════════════════════════
+#  TURET_SONRASI — yukleme bitince turetilmis tablolari YENIDEN KUR
+#
+#  ⚠ ONCEDEN YENILENMIYORDU: yeni veri geliyordu ama bi_marj_fact ve
+#    sinyaller ESKI kaliyordu. Yani yukleme "calisiyor" ama EKRAN ESKI
+#    VERIYI gosteriyordu. Bu, "yuklendi" demenin EN KOTU turu — sessiz yalan.
+#
+#  ⚠ MUTABAKAT KAPISI: kup marji, bagimsiz dogrulanmis degerden 3 puandan
+#    fazla saparsa YENI KUP KURULMAZ ve ESKISI KALIR. Bozuk bir kup, eski
+#    bir kupten kotudur.
+# ══════════════════════════════════════════════════════════════════════
+BAGIMLILIK = {
+    "stok_hareket"        : ["maliyet_ay", "marj_fact"],
+    "tedarikci_faturalari": ["maliyet_sku", "marj_fact"],
+    "satis_faturalari"    : ["marj_fact"],
+    "musteri_risk"        : ["sinyal_kredi"],
+    "cari_bakiye"         : ["sinyal_kredi"],
+}
+
+SQL_TURET = {
+  "maliyet_ay": """
+    DROP TABLE IF EXISTS bi_maliyet_ay CASCADE;
+    CREATE TABLE bi_maliyet_ay AS
+    SELECT tenant_id, date_trunc('month', belge_tarihi)::date AS ay, kalem_kodu,
+           sum(cikis_tutari)/NULLIF(sum(cikis),0) AS birim_maliyet, sum(cikis) AS adet
+      FROM bi_stok_hareket
+     WHERE tenant_id=%(t)s::uuid AND cikis>0 AND cikis_tutari>0
+       -- ⚠ SATILAN MALIN MALIYETI, SATIS HAREKETINDEN GELIR.
+       --   Transfer/mal girisi/iade SATIS DEGIL; ortalamaya karisinca
+       --   kup marji %%0,9 cikiyordu (gercek %%8,3).
+       AND hareket_sinifi IN ('SATIS_SEVK','SATIS_FATURA')
+     GROUP BY 1,2,3;
+    CREATE INDEX ON bi_maliyet_ay(tenant_id, ay, kalem_kodu);
+  """,
+  "maliyet_sku": """
+    DROP TABLE IF EXISTS bi_maliyet_sku CASCADE;
+    CREATE TABLE bi_maliyet_sku AS
+    SELECT DISTINCT ON (bi_sku_norm(kalem_kodu))
+           bi_sku_norm(kalem_kodu) AS sku, birim_fiyat_kdv_haric AS birim_maliyet
+      FROM bi_tedarikci_faturalari
+     WHERE tenant_id=%(t)s::uuid AND miktar>0 AND birim_fiyat_kdv_haric>0
+     ORDER BY 1, fatura_tarihi DESC;
+    CREATE INDEX ON bi_maliyet_sku(sku);
+  """,
+  "marj_fact": """
+    DROP TABLE IF EXISTS bi_marj_fact_yeni;
+    CREATE TABLE bi_marj_fact_yeni AS
+    SELECT f.tenant_id, date_trunc('month', f.fatura_tarihi)::date AS ay,
+           f.sube, f.satis_kanali, f.sehir, f.satis_temsilcisi,
+           upper(f.marka) AS marka, f.ebat, bi_ebat_norm(f.ebat) AS ebat_norm,
+           f.kategori, f.jant_capi, f.musteri_kodu, f.musteri_adi, f.kalem_kodu,
+           max(f.kalem_tanimi) AS kalem_tanimi,
+           sum(f.miktar) AS adet, sum(f.satir_tutar) AS ciro,
+           sum(f.satir_tutar)/NULLIF(sum(f.miktar),0) AS ort_fiyat,
+           COALESCE(max(ma.birim_maliyet), max(ms.birim_maliyet)) AS birim_maliyet,
+           CASE WHEN max(ma.birim_maliyet) IS NOT NULL THEN 'satis_hareketi'
+                WHEN max(ms.birim_maliyet) IS NOT NULL THEN 'son_alis'
+                ELSE 'yok' END AS maliyet_kaynak,
+           COALESCE(max(ma.birim_maliyet), max(ms.birim_maliyet))*sum(f.miktar) AS smm,
+           sum(f.satir_tutar) - COALESCE(max(ma.birim_maliyet), max(ms.birim_maliyet))*sum(f.miktar) AS brut_kar,
+           100.0*(sum(f.satir_tutar) - COALESCE(max(ma.birim_maliyet), max(ms.birim_maliyet))*sum(f.miktar))
+                /NULLIF(sum(f.satir_tutar),0) AS marj_pct
+      FROM bi_satis_faturalari f
+      LEFT JOIN bi_maliyet_ay  ma ON ma.tenant_id=f.tenant_id::uuid
+                                 AND ma.ay = date_trunc('month', f.fatura_tarihi)::date
+                                 AND ma.kalem_kodu = f.kalem_kodu
+      LEFT JOIN bi_maliyet_sku ms ON ms.sku = bi_sku_norm(f.kalem_kodu)
+     WHERE f.tenant_id=%(t)s::text AND f.miktar>0
+       AND f.grup_adi IN ('LASTIK TICARI','LASTIK TUKETICI')
+       AND f.fatura_tarihi >= CURRENT_DATE-730
+     GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14;
+  """,
+  "sinyal_kredi": """
+    DELETE FROM bi_sinyal WHERE tenant_id=%(t)s::uuid AND tur='kredi_asimi';
+    INSERT INTO bi_sinyal (tenant_id, tur, anahtar, baslik, ozet, tutar_tl, oda, eylem_var, detay, durum)
+    SELECT %(t)s::uuid, 'kredi_asimi', 'net_limit:' || b.musteri_kodu,
+           left(b.tedarikci_adi, 30) ||
+           CASE WHEN r.kredi_limiti > 1000
+                THEN ' — net risk limitin ' || round(b.net_pozisyon/r.kredi_limiti,1) || ' katı'
+                ELSE ' — kredi limiti TANIMSIZ' END,
+           'net ' || round(b.net_pozisyon/1e6,1) || 'M · ' ||
+           CASE WHEN r.kredi_limiti > 1000 THEN 'limit ' || round(r.kredi_limiti/1e6,2) || 'M'
+                ELSE 'limit yok' END ||
+           ' · brüt alacak ' || round(b.musteri_bakiye/1e6,1) || 'M' ||
+           CASE WHEN b.tedarikci_bakiye < -1e5
+                THEN ' · KRB borcu ' || round(abs(b.tedarikci_bakiye)/1e6,1) || 'M' ELSE '' END,
+           b.net_pozisyon, 'nakit', true,
+           jsonb_build_object('musteri', b.tedarikci_adi, 'net', b.net_pozisyon,
+                              'brut', b.musteri_bakiye, 'krb_borcu', b.tedarikci_bakiye,
+                              'limit', r.kredi_limiti),
+           'acik'
+      FROM bi_cari_bakiye b
+      JOIN bi_musteri_risk r ON r.tenant_id=b.tenant_id AND r.muhatap_kodu=b.musteri_kodu
+     WHERE b.tenant_id=%(t)s::uuid AND b.net_pozisyon > 2e6
+       -- ⚠ NET pozisyon. Brut alacak YANILTICI: MUTAFLAR brut 47,6M ama
+       --   KRB'nin ona borcu 46,6M -> net 1,0M, TAM LIMITTE. Yonetilen mahsuplasma.
+       AND (r.kredi_limiti <= 1000 OR b.net_pozisyon > r.kredi_limiti * 1.5);
+  """,
+}
+
+
+def turet(tenant_id, tip):
+    """⚠ Yukleme sonrasi turetilmis tablolari yeniden kur.
+       MUTABAKAT KAPISI gecmezse ESKI KUP KALIR."""
+    isler = BAGIMLILIK.get(tip, [])
+    if not isler:
+        return {"turetilen": [], "not": "bu dosya turetilmis tablo etkilemiyor"}
+    sonuc, uyari = [], []
+    cn = _baglan()
+    try:
+        with cn, cn.cursor() as cur:
+            for i in isler:
+                if i == "marj_fact":
+                    continue                     # en sona, kapiyla
+                cur.execute(SQL_TURET[i], {"t": tenant_id})
+                sonuc.append(i)
+
+            if "marj_fact" in isler:
+                cur.execute(SQL_TURET["marj_fact"], {"t": tenant_id})
+                # ⚠⚠ MUTABAKAT KAPISI — bagimsiz dogrulanmis %8,3 ile 3 puan icinde tutmali
+                cur.execute("""
+                    SELECT round(100.0*sum(brut_kar)/NULLIF(sum(ciro),0), 1)
+                      FROM bi_marj_fact_yeni
+                     WHERE ay >= CURRENT_DATE-365 AND maliyet_kaynak <> 'yok'""")
+                m = cur.fetchone()[0]
+                if m is None or abs(float(m) - 8.3) > 3:
+                    cur.execute("DROP TABLE IF EXISTS bi_marj_fact_yeni")
+                    uyari.append(
+                        f"⚠ MARJ KUBU KURULMADI: yeni kup %{m} veriyor, "
+                        f"beklenen %8,3 (±3). ESKI KUP YERINDE KALDI. "
+                        f"Bozuk bir kup, eski bir kupten kotudur.")
+                else:
+                    cur.execute("DROP TABLE IF EXISTS bi_marj_fact")
+                    cur.execute("ALTER TABLE bi_marj_fact_yeni RENAME TO bi_marj_fact")
+                    cur.execute("CREATE INDEX ON bi_marj_fact(tenant_id, ay DESC)")
+                    cur.execute("CREATE INDEX ON bi_marj_fact(tenant_id, ebat_norm, marka)")
+                    cur.execute("CREATE INDEX ON bi_marj_fact(tenant_id, sube, satis_kanali)")
+                    cur.execute("CREATE INDEX ON bi_marj_fact(tenant_id, satis_temsilcisi)")
+                    sonuc.append(f"marj_fact (%{m})")
+    finally:
+        cn.close()
+    return {"turetilen": sonuc, "uyari": uyari}
