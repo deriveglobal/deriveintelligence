@@ -23668,28 +23668,45 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
   if (request.method === 'GET' && url.pathname === '/api/bi/yukle/durum') {
     try {
       const session = await requireModuleAccess(request, "intelligence");
+      // ⚠⚠ LOGA DEGIL, TABLOLARIN KENDISINE BAK.
+      //   Log = yukleyicinin SOYLEDIGI · tablo = GERCEKTE OLAN.
+      //   Bu hatayi monitorde duzelttik; burada TEKRAR yaptim ve ekran
+      //   579.771 satirlik veri icin "hic gelmedi" dedi.
       const r = await query(`
-        WITH bek(tip, ad, tablo) AS (VALUES
-          ('stok_hareket',  'Stok hareketleri (stockmoving)',        'bi_stok_hareket'),
-          ('stok_anlik',    'Anlık stok (inventory)',                'bi_stok_anlik'),
-          ('musteri_risk',  'Müşteri risk raporu',                   'bi_musteri_risk'),
-          ('cari_bakiye',   'Cari bakiye (account balance)',         'bi_cari_bakiye'),
-          ('on_siparis',    'Ön sipariş',                            'bi_on_siparis')
-        )
-        SELECT b.tip, b.ad,
-               l.son, l.satir,
-               CASE WHEN l.son IS NULL THEN 'hiç gelmedi'
-                    WHEN CURRENT_DATE - l.son::date > 30 THEN 'çok bayat'
-                    WHEN CURRENT_DATE - l.son::date > 7  THEN 'bayat'
-                    ELSE 'taze' END AS durum,
-               CASE WHEN l.son IS NOT NULL
-                    THEN CURRENT_DATE - l.son::date END AS gun
-          FROM bek b
-          LEFT JOIN LATERAL (
-            SELECT max(processed_at) AS son, max(row_count_kept) AS satir
-              FROM bi_ingestion_log
-             WHERE tenant_id=$1::uuid AND query_type=b.tip) l ON true
-         ORDER BY (l.son IS NULL) DESC, l.son`, [session.tenantId]);
+        SELECT 'stok_hareket' AS tip, 'Stok hareketleri (stockmoving)' AS ad,
+               max(ingested_at) AS son, count(*)::int AS satir
+          FROM bi_stok_hareket WHERE tenant_id=$1::uuid
+        UNION ALL
+        SELECT 'stok_anlik', 'Anlık stok (inventory)',
+               GREATEST(max(ingested_at), max(export_date)::timestamptz), count(*)::int
+          FROM bi_stok_anlik WHERE tenant_id=$1::uuid
+        UNION ALL
+        SELECT 'musteri_risk', 'Müşteri risk raporu',
+               GREATEST(max(ingested_at), max(export_date)::timestamptz), count(*)::int
+          FROM bi_musteri_risk WHERE tenant_id=$1::uuid
+        UNION ALL
+        SELECT 'cari_bakiye', 'Cari bakiye (account balance)',
+               max(ingested_at), count(*)::int
+          FROM bi_cari_bakiye WHERE tenant_id=$1::uuid
+        UNION ALL
+        SELECT 'on_siparis', 'Ön sipariş', NULL::timestamptz, count(*)::int
+          FROM bi_on_siparis WHERE tenant_id=$1::uuid
+        UNION ALL
+        SELECT 'satis_faturalari', 'Satış faturaları (full sales)',
+               max(export_date)::timestamptz, count(*)::int
+          FROM bi_satis_faturalari WHERE tenant_id=$1::text
+        UNION ALL
+        SELECT 'tedarikci_faturalari', 'Tedarikçi faturaları',
+               max(export_date)::timestamptz, count(*)::int
+          FROM bi_tedarikci_faturalari WHERE tenant_id=$1::uuid`,
+        [session.tenantId]);
+      r.rows = r.rows.map(x => {
+        const gun = x.son ? Math.floor((Date.now() - new Date(x.son).getTime())/86400000) : null;
+        return { ...x, gun,
+          durum: (!x.satir) ? 'hiç gelmedi'
+               : gun == null ? 'tarihsiz'
+               : gun > 30 ? 'çok bayat' : gun > 7 ? 'bayat' : 'taze' };
+      });
       sendJson(response, 200, { dosyalar: r.rows });
     } catch (e) { sendJson(response, 500, { error: e.message }); }
   }

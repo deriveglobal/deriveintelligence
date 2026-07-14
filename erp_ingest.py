@@ -25,10 +25,22 @@
 import openpyxl, sys, os, json, datetime, decimal, hashlib, pathlib, re
 import psycopg2, psycopg2.extras
 
-DB = dict(host=os.getenv("PGHOST", "krb-assessment-postgres"),
-          dbname=os.getenv("PGDATABASE", "assessment_platform"),
-          user=os.getenv("PGUSER", "assessment_app"),
-          password=os.getenv("PGPASSWORD", ""))
+# ⚠ KONTEYNERDE PGHOST/PGPASSWORD YOK. Sadece DATABASE_URL var — ve DOGRU.
+#   PGHOST varsayilanini 'krb-assessment-postgres' yazmistim; konteyner aginda
+#   servis adi 'postgres'. Ve sifre DATABASE_URL icinde, ayri degiskende degil.
+#   Ortamin SOYLEDIGINI oku, ne olmasi gerektigini VARSAYMA.
+def _db():
+    u = os.getenv("DATABASE_URL", "")
+    if u:
+        return {"dsn": u}
+    return dict(host=os.getenv("PGHOST", "postgres"),
+                dbname=os.getenv("PGDATABASE", "assessment_platform"),
+                user=os.getenv("PGUSER", "assessment_app"),
+                password=os.getenv("PGPASSWORD", ""))
+
+def _baglan():
+    d = _db()
+    return psycopg2.connect(d["dsn"]) if "dsn" in d else psycopg2.connect(**d)
 BUGUN = datetime.date.today()
 
 
@@ -636,7 +648,7 @@ def yukle(yol, tenant_id):
         t = [r[tarih_alani] for r in satir if r.get(tarih_alani)]
         aralik = (min(t), max(t)) if t else None
 
-    cn = psycopg2.connect(**DB)
+    cn = _baglan()
     silinen = 0
     try:
         with cn, cn.cursor() as cur:
