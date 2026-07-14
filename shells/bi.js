@@ -215,7 +215,7 @@ export function initBiSurface(container, me, sub, callbacks) {
 
 
 
-  // ── ANA_UI_V1 + MARJ_GERCEK_V1 — 'Bugün' odasi ────────────────────────────────────────────
+  // ── ANA_UI_V1 + MARJ_GERCEK_V1 + NET_UI_V1 — 'Bugün' odasi ────────────────────────────────────────────
   {
     const _off2 = container.querySelector('.vmo-office');
     if (_off2 && !document.getElementById('vmo-room-bugun')) {
@@ -259,15 +259,19 @@ export function initBiSurface(container, me, sub, callbacks) {
     // ── SERMAYE OMURGASI ──────────────────────────────────────────────────
     h += '<div class="etiket" style="margin-bottom:12px">BAĞLI SERMAYE</div>';
     h += '<div style="display:grid;grid-template-columns:1.3fr 1fr 1fr 1fr;gap:10px;margin-bottom:8px">';
-    h += '<div class="kart dn" data-sor="' + esc('507M bağlı sermayenin kırılımını ver ve nasıl azaltırız?') + '">'
-       +   '<div style="font-size:12px;color:var(--tx-1)">Bağlı sermaye</div>'
-       +   '<div class="n n-buyuk" style="margin:6px 0">' + _M(s.bagli) + '</div>'
-       +   '<div style="font-size:12px;color:var(--tx-2)">stok ' + _M(s.stok) + ' · alacak ' + _M(s.alacak) + '</div>'
+    /* NET_UI_V1 — ⚠ TEDARIKCI BORCU ARTIK GORUNUYOR. Onceki hali 'bagli sermaye 507,3M'
+       diyordu; borcu (403,4M) hic saymamistim. Gercek: NET 103,9M. */
+    h += '<div class="kart dn" data-sor="' + esc('Net işletme sermayesi 104M. Brisa 319M borcu Kasım-Şubat ödenecek. Bu nakdi nereden bulacağız?') + '">'
+       +   '<div style="font-size:12px;color:var(--tx-1)">Net işletme sermayesi</div>'
+       +   '<div class="n n-buyuk" style="margin:6px 0">' + _M(s.net_sermaye) + '</div>'
+       +   '<div class="satir" style="padding:1px 0"><span>stok</span><span class="n">' + _M(s.stok) + '</span></div>'
+       +   '<div class="satir" style="padding:1px 0"><span>alacak</span><span class="n">' + _M(s.alacak) + '</span></div>'
+       +   '<div class="satir" style="padding:1px 0"><span>tedarikçi borcu</span><span class="n d-yesil">−' + _M(s.tedarikci_borcu) + '</span></div>'
        + '</div>';
     h += '<div class="kart dn" data-sor="' + esc('Yıllık sermaye yükü 203M. Faaliyet kârımla kıyasla — değer yaratıyor muyuz?') + '">'
        +   '<div style="font-size:12px;color:var(--tx-1)">Yıllık sermaye yükü</div>'
        +   '<div class="n n-buyuk d-kirmizi" style="margin:6px 0">' + _M(s.yillik_yuk) + '</div>'
-       +   '<div style="font-size:12px;color:var(--tx-2)">%40 / yıl</div>'
+       +   '<div style="font-size:12px;color:var(--tx-2)">%40 / yıl · net üzerinden</div>'
        + '</div>';
     h += '<div class="kart dn" data-sor="' + esc('Stok 131 günden 90 güne inerse ne kadar sermaye serbest kalır? Hangi ürünler?') + '">'
        +   '<div style="font-size:12px;color:var(--tx-1)">Stok devri</div>'
@@ -310,12 +314,30 @@ export function initBiSurface(container, me, sub, callbacks) {
          + '</div>';
       h += '</div>';
 
-      // ⚠ ASIL CUMLE: karli ama deger kaybediyor
+      // ⚠⚠ NET_UI_V1 — ESKI TEZ SILINDI: 'Kâr ediyorsun, değer kaybediyorsun'.
+      //   YANLISTI: tedarikçi borcunu (403,4M) saymamıştım. Gerçek yük 41,6M, kâr ~96M.
+      //   KRB DEĞER YARATIYOR. Yerine GERÇEK soru: Brisa'nın finansmanı Kasım'da bitiyor.
       const brutToplam = (mj.brut_kar||0) + (mj.prim||0);
       const yuk = Number(s.yillik_yuk||0);
-      if (yuk > 0) {
-        h += '<div class="kart kart-karar" style="margin-bottom:24px">';
-        h += '<div style="font-size:15px;margin-bottom:8px">Kâr ediyorsun, değer kaybediyorsun</div>';
+      const borc = Number(s.tedarikci_borcu||0);
+      if (borc > 0) {
+        h += '<div class="kart kart-dikkat" style="margin-bottom:24px">';
+        h += '<div style="font-size:15px;margin-bottom:8px">İşletme sermayeni Brisa finanse ediyor</div>';
+        h += '<div class="satir"><span>' + esc(s.en_buyuk_ad || 'Brisa') + '</span><span class="n d-sari">' + _M(s.en_buyuk_borc) + '</span></div>';
+        h += '<div class="satir"><span>diğer tedarikçiler</span><span class="n">' + _M(borc - Number(s.en_buyuk_borc||0)) + '</span></div>';
+        h += '<div class="satir" style="border-top:0.5px solid var(--cizgi);margin-top:4px;padding-top:6px"><span>net işletme sermayesi</span><span class="n">' + _M(s.net_sermaye) + '</span></div>';
+        h += '<div class="satir"><span>yıllık sermaye yükü</span><span class="n">' + _M(yuk) + '</span></div>';
+        h += '<div class="satir"><span>lastik brüt kârı (prim dahil)</span><span class="n d-yesil">' + _M(brutToplam) + '</span></div>';
+        h += '<div style="font-size:12px;color:var(--tx-2);margin-top:10px;line-height:1.6">'
+           + 'Stoğun büyük kısmını tedarikçi finanse ediyor — ücretsiz, ama süreli. '
+           + 'Ödeme takvimi başlayınca (18 Kas · 16 Ara · 22 Oca · 22 Şub) bu finansman biter.<br>'
+           + '<span class="d-sari">Asıl soru sermayenin bağlı olması değil — Kasım’da o nakdi nereden bulacağın.</span></div>';
+        h += '<div style="margin-top:12px"><button class="dg sor" data-sor="'
+           + esc('Brisa borcu ' + Math.round(Number(s.en_buyuk_borc||0)/1e6) + 'M, Kasım-Şubat arası ödenecek. Nakit projeksiyonu çıkar: o tarihlerde ne kadar tahsilat bekleniyor, açık kalır mı?')
+           + '" style="min-height:38px;font-size:13px">Nakit projeksiyonu</button></div>';
+        h += '</div>';
+      }
+      if (false) {
         h += '<div class="satir"><span>lastik brüt kârı (prim dahil)</span><span class="n d-yesil">' + _M(brutToplam) + '</span></div>';
         h += '<div class="satir"><span>yıllık sermaye yükü</span><span class="n d-kirmizi">−' + _M(yuk) + '</span></div>';
         h += '<div class="satir" style="border-top:0.5px solid var(--cizgi);margin-top:4px;padding-top:6px">'
@@ -344,6 +366,34 @@ export function initBiSurface(container, me, sub, callbacks) {
          + '<button class="dg" onclick="document.querySelector(\'[data-dept=\\\'price-list\\\']\')?.click()">Dosyaları yükle</button>'
          + '<button class="dg dg-sessiz sor" data-sor="' + esc('Eksik iskonto kademelerini KRB’den nasıl isteyelim? Brisa’dan hangi belgeyi almalıyız?') + '">Nasıl toplarım?</button>'
          + '</div>';
+      h += '</div>';
+    }
+
+    // ── NET_UI_V1 — ⚠ RISK, NET POZISYONA GORE ───────────────────────────
+    //   MUTAFLAR brut 47,6M ama net 1,0M (limit 1,0M): YONETILEN MAHSUPLASMA.
+    //   Sistem bunu 'limitin 138 kati' diye BAGIRIYORDU. Yanlisti.
+    if ((d.net_risk||[]).length) {
+      h += '<div class="etiket" style="margin-bottom:11px">MÜŞTERİ RİSKİ — NET POZİSYON</div>';
+      h += '<div class="kart" style="margin-bottom:24px">';
+      (d.net_risk||[]).forEach(function(r){
+        const kat = r.net_kat ? Number(r.net_kat) : null;
+        const renk = (kat && kat > 1.5) ? 'd-kirmizi' : (kat && kat > 1 ? 'd-sari' : 'd-yesil');
+        h += '<div style="padding:9px 0;border-bottom:0.5px solid var(--cizgi)">';
+        h += '<div style="display:flex;justify-content:space-between;gap:12px;align-items:baseline">';
+        h += '<span style="font-size:14px">' + esc(String(r.musteri||'').slice(0,34)) + '</span>';
+        h += '<span class="n ' + renk + '" style="font-size:15px">' + _M(r.net) + '</span></div>';
+        h += '<div style="font-size:12px;color:var(--tx-3);font-family:var(--mono);margin-top:3px">'
+           + 'alacak ' + _M(r.brut_alacak)
+           + (Number(r.krb_borcu) < 0 ? ' · KRB borcu ' + _M(r.krb_borcu) : '')
+           + (r.kredi_limiti ? ' · limit ' + _M(r.kredi_limiti) + (kat ? ' · ' + kat + ' kat' : '') : ' · limit yok')
+           + '</div></div>';
+      });
+      h += '<div style="font-size:12px;color:var(--tx-2);margin-top:10px;line-height:1.6">'
+         + 'Risk artık <span class="d-yesil">net pozisyona</span> göre. Karşılıklı alım yapan müşterilerde brüt alacak yanıltıcı.<br>'
+         + 'MUTAFLAR brüt 47,6M görünüyor; KRB’nin ona borcu 46,6M — <span class="d-yesil">net 1,0M, tam limitte.</span> Yönetilen mahsuplaşma.</div>';
+      h += '<div style="margin-top:12px"><button class="dg dg-sessiz sor" data-sor="'
+         + esc('Net risk sıralamasını aç. YEDİ OTO 30,5M limitin 2 katı, TOROS 9,5M limitin 47 katı. Bunlarda ne yapmalıyım?')
+         + '" style="min-height:36px;font-size:13px">Aç</button></div>';
       h += '</div>';
     }
 
