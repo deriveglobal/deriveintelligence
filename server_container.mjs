@@ -28277,28 +28277,27 @@ async function handleSahaApi(request, response, url, deps) {
         WHERE tenant_id = $1 AND id = $2 RETURNING *
       `, params);
       if (!result.rowCount) { sendJson(response, 404, { error: "Müşteri bulunamadı." }); return; }
-      // ⚠ SAHA_DENETIM_V2 — ONCEKI HALI CALISMIYORDU VE SUSUYORDU.
-      //   'PUT /api/saha/musteriler/'||$3  ifadesinde $3'un tipi belirsizdi
-      //   ("could not determine data type of parameter $3") -> sorgu patliyordu ->
-      //   ve catch bloğu hatayi SESSIZCE YUTUYORDU. Kapiyi kaldirdik ama IZ TUTMUYORDUK:
-      //   baskasinin musterisini kimin degistirdigi HIC KAYDEDILMIYORDU.
-      //   ⚠ Sessiz veri kaybini duzeltirken sessiz veri kaybi yazmisim. Iki duzeltme:
-      //     (1) $3::text — tip artik acik.
-      //     (2) catch ARTIK SUSMUYOR. Denetim kaydi isi bloklamaz ama SESSIZ de dusmez.
+      // ⚠ SAHA_DENETIM_V3 — IZ ARTIK DOGRU YERDE VE GERCEKTEN DUSUYOR.
+      //   V2 izi saha_hata_log'a yazmaya calisiyordu; tablonun tip CHECK kisiti
+      //   sadece sunlara izin veriyor: API_HATA, JS_HATA, AG_HATA, YAVAS_API, SESSIZ_HATA.
+      //   Hepsi HATA. 'DENETIM' reddediliyordu, kayit HIC DUSMUYORDU.
+      //   ⚠ Kisiti gevsetmek YANLIS COZUM olurdu: baskasinin musterisini duzenlemek
+      //     artik HATA DEGIL, izinli bir is. Hata kutuguna yazsaydik, 404/500/JS sayan
+      //     ops monitorunu her mesru duzenlemede yanlis alarma bogardik.
+      //   Iz kendi tablosuna yaziliyor: saha_denetim.
       try {
         const _o = result.rows[0];
         if (_o && _o.sorumlu_rep && String(_o.sorumlu_rep) !== String(session.userId)) {
           await query(
-            `INSERT INTO saha_hata_log (tenant_id, user_id, tip, view_adi, endpoint, hata_mesaji, extra)
-             VALUES ($1, $2, 'DENETIM', 'musteri',
-                     'PUT /api/saha/musteriler/' || $3::text,
-                     'Baskasina atanmis musteri duzenlendi',
-                     $4::jsonb)`,
-            [session.tenantId, session.userId, String(m[1]),
-             JSON.stringify({ sahip: String(_o.sorumlu_rep), alanlar: Object.keys(p || {}) })]);
+            `INSERT INTO saha_denetim
+               (tenant_id, user_id, eylem, varlik, varlik_id, sahip_id, alanlar, detay)
+             VALUES ($1, $2, 'MUSTERI_GUNCELLE', 'saha_musteri', $3::uuid, $4::uuid, $5::text[], $6::jsonb)`,
+            [session.tenantId, session.userId, String(m[1]), String(_o.sorumlu_rep),
+             Object.keys(p || {}), JSON.stringify({ firma: _o.firma || null })]);
         }
       } catch (_e) {
-        console.error("[saha] DENETIM kaydi dusurulemedi:", _e && _e.message, "musteri:", m[1]);
+        // ⚠ SUSMAZ. Iz dusuremezsek en azindan BILIRIZ. Sessiz catch = sessiz kayip.
+        console.error("[saha] denetim izi dusurulemedi:", _e && _e.message, "musteri:", m[1]);
       }
       sendJson(response, 200, { musteri: result.rows[0] });
       return;
