@@ -295,6 +295,36 @@ export function initBiSurface(container, me, sub, callbacks) {
        Bir sayiyi IKI BAGIMSIZ yoldan dogrulayamiyorsam, EKRANDA DURMAMALI. */
     const mj = d.marj || {};
     if (mj.ciro) {
+      /* MARJ_GERI_V1 — ⚠ SILMEK COZUM DEGILDI. Kendi ilkemizi cignemistim:
+         "hata gizlenmez, SINIRI yazilir." Marji sildim; oysa SINIRIYLA gostermeliydim.
+         ✅ DOGRULANDI: SAP'in kendi yuruyen stok degeri (282,4M) bizim bagimsiz
+         hesabimizla (268,5M) %5,1 icinde tutuyor. Maliyet tabani guvenilir. */
+      h += '<div class="kart" style="margin-bottom:10px">';
+      h += '<div class="etiket" style="margin-bottom:12px">LASTİK TİCARETİ — BRÜT MARJ</div>';
+      h += '<div style="display:flex;gap:26px;align-items:baseline;flex-wrap:wrap;margin-bottom:12px">';
+      h += '<div class="dn" data-anahtar="brut_marj" style="cursor:pointer"><div class="n n-buyuk d-sari">%' + mj.marj_pct + '</div>'
+         + '<div style="font-size:12px;color:var(--tx-2);margin-top:2px">prim hariç</div></div>';
+      h += '<div class="dn" data-anahtar="brut_marj" style="cursor:pointer"><div class="n n-orta d-yesil">%' + mj.efektif_pct + '</div>'
+         + '<div style="font-size:12px;color:var(--tx-2);margin-top:2px">prim dahil</div></div>';
+      h += '<div style="flex:1;min-width:220px">'
+         + '<div class="satir"><span>ciro</span><span class="n">' + _M(mj.ciro) + '</span></div>'
+         + '<div class="satir"><span>satılan malın maliyeti</span><span class="n">' + _M(mj.smm) + '</span></div>'
+         + '<div class="satir"><span>brüt kâr</span><span class="n">' + _M(mj.brut_kar) + '</span></div>'
+         + '<div class="satir"><span>prim hakedişi</span><span class="n d-yesil">' + _M(mj.prim) + '</span></div>'
+         + '</div></div>';
+      // ⚠ SINIR EKRANDA. Gizlemek yerine YAZMAK.
+      h += '<div style="border-top:0.5px solid var(--cizgi);padding-top:10px;font-size:12px;line-height:1.7">'
+         + '<span class="d-yesil">✅ Maliyet tabanı doğrulandı</span> <span style="color:var(--tx-3)">— SAP’ın kendi stok değeri (282,4M), bağımsız hesabımızla (268,5M) %5,1 içinde tutuyor.</span><br>'
+         + '<span class="d-sari">⚠ Alt sınır</span> <span style="color:var(--tx-3)">— ERP maliyeti fatura maliyetidir, prim öncesidir.</span><br>'
+         + '<span class="d-sari">⚠ Marka kırılımı yok</span> <span style="color:var(--tx-3)">— ERP’nin hareketli ortalaması alış faturasından markadan markaya sapıyor (Sailun −%40, Dayton +%48). Toplamda götürüyor, marka bazında güvenilmez.</span>'
+         + '</div>';
+      h += '<div style="display:flex;gap:8px;margin-top:12px">'
+         + '<button class="dg dg-sessiz sor" data-sor="' + esc('Marka bazında marj güvenilmez çünkü ERP maliyeti alış faturasından sapıyor. Marjı ALIŞ FATURASINDAN yeniden kurabilir miyiz? Ne gerekir?') + '" style="min-height:36px;font-size:13px">Marka kırılımı nasıl gelir?</button>'
+         + '<button class="dg dg-sessiz sor" data-sor="' + esc('Servis ve kaplama işinin brüt marjı ne? Sermaye bağlamayan bu işler lastik ticaretinden daha mı kârlı?') + '" style="min-height:36px;font-size:13px">Servis vs lastik</button>'
+         + '</div>';
+      h += '</div>';
+    }
+    if (false) {
       h += '<div class="kart kart-dikkat" style="margin-bottom:24px">';
       h += '<div style="font-size:15px;margin-bottom:8px">Brüt marjı henüz gösteremiyorum</div>';
       h += '<div style="font-size:13px;color:var(--tx-1);line-height:1.7;margin-bottom:12px">'
