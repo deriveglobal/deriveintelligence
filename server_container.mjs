@@ -23594,6 +23594,56 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
   return;
 }
 
+
+  // ── ITIRAZ_V1 ─────────────────────────────────────────────────────────────
+  // ⚠ Kullanici "bu yanlis" dediginde sistem sayiyi SAVUNMAZ.
+  //   Kaynagini acar, varsayimini gosterir, SINIRINI yazar, ogrenir.
+  //   Bugunun her buyuk hatasi bir ITIRAZLA bulundu, sorguyla degil.
+  if (request.method === 'GET' && url.pathname === '/api/bi/koken') {
+    try {
+      const session = await requireModuleAccess(request, "intelligence");
+      const anahtar = url.searchParams.get('anahtar') || '';
+      const [k, it] = await Promise.all([
+        query(`SELECT * FROM bi_sayi_koken WHERE anahtar=$1`, [anahtar]),
+        query(`SELECT gerekce, kullanici, olusma FROM bi_itiraz
+                WHERE tenant_id=$1::uuid AND anahtar=$2 AND durum='acik'
+                ORDER BY olusma DESC LIMIT 3`, [session.tenantId, anahtar])
+      ]);
+      sendJson(response, 200, {
+        koken: k.rows[0] || null,
+        acik_itiraz: it.rows,
+        uyari: k.rows[0] ? null : 'Bu sayının kökeni kayıtlı değil. Güvenilirliği bilinmiyor.'
+      });
+    } catch(e) { sendJson(response, 500, { error: e.message }); }
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/bi/itiraz') {
+    try {
+      const session = await requireModuleAccess(request, "intelligence");
+      const body = await readJson(request);
+      if (!body.anahtar || !String(body.gerekce||'').trim()) {
+        sendJson(response, 400, { error: 'anahtar ve gerekçe zorunlu' }); return;
+      }
+      const r = await query(`
+        INSERT INTO bi_itiraz (tenant_id, anahtar, gosterilen, kullanici, gerekce)
+        VALUES ($1::uuid, $2, $3, $4, $5) RETURNING id`,
+        [session.tenantId, body.anahtar, body.gosterilen || null,
+         session.email || 'bilinmiyor', String(body.gerekce).trim()]);
+      sendJson(response, 200, { ok: true, id: r.rows[0].id,
+        mesaj: 'Not aldım. Bu sayının kaynağını işaretledim — çözülene kadar yanında "itiraz edildi" yazacak.' });
+    } catch(e) { sendJson(response, 500, { error: e.message }); }
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/bi/itiraz/acik') {
+    try {
+      const session = await requireModuleAccess(request, "intelligence");
+      const r = await query(`SELECT anahtar, count(*)::int AS adet FROM bi_itiraz
+                              WHERE tenant_id=$1::uuid AND durum='acik' GROUP BY anahtar`,
+                            [session.tenantId]);
+      sendJson(response, 200, { itirazlar: r.rows });
+    } catch(e) { sendJson(response, 500, { error: e.message }); }
+  }
+
   // ── ANA_API_V1 ────────────────────────────────────────────────────────────
   // ⚠ Her rakam Postgres'te dogrulandi. Uydurma sayi YOK.
   // ⚠ EVA/NOPAT DONMUYOR — bayilik cirosunun %92'sinin maliyeti yok.
