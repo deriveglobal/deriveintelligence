@@ -1,3 +1,19 @@
+// ⚠ IL_ILCE_BAGLA: resmi il/ilce verisi (81 il · 973 ilce).
+//   Yan-etki importu — window.TR_IL_ILCE ve window.TR_ILLER_RESMI'yi doldurur.
+//   ⚠ Bu satir silinirse acilir listeler BOS gelir. Asagidaki kapi bagirir.
+import "/shells/tr_il_ilce.js?v=20260714-1";
+
+// ⚠ IL_ILCE_KAPI: veri gelmediyse SESSIZ KALMA.
+//   Bos acilir liste "sistem bozuk" gibi gorunur; sebebi gorunmez.
+//   Olcmesi gereken seyi olcmeyen kapi, kapi degil engeldir.
+if (!window.TR_ILLER_RESMI || !Array.isArray(window.TR_ILLER_RESMI)
+    || window.TR_ILLER_RESMI.length !== 81) {
+  console.error("[saha] ❌ RESMI IL VERISI YUKLENMEDI — acilir listeler BOS gelecek.",
+                "beklenen: 81 il, gelen:", window.TR_ILLER_RESMI && window.TR_ILLER_RESMI.length);
+  window.TR_ILLER_RESMI = window.TR_ILLER_RESMI || [];
+  window.TR_IL_ILCE    = window.TR_IL_ILCE    || {};
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // KRB SAHA — Saha ziyaretleri + iskonto onay modülü (mobile-first shell)
 // İki şemsiye: TÜKETİCİ (PSR bayi) / TİCARİ (TBR-OTR filo, maden, inşaat)
@@ -79,9 +95,10 @@ export function initSahaSurface(container, me, sub, opts = {}) {
   if (window.__sahaPendingNav) {
     const pendingTip = window.__sahaPendingNav;
     window.__sahaPendingNav = null;
+    setRoom("saha");
     window.__sahaGit(pendingTip, null);
   } else {
-    loadView("bugun");
+    setRoom("reception"); // RECEPTION_V1 — herkes önce Reception'a düşer
   }
 }
 
@@ -187,10 +204,16 @@ function layout() {
   S.coreIds = CORE;
   const coreTabs = tabs.filter(t => CORE.includes(t[0]));
   S.moreTabs = tabs.filter(t => !CORE.includes(t[0]));
+  // ODA_SECICI_V1 — mobil rol-bazlı üst odalar: rep [Saha·Rakip], yönetim [Saha·Rakip·Kokpit].
+  const _mgmt = ["manager","admin"].includes(S.role);
+  const ROOMS = [["saha","🗂","Saha"],["rakip","🏷","Rakip"], ...(_mgmt ? [["kokpit","📊","Kokpit"],["ceo","🧠","CEO"]] : [])];
+  S.rooms = ROOMS.map(r => r[0]);
+  const ROOMBAR = [["reception", "🏠", "Ana"], ...ROOMS];
   return `
   <div class="saha-app">
     <header class="saha-head">
-      <div class="saha-title">KRB <b>Saha</b></div>
+      <button id="saha-home" title="Ana ekran" style="display:none;background:none;border:none;color:#fff;font-size:20px;cursor:pointer;padding:0 6px 0 0;line-height:1">◀</button>
+      <div class="saha-title">Derive <b>Intelligence</b></div>
       <div class="saha-chips" id="saha-semsiye">
         <button data-s="" class="chip on">Tümü</button>
         <button data-s="TUKETICI" class="chip">Tüketici</button>
@@ -202,6 +225,9 @@ function layout() {
     <nav class="saha-nav">
       ${coreTabs.map(([id, ico, l]) => `<button class="saha-tab${id === "bugun" ? " on" : ""}" data-v="${id}"><span>${ico}</span>${l}</button>`).join("")}
       <button class="saha-tab" data-v="daha"><span>⋯</span>Daha</button>
+    </nav>
+    <nav class="saha-roombar" id="saha-roombar" style="display:none">
+      ${ROOMBAR.map(([id, ico, l]) => `<button class="saha-rtab" data-room="${id}"><span>${ico}</span>${l}</button>`).join("")}
     </nav>
     <button id="saha-oneri-fab" title="Öneri / Geri Bildirim" style="
       position:fixed;bottom:72px;right:16px;z-index:200;
@@ -216,6 +242,9 @@ function layout() {
 }
 
 function wireNav() {
+  S.container.querySelectorAll(".saha-rtab").forEach(b =>
+    b.addEventListener("click", () => setRoom(b.dataset.room)));
+  S.container.querySelector("#saha-home")?.addEventListener("click", () => setRoom("reception"));
   S.container.querySelectorAll(".saha-tab").forEach(b =>
     b.addEventListener("click", () => {
       if (b.dataset.v === "daha") { dahaSheet(); return; }
@@ -285,6 +314,194 @@ function wireNav() {
 }
 
 function main() { return S.container.querySelector("#saha-main"); }
+// RECEPTION_V1 — herkes önce Reception'a düşer; oradan rol-bazlı oda seçer.
+//   Odalar: Saha (mevcut modül) · Rakip (tam ekran) · Kokpit (mobil-optimize, yönetim).
+function setRoom(room) {
+  S.room = room;
+  const nav  = S.container.querySelector(".saha-nav");
+  const fab  = S.container.querySelector("#saha-oneri-fab");
+  const home = S.container.querySelector("#saha-home");
+  const chips = S.container.querySelector("#saha-semsiye");
+  const m = main();
+  const isSaha = room === "saha";
+  const rbar = S.container.querySelector("#saha-roombar");
+  if (nav)  nav.style.display  = isSaha ? "" : "none";
+  if (fab)  fab.style.display  = isSaha ? "" : "none";
+  if (chips) chips.style.display = isSaha ? "" : "none";
+  if (home) home.style.display = room === "reception" ? "none" : "";
+  if (rbar) {
+    rbar.style.display = isSaha ? "none" : "flex";
+    rbar.querySelectorAll(".saha-rtab").forEach(b => b.classList.toggle("on", b.dataset.room === room));
+  }
+  m.scrollTop = 0;
+  if (room === "reception") { m.style.padding = ""; renderReception(); return; }
+  if (room === "kokpit")    { m.style.padding = "0"; vKokpitMobil(); return; }
+  if (room === "ceo")       { m.style.padding = "0"; vCeoMobil(); return; }
+  m.style.padding = "";
+  if (room === "rakip") { loadView("rakip"); return; }
+  loadView("bugun"); // saha
+}
+function renderReception() {
+  const _mgmt = ["manager", "admin"].includes(S.role);
+  const tiles = [
+    ["saha", "🗂", "Saha", "Ziyaret · teklif · müşteri · asistan", "#0284c7"],
+    ["rakip", "🏷", "Rakip Fiyatları", "Piyasa & rakip fiyat radarı", "#dc2626"],
+    ...(_mgmt ? [["kokpit", "📊", "Kokpit", "Finans kokpiti · vitals · içgörü", "#0891b2"], ["ceo", "🧠", "CEO Assistant", "Beyin · sor · analiz · görev ver", "#7c3aed"]] : [])
+  ];
+  const h = new Date().getHours();
+  const selam = h < 12 ? "Günaydın" : h < 18 ? "İyi günler" : "İyi akşamlar";
+  const ad = (S.me.name || "").split(" ")[0] || "";
+  const m = main();
+  m.innerHTML = `
+    <div class="rec-wrap">
+      <div class="rec-hi">${selam}${ad ? ", " + esc(ad) : ""} 👋</div>
+      <div class="rec-sub">Bir oda seç</div>
+      <div class="rec-tiles">
+        ${tiles.map(([id, ico, l, sub, c]) => `
+          <button class="rec-tile" data-room="${id}" style="--rc:${c}">
+            <span class="rec-ico">${ico}</span>
+            <span class="rec-txt"><b>${l}</b><small>${sub}</small></span>
+            <span class="rec-arrow">›</span>
+          </button>`).join("")}
+      </div>
+    </div>`;
+  m.querySelectorAll(".rec-tile").forEach(b => b.addEventListener("click", () => setRoom(b.dataset.room)));
+}
+// KOKPIT_MOBIL_V1 — mobil-optimize kokpit (yönetim): vitals + kanal + segment + sezon + marka + piyasa + içgörü.
+async function vKokpitMobil() {
+  const m = main();
+  m.innerHTML = `<div class="kok-wrap"><div class="mini-durum" style="padding:14px">Kokpit yükleniyor…</div></div>`;
+  const money = v => (v == null) ? "—" : Number(v).toLocaleString("tr-TR", { maximumFractionDigits: 1 }) + " M₺";
+  const pct = v => (v == null) ? "—" : "%" + Number(v).toLocaleString("tr-TR", { maximumFractionDigits: 1 });
+  const mjc = v => v == null ? "#94a3b8" : v < 0 ? "#dc2626" : v < 8 ? "#d97706" : "#16a34a";
+  const wasNow = (now, was, kind, inv) => {
+    if (now == null || was == null) return `<div class="w" style="color:#94a3b8">—</div>`;
+    const up = now >= was, good = inv ? !up : up;
+    const wtxt = kind === "gun" ? Math.round(was) + " gün" : money(was);
+    return `<div class="w" style="color:${good ? "#3ecf8e" : "#ff6b5a"}">${up ? "▲" : "▼"} nasıldı ${wtxt}</div>`;
+  };
+  const list = (arr, kf, vf) => arr.map(x => `<div class="kok-row"><span class="rk">${esc(kf(x))}</span><span class="rv">${vf(x)}</span></div>`).join("");
+  try {
+    const d = await api("/api/bi/kokpit-data");
+    const v = d.vitals || {};
+    let h = `<div class="kok-wrap">
+      <div class="kok-vitals">
+        <div class="kok-v"><div class="l">Ciro (son ay)</div><div class="n">${money(v.ciro)}</div>${wasNow(v.ciro, v.ciro_was, "m")}</div>
+        <div class="kok-v"><div class="l">Stok Değeri</div><div class="n">${money(v.stok)}</div>${wasNow(v.stok, v.stok_was, "m")}</div>
+        <div class="kok-v"><div class="l">DSO</div><div class="n">${v.dso != null ? Math.round(v.dso) + " gün" : "—"}</div>${wasNow(v.dso, v.dso_was, "gun", true)}</div>
+        <div class="kok-v"><div class="l">Şirket Marj</div><div class="n">${pct(v.marj)}</div><div class="w" style="color:#94a3b8">brüt · teşvik öncesi</div></div>
+      </div>`;
+    if (d.kanal?.length) h += `<div class="kok-sec"><div class="kok-sb">📊 Satış Kanalı</div>${list(d.kanal, x => x.k, x => `${money(x.c)} · <span style="color:${mjc(x.mj)}">${pct(x.mj)}</span>`)}</div>`;
+    if (d.segment?.length) h += `<div class="kok-sec"><div class="kok-sb">🧩 Segment</div>${list(d.segment, x => x.s, x => `${money(x.c)} · <span style="color:${mjc(x.mj)}">${pct(x.mj)}</span>`)}</div>`;
+    if (d.sezon?.length) h += `<div class="kok-sec"><div class="kok-sb">🍂 Sezon</div>${list(d.sezon, x => x.s, x => `${money(x.c)} · <span style="color:${mjc(x.mj)}">${pct(x.mj)}</span>`)}</div>`;
+    if (d.marka?.length) h += `<div class="kok-sec"><div class="kok-sb">🏷 Marka (ciro)</div>${list(d.marka.slice(0, 12), x => x.m, x => `${money(x.c)} · <span style="color:${mjc(x.mj)}">${pct(x.mj)}</span>`)}</div>`;
+    if (d.piyasa && d.piyasa.izlenen?.length) h += `<div class="kok-sec"><div class="kok-sb">📡 Piyasa Radar · ${d.piyasa.alarm || 0} alarm</div>${d.piyasa.izlenen.slice(0, 8).map(z => `<div class="kok-row"><span class="rk">${esc(z.marka || "")} ${esc(z.ebat || "")}</span><span class="rv">${z.son_min != null ? Number(z.son_min).toLocaleString("tr-TR") + " ₺" : "—"}${z.alarm ? ` <span style="color:#dc2626">●${z.alarm}</span>` : ""}</span></div>`).join("")}</div>`;
+    if (d.insights?.length) {
+      const ins = d.insights[0];
+      h += `<div class="kok-sec" style="border-left:3px solid #8b5cf6"><div class="kok-sb">💡 İçgörü</div><div style="font-size:13px;color:#0f172a;font-weight:600;margin-bottom:4px">${esc(ins.ozet || "")}</div><div style="font-size:12px;color:#475569;line-height:1.5">${esc((ins.anlati || "").slice(0, 260))}</div>${ins.oneri ? `<div style="font-size:12px;color:#6d28d9;margin-top:6px">→ ${esc(ins.oneri)}</div>` : ""}${d.insights.length > 1 ? `<div style="font-size:11px;color:#94a3b8;margin-top:6px">+${d.insights.length - 1} içgörü daha</div>` : ""}</div>`;
+    }
+    h += `</div>`;
+    m.innerHTML = h;
+  } catch (e) {
+    m.innerHTML = `<div class="kok-wrap"><div class="kart kart-karar" style="margin:12px">Kokpit verisi gelmedi.<div style="font-size:12px;color:#94a3b8;margin-top:6px">${esc(e.message)}</div></div></div>`;
+  }
+}
+// CEO_MOBIL_V1 — mobil CEO Assistant (beyin) odası (yönetim). Masaüstü BI'daki CEO odasıyla
+//   AYNI /api/brain/chat SSE ucunu kullanır (geçmiş tenant-bazlı paylaşılır). Auth: saha Bearer.
+async function vCeoMobil() {
+  const m = main();
+  m.innerHTML = `
+    <div class="ceo-wrap">
+      <div class="ceo-msgs" id="ceo-msgs">
+        <div class="ceo-hi">🧠 CEO Assistant<small>Sor, analiz ettir, görev ver. Masaüstü kokpitiyle aynı beyin.</small></div>
+      </div>
+      <form class="ceo-bar" id="ceo-form">
+        <textarea id="ceo-inp" rows="1" placeholder="Bir şey sor…" autocomplete="off"></textarea>
+        <button type="submit" id="ceo-send" title="Gönder">➤</button>
+      </form>
+    </div>`;
+  const msgsEl = document.getElementById("ceo-msgs");
+  const form = document.getElementById("ceo-form");
+  const inp = document.getElementById("ceo-inp");
+  const sendBtn = document.getElementById("ceo-send");
+
+  const bubble = (who, txt) => {
+    const b = document.createElement("div");
+    b.className = "ceo-b " + (who === "user" ? "ceo-u" : "ceo-a");
+    b.textContent = txt || "";
+    msgsEl.appendChild(b);
+    msgsEl.scrollTop = msgsEl.scrollHeight;
+    return b;
+  };
+
+  let gonderiliyor = false;
+  async function gonder(msg, greeting) {
+    if (gonderiliyor) return;
+    if (!greeting && !msg) return;
+    gonderiliyor = true; inp.disabled = true; sendBtn.disabled = true;
+    if (!greeting) bubble("user", msg);
+    const think = document.createElement("div");
+    think.className = "ceo-b ceo-a ceo-think";
+    think.textContent = "💭 Düşünüyor…";
+    msgsEl.appendChild(think); msgsEl.scrollTop = msgsEl.scrollHeight;
+    try {
+      const res = await fetch("/api/brain/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...S.headers() },
+        body: JSON.stringify({ message: greeting ? "merhaba" : msg, is_greeting: !!greeting })
+      });
+      think.remove();
+      if (!res.ok) {
+        let em = "HTTP " + res.status;
+        try { const j = await res.json(); if (j && j.error) em = j.error; } catch {}
+        bubble("assistant", "⚠ " + em).classList.add("ceo-err");
+        return;
+      }
+      const b = bubble("assistant", "");
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "", txt = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const lines = buf.split("\n"); buf = lines.pop();
+        for (const ln of lines) {
+          if (!ln.startsWith("data: ")) continue;
+          try {
+            const d = JSON.parse(ln.slice(6));
+            if (d.text) { txt += d.text; b.textContent = txt; msgsEl.scrollTop = msgsEl.scrollHeight; }
+          } catch {}
+        }
+      }
+      if (!txt.trim()) b.textContent = greeting ? "Merhaba! Nasıl yardımcı olabilirim?" : "…";
+    } catch (e) {
+      think.remove();
+      bubble("assistant", "Bağlantı hatası: " + (e.message || e)).classList.add("ceo-err");
+    } finally {
+      gonderiliyor = false; inp.disabled = false; sendBtn.disabled = false; inp.focus();
+    }
+  }
+
+  // otomatik yüksekliğe uyan textarea
+  inp.addEventListener("input", () => {
+    inp.style.height = "auto";
+    inp.style.height = Math.min(inp.scrollHeight, 120) + "px";
+  });
+  // Enter=gönder, Shift+Enter=yeni satır
+  inp.addEventListener("keydown", ev => {
+    if (ev.key === "Enter" && !ev.shiftKey) { ev.preventDefault(); form.requestSubmit(); }
+  });
+  form.addEventListener("submit", ev => {
+    ev.preventDefault();
+    const v = inp.value.trim();
+    if (!v) return;
+    inp.value = ""; inp.style.height = "auto";
+    gonder(v, false);
+  });
+  // günlük selamlama (önbellekli, ucuz) — açılışta
+  gonder(null, true);
+}
 function loadView(v) {
   S.view = v;
   const _navId = (S.coreIds || []).includes(v) ? v : "daha";
@@ -381,7 +598,7 @@ async function vBugun() {
       ? hatirlatmalar.map(n => `
           <div class="kart" style="padding:10px 12px;border-left:3px solid #7c3aed;margin-bottom:6px">
             <div style="font-size:13px;color:#0f172a">${esc(n.icerik.slice(0, 80))}${n.icerik.length > 80 ? "…" : ""}</div>
-            ${n.hatirlatma_tarihi ? `<div style="font-size:11px;color:#7c3aed;margin-top:2px">⏰ ${n.hatirlatma_tarihi}</div>` : ""}
+            <div style="margin-top:2px">${n.musteri ? `<span style="font-size:11px;color:#0f766e;font-weight:600">🏢 ${esc(n.musteri)}</span>` : ""}${n.hatirlatma_tarihi ? `<span style="font-size:11px;color:#7c3aed;margin-left:${n.musteri ? "8px" : "0"}">⏰ ${n.hatirlatma_tarihi}</span>` : ""}</div>
           </div>`).join("")
       : "";
 
@@ -561,6 +778,7 @@ function zKart(z) {
       <span>${tarih}</span>
       ${S.role !== "rep" ? `<span>👤 ${esc(z.rep_full_name || z.rep_adi || "")}</span>` : ""}
       ${Number(z.foto_sayisi) ? `<span>📷 ${z.foto_sayisi}</span>` : ""}
+      ${Number(z.gorulme_sayisi) ? `<span title="görüldü" style="color:#0891b2">👁 ${z.gorulme_sayisi}</span>` : ""}
       ${z.checkin_at ? `<span title="Check-in yapıldı">📍</span>` : ""}
       ${dl ? `<span class="rozet-cizgi" style="color:${dc};border-color:${dc}">${dl}</span>` : ""}
     </div>
@@ -595,6 +813,7 @@ async function ziyaretDetayModal(zid) {
         <div style="font-size:12px;color:#64748b;background:#f8fafc;border-radius:8px;padding:8px;margin-top:4px;white-space:pre-wrap">${esc(z.notlar_orijinal || "—")}</div>
       </details>` : ""}
     <div id="det-fotolar" class="foto-izgara"></div>
+    <div id="ziy-gorenler" style="margin-top:10px;font-size:12px;color:#64748b"></div>
     <div style="margin-top:14px;border-top:1px solid #f1f5f9;padding-top:12px">
       <div style="font-size:12px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px">Yorumlar</div>
       <div id="det-yorumlar" style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">
@@ -615,6 +834,18 @@ async function ziyaretDetayModal(zid) {
   document.getElementById("det-teklif")?.addEventListener("click", () => {
     kapatModal(); teklifFormModal({ id: z.musteri_id, firma: z.firma }, zid);
   });
+
+  // ZIYARET_GORULME_V1 — detay açılınca otomatik "görüldüm" + görenleri göster (herkes görür)
+  (async () => {
+    try {
+      const r = await api(`/api/saha/ziyaretler/${zid}/gordum`, { method: "POST" });
+      const el = document.getElementById("ziy-gorenler");
+      if (!el) return;
+      const adlar = (r.gorenler || []).map(x => esc(x.ad || "")).filter(Boolean);
+      el.innerHTML = `👁 <b>${r.sayi || 0}</b> kişi gördü${adlar.length ? " · <span style=\"color:#475569\">" + adlar.join(", ") + "</span>" : ""}`;
+      if (S.ziyaretler) { const zz = S.ziyaretler.find(x => x.id === zid); if (zz) zz.gorulme_sayisi = r.sayi; }
+    } catch { /* görülme yüklenemedi */ }
+  })();
 
   // ⚠ ZIYARET_SIL_V1 — UYARI TAHMIN DEGIL SAYIM.
   //   "Emin misiniz?" hicbir sey anlatmaz. "2 fotograf, 1 rakip fiyat" anlatir.
@@ -747,14 +978,14 @@ function musteriSecModal(devam) {
           if (el.dataset.yeni) { kapatModal(); yeniMusteriModal(q, devam); return; }
           const r = sonuclar[Number(el.dataset.i)];
           if (r.kaynak === "SAHA") { kapatModal(); devam(r); }
-          else { kapatModal(); yeniMusteriModal(r.firma, devam, r.musteri_kodu); }
+          else { kapatModal(); yeniMusteriModal(r.firma, devam, r.musteri_kodu, r.vergi_no, r.tc_no); }
         }));
       } catch (e) { kutu.innerHTML = hata(e); }
     }, 300);
   });
 }
 
-function yeniMusteriModal(firma, devam, musteriKodu = null) {
+function yeniMusteriModal(firma, devam, musteriKodu = null, vkn = null, tc = null) {
   modal(`
     <h3>${musteriKodu ? "ERP Cariyi Sahaya Ekle" : "Yeni Müşteri / Nokta"}</h3>
     ${musteriKodu ? `<div class="bilgi-kutu">ERP kodu <b>${esc(musteriKodu)}</b> bağlanacak — bakiye ve satış geçmişi otomatik görünür.</div>` : ""}
@@ -785,10 +1016,10 @@ function yeniMusteriModal(firma, devam, musteriKodu = null) {
       <label>Telefon *<input class="giris" id="ym-tel" inputmode="tel" placeholder="+90 5xx xxx xx xx"></label>
     </div>
     <div class="yanyana">
-      <label>VKN <span style="font-size:11px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:4px;padding:1px 5px">yakında zorunlu</span>
-        <input class="giris" id="ym-vkn" inputmode="numeric" placeholder="10 hane (Vergi No)">
+      <label>VKN <span style="font-size:11px;background:#fff7ed;color:#c2410c;border:1px solid #fed7aa;border-radius:4px;padding:1px 5px">yakında zorunlu</span>${vkn ? `<span style="font-size:11px;color:#16a34a;margin-left:4px">✓ ERP'den</span>` : ""}
+        <input class="giris" id="ym-vkn" inputmode="numeric" placeholder="10 hane (Vergi No)" value="${esc(vkn || "")}">
       </label>
-      <label>TC Kimlik No<input class="giris" id="ym-tcno" inputmode="numeric" placeholder="11 hane"></label>
+      <label>TC Kimlik No${tc ? `<span style="font-size:11px;color:#16a34a;margin-left:4px">✓ ERP'den</span>` : ""}<input class="giris" id="ym-tcno" inputmode="numeric" placeholder="11 hane" value="${esc(tc || "")}"></label>
     </div>
     <label>Segment<input class="giris" id="ym-segment" placeholder="bayi / lojistik / maden…"></label>
     <div id="ym-konum-kutu">
@@ -931,8 +1162,19 @@ async function ziyaretFormModal(mus, mod, presetDate = null) {
   const tuketici = tip === "TUKETICI";
   let lokasyonlar = [];
   try { lokasyonlar = (await api(`/api/saha/musteriler/${mus.id}/lokasyonlar`)).lokasyonlar || []; } catch { /* yok */ }
+  // MUSTERI_BILGI_V1 — ziyaret formunda müşteri kimlik/iletişim bilgisi (salt-okunur referans; otomatik gelir)
+  const _kimStrip = (() => {
+    const par = [];
+    const _t = mus.telefon;
+    if (mus.yetkili) par.push(`👤 ${esc(mus.yetkili)}`);
+    if (_t) par.push(`📞 <a href="tel:${esc(String(_t).replace(/\s/g, ""))}" style="color:#0284c7">${esc(_t)}</a>`);
+    const _v = mus.vergi_no || mus.kimlik_vergi_no; if (_v) par.push(`VKN ${esc(_v)}`);
+    const _tc = mus.tc_no || mus.kimlik_tc_no; if (_tc) par.push(`TC ${esc(_tc)}`);
+    return par.length ? `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12.5px;color:#475569;line-height:1.7">${par.join(" · ")}</div>` : "";
+  })();
   modal(`
     <h3>${mod === "planla" ? "Ziyaret Planla" : "Ziyaret Kaydet"} — ${esc(mus.firma)}</h3>
+    ${_kimStrip}
     ${lokasyonlar.length ? `
     <label>Lokasyon
       <select class="giris" id="zf-lokasyon">
@@ -1129,7 +1371,12 @@ async function ziyaretFormModal(mus, mod, presetDate = null) {
 
 async function vPlan() {
   try {
-    const { ziyaretler } = await api(`/api/saha/ziyaretler?durum=PLANLANDI${tipQS()}`);
+    // HATIRLATMA_TAKVIM_V1 — Plan takvimi ziyaretlerin YANINDA hatırlatmaları da gösterir (Eftal talebi).
+    const [{ ziyaretler }, notResp] = await Promise.all([
+      api(`/api/saha/ziyaretler?durum=PLANLANDI${tipQS()}`),
+      api("/api/saha/notlar").catch(() => ({ notlar: [] }))
+    ]);
+    const hatirlatmalar = (notResp.notlar || []).filter(n => n.hatirlatma_tarihi && !n.tamamlandi);
     const bugun = new Date().toISOString().slice(0, 10);
     let takvimAy = new Date();
     let seciliGun = bugun;
@@ -1141,6 +1388,11 @@ async function vPlan() {
           const d = z.planlanan_tarih.slice(0, 10);
           gunZiyaret[d] = (gunZiyaret[d] || 0) + 1;
         }
+      });
+      const gunHatirlatma = {};
+      hatirlatmalar.forEach(n => {
+        const d = (n.hatirlatma_tarihi || "").slice(0, 10);
+        if (d) gunHatirlatma[d] = (gunHatirlatma[d] || 0) + 1;
       });
       const yil = takvimAy.getFullYear();
       const ay  = takvimAy.getMonth();
@@ -1163,9 +1415,13 @@ async function vPlan() {
             const secilimi = tarih === seciliGun;
             const gecmismi = tarih < bugun;
             const sayi = gunZiyaret[tarih] || 0;
+            const hSayi = gunHatirlatma[tarih] || 0;
             hucreler += `<div class="tak-gun${bugunmu ? " bugun" : ""}${secilimi ? " secili" : ""}${gecmismi ? " gecmis-gun" : ""}" data-tarih="${tarih}">
               <span class="tak-sayi">${gun}</span>
-              ${sayi ? `<span class="tak-rozet">${sayi}</span>` : ""}
+              ${(sayi || hSayi) ? `<span style="display:flex;gap:2px;align-items:center;justify-content:center;flex-wrap:wrap">
+                ${sayi ? `<span class="tak-rozet">${sayi}</span>` : ""}
+                ${hSayi ? `<span class="tak-rozet" style="background:#7c3aed">⏰${hSayi}</span>` : ""}
+              </span>` : ""}
             </div>`;
             gun++;
           }
@@ -1174,6 +1430,7 @@ async function vPlan() {
       }
 
       const gunZiyaretleri = ziyaretler.filter(z => z.planlanan_tarih?.slice(0, 10) === seciliGun);
+      const gunHatirlatmalari = hatirlatmalar.filter(n => (n.hatirlatma_tarihi || "").slice(0, 10) === seciliGun);
       const seciliTarihStr = new Date(seciliGun + "T12:00:00").toLocaleDateString("tr-TR", { weekday:"long", day:"numeric", month:"long" });
 
       return `
@@ -1193,7 +1450,7 @@ async function vPlan() {
             <b>${seciliTarihStr}</b>
             <button class="btn kucuk" id="tak-yeni">＋ Ekle</button>
           </div>
-          ${gunZiyaretleri.length ? gunZiyaretleri.map(z => `
+          ${gunZiyaretleri.map(z => `
             <div class="kart${z.planlanan_tarih?.slice(0,10) < bugun ? " gecmis" : ""}">
               <div class="kart-ust"><b>${esc(z.firma)}</b>
                 ${S.role !== "rep" ? `<span>👤 ${esc(z.rep_full_name || "")}</span>` : ""}</div>
@@ -1202,8 +1459,19 @@ async function vPlan() {
                 <button class="btn kucuk" data-basla="${z.id}">▶ Başlat</button>
                 <button class="btn kucuk gri" data-iptal="${z.id}">İptal</button>
               </div>
-            </div>`).join("")
-          : `<div class="saha-bos" style="padding:12px 0">Bu gün için ziyaret planı yok.</div>`}
+            </div>`).join("")}
+          ${gunHatirlatmalari.length ? `
+            <div style="font-size:11px;color:#7c3aed;text-transform:uppercase;letter-spacing:.4px;font-weight:700;margin:${gunZiyaretleri.length ? "14px" : "2px"} 0 6px">⏰ Hatırlatmalar</div>
+            ${gunHatirlatmalari.map(n => `
+              <div class="kart" data-hatir="${n.id}" style="cursor:pointer;border-left:3px solid #7c3aed">
+                <div class="kart-ust"><b style="font-weight:600;font-size:14px;line-height:1.4">${esc(n.icerik)}</b></div>
+                <div class="kart-alt" style="margin-top:5px;gap:8px;align-items:center">
+                  ${n.musteri ? `<span style="color:#0f766e;font-weight:600">🏢 ${esc(n.musteri)}</span>` : ""}
+                  ${(n.hatirlatma_tarihi || "").slice(0,10) < bugun ? `<span style="color:#ef4444;font-weight:600">gecikti</span>` : ""}
+                  <button class="btn kucuk" data-hatir-tamam="${n.id}" style="margin-left:auto">✓ Tamamla</button>
+                </div>
+              </div>`).join("")}` : ""}
+          ${(!gunZiyaretleri.length && !gunHatirlatmalari.length) ? `<div class="saha-bos" style="padding:12px 0">Bu gün için ziyaret planı veya hatırlatma yok.</div>` : ""}
         </div>`;
     }
 
@@ -1237,6 +1505,21 @@ async function vPlan() {
           await api(`/api/saha/ziyaretler/${b.dataset.iptal}`, { method: "PUT", body: JSON.stringify({ action: "iptal" }) });
           const i = ziyaretler.findIndex(x => x.id === b.dataset.iptal);
           if (i !== -1) ziyaretler.splice(i, 1);
+          wire();
+        } catch (e) { uyari(e.message); }
+      }));
+      // HATIRLATMA_TAKVIM_V1 — hatırlatma kartı: tıkla→düzenle/ertele, ✓→tamamla
+      m.querySelectorAll("[data-hatir]").forEach(el => el.addEventListener("click", (ev) => {
+        if (ev.target.closest("[data-hatir-tamam]")) return;
+        const n = hatirlatmalar.find(x => x.id === el.dataset.hatir);
+        if (n) notDuzenleModal(n, () => vPlan());
+      }));
+      m.querySelectorAll("[data-hatir-tamam]").forEach(b => b.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        try {
+          await api(`/api/saha/notlar/${b.dataset.hatirTamam}`, { method: "PUT", body: JSON.stringify({ tamamlandi: true }) });
+          const i = hatirlatmalar.findIndex(x => x.id === b.dataset.hatirTamam);
+          if (i !== -1) hatirlatmalar.splice(i, 1);
           wire();
         } catch (e) { uyari(e.message); }
       }));
@@ -1380,6 +1663,9 @@ async function vMusteriler() {
       <div class="kart" data-mid="${m.id}">
         <div class="kart-ust"><b>${esc(m.firma)}</b>
           <div style="display:flex;gap:4px;align-items:center">
+            ${m.lat != null && m.lng != null
+              ? `<button class="kart-yol" data-yol="${m.id}" title="Yol tarifi" style="background:none;border:none;cursor:pointer;font-size:15px;padding:0 2px;line-height:1">🧭</button>`
+              : ""}
             ${Number(m.aktif_teklif) > 0
               ? `<span class="rozet" style="background:#0ea5e9;font-size:10px;padding:2px 6px" title="Aktif teklif var">📋 ${m.aktif_teklif}</span>`
               : ""}
@@ -1401,6 +1687,14 @@ async function vMusteriler() {
   }
 
   function wireKartlar(liste) {
+    liste.querySelectorAll("[data-yol]:not([data-yol-wired])").forEach(b => {
+      b.dataset.yolWired = "1";
+      b.addEventListener("click", ev => {
+        ev.stopPropagation();
+        const m = S.musteriler.find(x => x.id === b.dataset.yol);
+        if (m) yolTarifi(m.lat, m.lng, m.firma);
+      });
+    });
     liste.querySelectorAll("[data-mid]:not([data-wired])").forEach(el => {
       el.dataset.wired = "1";
       el.addEventListener("click", () => {
@@ -1445,7 +1739,8 @@ async function vMusteriler() {
       daha.textContent = "↓ Daha fazla yükle";
       daha.addEventListener("click", async () => {
         daha.disabled = true; daha.textContent = "Yükleniyor…";
-        await yukle(currentQ, currentOffset + PAGE_SIZE, true);
+        try { await yukle(currentQ, currentOffset + PAGE_SIZE, true); }
+        catch (e) { daha.disabled = false; daha.textContent = "↓ Daha fazla yükle"; uyari(e.message); }
       });
       liste.appendChild(daha);
     }
@@ -1467,7 +1762,7 @@ async function vMusteriler() {
     }));
   let t = null;
   document.getElementById("mus-filtre").addEventListener("input", ev => {
-    clearTimeout(t); t = setTimeout(() => yukle(ev.target.value.trim(), 0, false), 300);
+    clearTimeout(t); t = setTimeout(() => { yukle(ev.target.value.trim(), 0, false).catch(e => uyari(e.message)); }, 300);
   });
   try { await yukle("", 0, false); } catch (e) { main().innerHTML = hata(e); }
 }
@@ -1916,11 +2211,22 @@ function musteriDetayModal(m) {
             <input class="giris" id="md-vkn" inputmode="numeric" placeholder="10 hane — sonradan eklenebilir" value="${esc(m.vergi_no || "")}" style="font-size:13px;padding:4px 8px;display:inline-block;width:auto;margin-bottom:0">
             <button class="btn kucuk" id="md-vkn-kaydet">Kaydet</button>
           </span></div>`}
+    ${m.musteri_kodu ? "" : `<div class="det-satir"><span>ERP</span>
+        <span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <button class="btn kucuk cizgili" id="md-erp-ara" style="border-color:#0ea5e9;color:#0369a1">🔍 ERP'de Ara</button>
+          <small id="md-erp-sonuc" style="color:#94a3b8;font-size:11px">VKN ile SAP carisi bul & bağla</small>
+        </span></div>`}
     ${m.kimlik_tc_no ? `<div class="det-satir"><span>TC No</span><b>${esc(m.kimlik_tc_no)}</b></div>` : ""}
-    ${m.il ? `<div class="det-satir"><span>Konum</span><b>${esc([m.il, m.ilce].filter(Boolean).join(" / "))}</b></div>` : ""}
+    ${(m.il || m.lat != null) ? `<div class="det-satir"><span>Konum</span>
+      <span style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+        <b>${esc([m.il, m.ilce].filter(Boolean).join(" / ")) || (m.lat != null ? "📍 Pinli" : "—")}</b>
+        ${m.lat != null && m.lng != null ? `<button class="btn kucuk" id="md-yol" style="background:#0ea5e9;color:#fff">🧭 Yol Tarifi</button>` : ""}
+      </span></div>` : ""}
     ${m.yetkili ? `<div class="det-satir"><span>Yetkili</span><b>${esc(m.yetkili)}</b></div>` : ""}
     ${m.telefon ? `<div class="det-satir"><span>Telefon</span><b><a href="tel:${esc(m.telefon)}">${esc(m.telefon)}</a></b></div>` : ""}
     <div class="det-satir"><span>Ziyaret</span><b>${m.ziyaret_sayisi || 0} kez${m.son_ziyaret ? " — son: " + new Date(m.son_ziyaret).toLocaleDateString("tr-TR") : ""}</b></div>
+    <h4 class="bolum-baslik">💰 Finansal & Alımlar</h4>
+    <div id="mus-finansal" class="mini-durum">Yükleniyor…</div>
     <h4 class="bolum-baslik">Ziyaret Geçmişi</h4>
     <div id="mus-gecmis" class="mini-durum">Yükleniyor…</div>
     ${["manager","admin"].includes(S.role) ? `
@@ -1932,8 +2238,8 @@ function musteriDetayModal(m) {
     <div id="lok-liste" class="mini-durum">Yükleniyor…</div>
     <div class="yanyana">
       <label>Lokasyon adı<input class="giris" id="lok-ad" placeholder="Gebze Şube / Merkez Depo"></label>
-      <label>İl<input class="giris" id="lok-il"></label>
-      <label>İlçe<input class="giris" id="lok-ilce"></label>
+      <label>İl<select class="giris" id="lok-il"><option value="">Seçin…</option>${(window.TR_ILLER_RESMI || []).map(il => `<option>${esc(il)}</option>`).join("")}</select></label>
+      <label>İlçe<select class="giris" id="lok-ilce"><option value="">Önce il seçin…</option></select></label>
     </div>
     <button class="btn kucuk cizgili" id="lok-ekle">＋ Lokasyon Ekle</button>
     <div class="modal-btnlar">
@@ -1944,6 +2250,7 @@ function musteriDetayModal(m) {
     </div>`);
   document.getElementById("md-ziyaret").addEventListener("click", () => { kapatModal(); ziyaretFormModal(m, "kaydet"); });
   document.getElementById("md-planla").addEventListener("click", () => { kapatModal(); ziyaretFormModal(m, "planla"); });
+  document.getElementById("md-yol")?.addEventListener("click", () => yolTarifi(m.lat, m.lng, m.firma));
   document.getElementById("md-teklif").addEventListener("click", () => { kapatModal(); teklifFormModal(m, null); });
   document.getElementById("md-durum-kaydet").addEventListener("click", async () => {
     const yeniDurum = document.getElementById("md-durum-sec")?.value;
@@ -1967,6 +2274,94 @@ function musteriDetayModal(m) {
       if (S.musteriler) { const idx = S.musteriler.findIndex(x => x.id === m.id); if (idx !== -1) S.musteriler[idx].vergi_no = v || null; }
     } catch (e) { uyari(e.message); }
   });
+  // VKN_ESLESME_V1 — "ERP'de Ara": VKN ile SAP carisi bul & otomatik bağla (sadece ERP'siz müşteride)
+  document.getElementById("md-erp-ara")?.addEventListener("click", async () => {
+    const btn = document.getElementById("md-erp-ara");
+    const son = document.getElementById("md-erp-sonuc");
+    // Ekranda henüz kaydedilmemiş VKN varsa önce onu kaydet
+    const vInput = document.getElementById("md-vkn");
+    const v = (vInput?.value || "").replace(/\D/g, "");
+    if (!v && !m.vergi_no) { if (son) { son.style.color = "#dc2626"; son.textContent = "Önce VKN girin."; } return; }
+    if (btn) { btn.disabled = true; btn.textContent = "Aranıyor…"; }
+    try {
+      if (v && v !== (m.vergi_no || "")) {
+        await api(`/api/saha/musteriler/${m.id}`, { method: "PUT", body: JSON.stringify({ vergi_no: v }) });
+        m.vergi_no = v;
+      }
+      const r = await api(`/api/saha/musteriler/${m.id}/erp-eslestir`, { method: "POST" });
+      if (r.eslesti) {
+        m.musteri_kodu = r.musteri_kodu;
+        if (S.musteriler) { const idx = S.musteriler.findIndex(x => x.id === m.id); if (idx !== -1) S.musteriler[idx].musteri_kodu = r.musteri_kodu; }
+        uyari(`✓ ERP carisi bağlandı: ${esc(r.erp_adi || r.musteri_kodu)}`, true);
+        kapatModal();
+        musteriDetayModal(m);
+      } else {
+        if (son) { son.style.color = "#b45309"; son.textContent = r.mesaj || "SAP'te eşleşme yok."; }
+        if (btn) { btn.disabled = false; btn.textContent = "🔍 ERP'de Ara"; }
+      }
+    } catch (e) {
+      if (son) { son.style.color = "#dc2626"; son.textContent = e.message; }
+      if (btn) { btn.disabled = false; btn.textContent = "🔍 ERP'de Ara"; }
+    }
+  });
+  // MUSTERI_FINANSAL_V1 — zengin kart: ERP finansallari + son 5 alim + 12 ay ciro trendi + acik teklifler.
+  // Her rep her musteriyi gorur (Fatih karari). ERP'ye bagli degilse durustce "veri yok" der.
+  (async () => {
+    const money = v => (v == null || v === "") ? "—" : Number(v).toLocaleString("tr-TR", { maximumFractionDigits: 0 }) + " ₺";
+    const dt = v => v ? new Date(v).toLocaleDateString("tr-TR") : "—";
+    const cell = (label, val, color) => `<div style="flex:1;min-width:92px;background:#f8fafc;border-radius:8px;padding:8px 10px"><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.3px">${label}</div><div style="font-size:14px;font-weight:700;color:${color || "#0f172a"};margin-top:2px">${val}</div></div>`;
+    const render = (d) => {
+      let h = "";
+      const f = d.finansal;
+      if (!d.erp) {
+        h += `<div style="font-size:12px;color:#94a3b8;font-style:italic;padding:2px 0 6px">ERP'ye bağlı değil — cari/ciro verisi yok. (VKN girip “🔍 ERP'de Ara” ile bağlayabilirsiniz.)</div>`;
+      } else if (f) {
+        const vg = Number(f.vadesi_gecmis || 0);
+        h += `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">
+          ${cell("Cari Bakiye", money(f.son_bakiye), Number(f.son_bakiye || 0) > 0 ? "#b45309" : "#0f172a")}
+          ${cell("Vadesi Geçmiş", money(f.vadesi_gecmis), vg > 0 ? "#dc2626" : "#16a34a")}
+          ${cell("Toplam Ciro", money(f.toplam_ciro))}
+          ${f.kredi_limiti != null ? cell("Kredi Limiti", money(f.kredi_limiti)) : ""}
+          ${f.net_pozisyon != null ? cell("Net Pozisyon", money(f.net_pozisyon)) : ""}
+          ${cell("Ödeme Koşulu", f.odeme_kosulu ? esc(f.odeme_kosulu) : "—")}
+        </div>
+        <div style="font-size:11px;color:#64748b;margin-bottom:4px">${f.fatura_sayisi || 0} fatura · ilk ${dt(f.ilk_fatura)} · son ${dt(f.son_fatura)}${f.satis_kanali ? " · " + esc(f.satis_kanali) : ""}</div>`;
+        if (d.ciro_trend && d.ciro_trend.length) {
+          const mx = Math.max(...d.ciro_trend.map(t => Number(t.ciro) || 0), 1);
+          h += `<div style="margin:8px 0 10px"><div style="font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:.3px;margin-bottom:3px">Aylık Ciro (son 12 ay)</div>
+            <div style="display:flex;align-items:flex-end;gap:2px;height:42px">
+              ${d.ciro_trend.map(t => { const pc = Math.round((Number(t.ciro) || 0) / mx * 100); return `<div title="${t.ay}: ${money(t.ciro)}" style="flex:1;min-width:5px;background:#38bdf8;border-radius:2px 2px 0 0;height:${Math.max(pc, 3)}%"></div>`; }).join("")}
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:9px;color:#cbd5e1;margin-top:2px"><span>${d.ciro_trend[0] ? d.ciro_trend[0].ay : ""}</span><span>${d.ciro_trend[d.ciro_trend.length - 1] ? d.ciro_trend[d.ciro_trend.length - 1].ay : ""}</span></div>
+          </div>`;
+        }
+      }
+      if (d.son_alimlar && d.son_alimlar.length) {
+        h += `<div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.3px;margin:8px 0 4px">Son ${d.son_alimlar.length} Alım</div>
+          <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="color:#64748b;text-align:left"><th style="padding:3px 6px;font-weight:600">Tarih</th><th style="padding:3px 6px;font-weight:600">Ürün / SKU</th><th style="padding:3px 6px;text-align:right;font-weight:600">Adet</th><th style="padding:3px 6px;text-align:right;font-weight:600">Birim ₺</th></tr></thead>
+          <tbody>${d.son_alimlar.map(a => `<tr style="border-top:1px solid #f1f5f9">
+            <td style="padding:3px 6px;white-space:nowrap">${dt(a.fatura_tarihi)}</td>
+            <td style="padding:3px 6px">${esc([a.marka, a.ebat].filter(Boolean).join(" ")) || "—"}${a.kalem_kodu ? `<span style="color:#cbd5e1"> · ${esc(a.kalem_kodu)}</span>` : ""}</td>
+            <td style="padding:3px 6px;text-align:right">${a.miktar != null ? Number(a.miktar).toLocaleString("tr-TR") : "—"}</td>
+            <td style="padding:3px 6px;text-align:right">${a.birim_fiyat != null ? Number(a.birim_fiyat).toLocaleString("tr-TR", { maximumFractionDigits: 0 }) : "—"}</td>
+          </tr>`).join("")}</tbody></table></div>`;
+      }
+      if (d.acik_teklifler && d.acik_teklifler.length) {
+        h += `<div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.3px;margin:10px 0 4px">Açık Teklifler (${d.acik_teklifler.length})</div>
+          ${d.acik_teklifler.slice(0, 8).map(t => `<div class="det-satir" style="font-size:12px"><span>${esc([t.marka, t.ebat].filter(Boolean).join(" ")) || "Teklif"}${t.adet ? " ×" + t.adet : ""}</span><b>${t.toplam_tutar != null ? Number(t.toplam_tutar).toLocaleString("tr-TR", { maximumFractionDigits: 0 }) + " ₺" : ""} <span style="color:#94a3b8;font-weight:400">${esc(t.durum || "")}</span></b></div>`).join("")}`;
+      }
+      if (!h) h = `<div style="font-size:12px;color:#94a3b8;font-style:italic">Finansal veri veya açık teklif yok.</div>`;
+      return h;
+    };
+    try {
+      const d = await api(`/api/saha/musteriler/${m.id}/finansal`);
+      const el = document.getElementById("mus-finansal");
+      if (!el) return;
+      el.classList.remove("mini-durum");
+      el.innerHTML = render(d);
+    } catch { const el = document.getElementById("mus-finansal"); if (el) el.textContent = "Finansal yüklenemedi."; }
+  })();
   // Ziyaret geçmişi: tarih + temsilci + not (tıklayınca tam detay)
   (async () => {
     try {
@@ -1995,8 +2390,13 @@ function musteriDetayModal(m) {
       el.innerHTML = lokasyonlar.length ? lokasyonlar.map(l => `
         <span class="cip on" style="margin:2px 4px 2px 0;display:inline-flex;align-items:center;gap:6px">
           📍 ${esc(l.ad)}${l.il ? " · " + esc([l.il, l.ilce].filter(Boolean).join("/")) : ""}
+          ${l.lat != null && l.lng != null ? `<b data-lok-yol="${l.id}" style="cursor:pointer" title="Yol tarifi">🧭</b>` : ""}
           <b data-lok-sil="${l.id}" style="cursor:pointer">✕</b>
         </span>`).join("") : "Lokasyon yok — tek adresli müşteri.";
+      el.querySelectorAll("[data-lok-yol]").forEach(b => b.addEventListener("click", () => {
+        const l = lokasyonlar.find(x => x.id === b.dataset.lokYol);
+        if (l) yolTarifi(l.lat, l.lng, l.ad);
+      }));
       el.querySelectorAll("[data-lok-sil]").forEach(b => b.addEventListener("click", async () => {
         if (!confirm("Lokasyon silinsin mi?")) return;
         try { await api(`/api/saha/lokasyonlar/${b.dataset.lokSil}`, { method: "DELETE" }); await lokYukle(); }
@@ -2005,6 +2405,20 @@ function musteriDetayModal(m) {
     } catch { /* yok say */ }
   };
   lokYukle();
+  // ⚠ IL_ILCE (lok-): il secilince ilceler filtrelenir. Serbest yazim YOK.
+  (function _lokIlIlce(){
+    const ilEl = document.getElementById("lok-il");
+    const ilceEl = document.getElementById("lok-ilce");
+    if (!ilEl || !ilceEl) return;
+    const doldur = () => {
+      const il = ilEl.value;
+      const liste = (window.TR_IL_ILCE || {})[il] || [];
+      ilceEl.innerHTML = '<option value="">' + (il ? "İlçe seçin…" : "Önce il seçin…") + '</option>'
+        + liste.map(x => '<option>' + esc(x) + '</option>').join("");
+    };
+    ilEl.addEventListener("change", doldur);
+    doldur();
+  })();
   document.getElementById("lok-ekle")?.addEventListener("click", async () => {
     const g = id => document.getElementById(id).value.trim();
     if (!g("lok-ad")) { uyari("Lokasyon adı zorunlu."); return; }
@@ -2014,6 +2428,7 @@ function musteriDetayModal(m) {
         body: JSON.stringify({ ad: g("lok-ad"), il: g("lok-il") || null, ilce: g("lok-ilce") || null })
       });
       ["lok-ad", "lok-il", "lok-ilce"].forEach(id => document.getElementById(id).value = "");
+      document.getElementById("lok-il").dispatchEvent(new Event("change"));
       await lokYukle();
     } catch (e) { uyari(e.message); }
   });
@@ -2906,6 +3321,19 @@ async function teklifDuzenleModal(t) {
   });
 }
 
+// VADE_V1 — ödeme koşulu metnini temiz etikete çevirir (sunucu _vadeParse ile aynı mantık). Split (30-60-90) desteklenir.
+function _vadeNorm(raw) {
+  const s = String(raw == null ? "" : raw).trim();
+  if (!s) return "";
+  if (/mal\s*mukabil/i.test(s)) return "Mal Mukabili";
+  if (/vesaik/i.test(s)) return "Vesaik Mukabili";
+  if (/pe[şs]in|sanal\s*pos|havale|kredi\s*kart/i.test(s) && !/\d+\s*[Gg][üu]n/.test(s)) return "Peşin";
+  const nums = s.match(/\d{1,3}/g);
+  const pureNum = /^[\d\s\-+/.]+$/.test(s);
+  const hasKw = /[Gg][üu]n|[Vv]ade/.test(s);
+  if (nums && nums.length && (hasKw || pureNum)) return nums.map(Number).join("-") + " Gün Vade";
+  return "";
+}
 async function teklifFormModal(mus, ziyaretId) {
   const sec = await getSecenekler();
   modal(`
@@ -2998,6 +3426,7 @@ async function teklifFormModal(mus, ziyaretId) {
     </div>
 
     <label>Satır Notu<textarea class="giris" id="tf-not" rows="2" placeholder="Bu kalem için not…"></textarea></label>
+    <label>💳 Satış Vadesi<input class="giris" id="tf-vade" list="tf-vadeler" autocomplete="off" placeholder="30 Gün Vade · Peşin · 30-60-90" value="${esc(_vadeNorm(mus.erp_odeme_kosulu))}"><datalist id="tf-vadeler">${(sec.vadeler || []).map(v => `<option value="${esc(v.label)}"></option>`).join("")}</datalist></label>
     <label>Genel Not<textarea class="giris" id="tf-genel-not" rows="2" placeholder="Teklif geneli için not…"></textarea></label>
     ${ziyaretId ? "" : `<label>Kaynak *<select class="giris" id="tf-kaynak"><option value="">— Nereden geldi? —</option><option value="TELEFON">📞 Telefon</option><option value="WHATSAPP">💬 WhatsApp</option><option value="EMAIL">✉️ E-posta</option><option value="DIGER">Diğer</option></select></label>`}
     <div class="modal-btnlar">
@@ -3380,6 +3809,7 @@ async function teklifFormModal(mus, ziyaretId) {
           ziyaret_id: ziyaretId,
           kaynak    : kaynak,
           notlar    : genelNot,
+          vade_turu : document.getElementById("tf-vade")?.value.trim() || null,
           kalemler  : allKalemler
         })
       });
@@ -5441,6 +5871,7 @@ async function vPiyasa() {
         <div class="kart-ust"><b>${esc(d.baslik || TIP[d.tip] || "Dosya")}</b><span class="rozet" style="background:#0891b2">${TIP[d.tip] || d.tip}</span></div>
         <div class="kart-alt">${d.rakip_marka ? `<span>${esc(d.rakip_marka)}</span>` : ""}${d.musteri ? `<span>${esc(d.musteri)}</span>` : ""}<span>👤 ${esc(d.rep || "")}</span><span>${new Date(d.created_at).toLocaleDateString("tr-TR")}</span></div>
         ${d.notlar ? `<div class="kart-not">${esc(d.notlar)}</div>` : ""}
+        <div style="text-align:right;margin-top:4px"><button class="dosya-sil" data-sil="${d.id}" style="background:none;border:none;color:#ef4444;font-size:12px;cursor:pointer;padding:2px 4px">🗑 Sil</button></div>
       </div>`).join("") : `<div class="saha-bos">Henüz dosya yok.</div>`;
     const priceHtml = kayitlar.length ? kayitlar.map(r => `
       <div class="kart" style="padding:10px 12px;margin-bottom:6px">
@@ -5466,6 +5897,12 @@ async function vPiyasa() {
     m.querySelectorAll("[data-dosya]").forEach(el => el.addEventListener("click", async () => {
       try { const res = await fetch(`/api/saha/piyasa-dosya/${el.dataset.dosya}`, { headers: S.headers() }); const url = URL.createObjectURL(await res.blob()); window.open(url, "_blank"); }
       catch (e) { uyari("Dosya açılamadı."); }
+    }));
+    m.querySelectorAll(".dosya-sil").forEach(el => el.addEventListener("click", async (ev) => {
+      ev.stopPropagation();
+      if (!confirm("Bu dosya silinsin mi?")) return;
+      try { await api(`/api/saha/piyasa-dosya/${el.dataset.sil}`, { method: "DELETE" }); uyari("✓ Dosya silindi.", true); loadView("piyasa"); }
+      catch (e) { uyari(e.message); }
     }));
   } catch (e) { m.innerHTML = hata(e); }
 }
@@ -5503,14 +5940,14 @@ function dosyaYukleModal(onSave) {
     <label>Başlık<input class="giris" id="dy-baslik" placeholder="ör. Michelin 2026 fiyat listesi"></label>
     <label>Rakip Marka<input class="giris" id="dy-marka" placeholder="opsiyonel"></label>
     <label>Not<textarea class="giris" id="dy-not" rows="2"></textarea></label>
-    <label class="btn cizgili dosya-btn" style="display:inline-block;margin-top:8px">📎 Dosya / Foto Seç<input type="file" id="dy-file" accept="image/*,application/pdf" capture="environment" hidden></label>
+    <label class="btn cizgili dosya-btn" style="display:inline-block;margin-top:8px">📎 Dosya / Foto Seç<input type="file" id="dy-file" accept="image/*,application/pdf,.xlsx,.xlsm,.xls,.csv,.doc,.docx,.txt,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden></label>
     <div id="dy-secili" style="font-size:12px;color:#64748b;margin-top:6px"></div>
     <div class="modal-btnlar"><button class="btn gri" data-kapat>Vazgeç</button><button class="btn" id="dy-yukle">Yükle</button></div>`);
-  let _data = null, _mime = null;
+  let _data = null, _mime = null, _ad = null;
   document.getElementById("dy-file").addEventListener("change", (ev) => {
     const f = ev.target.files[0]; if (!f) return;
     if (f.size > 8 * 1024 * 1024) { uyari("Dosya 8MB'ı aşamaz."); ev.target.value = ""; return; }
-    _mime = f.type;
+    _mime = f.type; _ad = f.name;
     const rd = new FileReader();
     rd.onload = () => { _data = rd.result; document.getElementById("dy-secili").textContent = "✓ " + f.name + " (" + Math.round(f.size / 1024) + " KB)"; };
     rd.readAsDataURL(f);
@@ -5519,7 +5956,7 @@ function dosyaYukleModal(onSave) {
     if (!_data) { uyari("Bir dosya seçin."); return; }
     const btn = document.getElementById("dy-yukle"); btn.disabled = true; btn.textContent = "Yükleniyor…";
     try {
-      await api("/api/saha/piyasa-dosya", { method: "POST", body: JSON.stringify({ tip: document.getElementById("dy-tip").value, baslik: g("dy-baslik") || null, rakip_marka: g("dy-marka") || null, mime: _mime, data: _data, notlar: g("dy-not") || null }) });
+      await api("/api/saha/piyasa-dosya", { method: "POST", body: JSON.stringify({ tip: document.getElementById("dy-tip").value, baslik: g("dy-baslik") || null, rakip_marka: g("dy-marka") || null, mime: _mime, dosya_adi: _ad, data: _data, notlar: g("dy-not") || null }) });
       kapatModal(); uyari("✓ Dosya yüklendi.", true); onSave();
     } catch (e) { btn.disabled = false; btn.textContent = "Yükle"; uyari(e.message); }
   });
@@ -5724,8 +6161,10 @@ async function vMesajlar() {
           const repId = el.dataset.repId;
           const repAdi = el.querySelector("b").textContent.replace("👤 ", "");
           main().innerHTML = `<div class="saha-load">Yükleniyor…</div>`;
-          const { konusma_id, mesajlar } = await api(`/api/saha/konusmalar/${repId}`);
-          renderMesajThread(konusma_id, mesajlar, [], repAdi);
+          try {
+            const { konusma_id, mesajlar } = await api(`/api/saha/konusmalar/${repId}`);
+            renderMesajThread(konusma_id, mesajlar, [], repAdi);
+          } catch (e) { main().innerHTML = hata(e); }
         }));
     }
   } catch (e) { main().innerHTML = hata(e); }
@@ -5841,18 +6280,10 @@ async function yayimMesajModal() {
 }
 
 // ── TEMSİLCİLER (manager / admin only) ──────────────────────────────────────
-const TR_ILLER = [
-  "Adana","Adıyaman","Afyonkarahisar","Ağrı","Amasya","Ankara","Antalya","Artvin",
-  "Aydın","Balıkesir","Bilecik","Bingöl","Bitlis","Bolu","Burdur","Bursa",
-  "Çanakkale","Çankırı","Çorum","Denizli","Diyarbakır","Edirne","Elazığ","Erzincan",
-  "Erzurum","Eskişehir","Gaziantep","Giresun","Gümüşhane","Hakkari","Hatay","Isparta",
-  "İçel (Mersin)","İstanbul","İzmir","Kars","Kastamonu","Kayseri","Kırklareli","Kırşehir",
-  "Kocaeli","Konya","Kütahya","Malatya","Manisa","Kahramanmaraş","Mardin","Muğla",
-  "Muş","Nevşehir","Niğde","Ordu","Rize","Sakarya","Samsun","Siirt",
-  "Sinop","Sivas","Tekirdağ","Tokat","Trabzon","Tunceli","Şanlıurfa","Uşak",
-  "Van","Yozgat","Zonguldak","Aksaray","Bayburt","Karaman","Kırıkkale","Batman",
-  "Şırnak","Bartın","Ardahan","Iğdır","Yalova","Karabük","Kilis","Osmaniye","Düzce"
-];
+// ⚠ IL_ILCE_TEKLISTE: eski TR_ILLER dizisi SILINDI.
+//   81 il vardi ama yazimi eskiydi ("İçel (Mersin)" — o il 1993te MERSİN oldu).
+//   Tek kaynak: /shells/tr_il_ilce.js -> window.TR_ILLER_RESMI (81 il · 973 ilce, NVI).
+//   Iki liste bir listeden kotudur: hangisinin ekranda oldugunu kimse bilemez.
 
 // Province centers [lat, lon] — used for Turkey bubble map
 const IL_KOORD = {
@@ -6032,31 +6463,45 @@ function notKart(n, today) {
       </div>
       <div class="kart-alt" style="margin-top:5px">
         <span style="color:#94a3b8">${tarih}</span>
+        ${n.musteri ? `<span style="color:#0f766e;font-weight:600">🏢 ${esc(n.musteri)}</span>` : ""}
         ${hatirlatmaStr ? `<span style="color:${hatirlatmaRenk};font-weight:600">⏰ ${hatirlatmaStr}${hatirlatmaGecti ? " · gecikti" : hatirlatmaBugun ? " · bugün" : ""}</span>` : ""}
       </div>
     </div>`;
 }
 
-function notEkleModal(onSave) {
+function notEkleModal(onSave, _pre = {}) {
   const minTarih = new Date().toISOString().slice(0, 10);
+  let _musId = _pre.musId || null, _musAd = _pre.musAd || "";
   modal(`
     <h3>Not Ekle</h3>
     <label>Not
-      <textarea class="giris" id="nm-icerik" rows="4" placeholder="Ne yapmam gerekiyor?"></textarea>
+      <textarea class="giris" id="nm-icerik" rows="4" placeholder="Ne yapmam gerekiyor?">${esc(_pre.icerik || "")}</textarea>
     </label>
+    <label style="margin-top:10px;display:block">İlgili müşteri (opsiyonel)
+      <button class="btn cizgili" id="nm-musteri-btn" style="width:100%;text-align:left;margin-top:4px">${_musAd ? "🏢 " + esc(_musAd) : "🏢 Müşteri seç…"}</button>
+    </label>
+    ${_musAd ? `<div style="text-align:right;margin-top:2px"><button class="btn cizgili" id="nm-musteri-kaldir" style="font-size:11px;padding:2px 8px;color:#ef4444">✕ müşteri bağını kaldır</button></div>` : ""}
     <label style="margin-top:10px;display:block">Hatırlatma Tarihi (opsiyonel)
-      <input type="date" class="giris" id="nm-tarih" min="${minTarih}">
+      <input type="date" class="giris" id="nm-tarih" min="${minTarih}" value="${esc(_pre.tarih || "")}">
     </label>
     <div class="modal-btnlar">
       <button class="btn gri" data-kapat>Vazgeç</button>
       <button class="btn" id="nm-kaydet">Ekle</button>
     </div>`);
+  document.getElementById("nm-musteri-btn").addEventListener("click", () => {
+    const cur = { icerik: document.getElementById("nm-icerik").value, tarih: document.getElementById("nm-tarih").value };
+    musteriSecModal(mus => notEkleModal(onSave, { icerik: cur.icerik, tarih: cur.tarih, musId: mus.id || null, musAd: mus.firma || "" }));
+  });
+  document.getElementById("nm-musteri-kaldir")?.addEventListener("click", () => {
+    const cur = { icerik: document.getElementById("nm-icerik").value, tarih: document.getElementById("nm-tarih").value };
+    kapatModal(); notEkleModal(onSave, { icerik: cur.icerik, tarih: cur.tarih });
+  });
   document.getElementById("nm-kaydet").addEventListener("click", async () => {
     const icerik = document.getElementById("nm-icerik").value.trim();
     if (!icerik) { uyari("Not boş olamaz."); return; }
     const tarih = document.getElementById("nm-tarih").value || null;
     try {
-      await api("/api/saha/notlar", { method: "POST", body: JSON.stringify({ icerik, hatirlatma_tarihi: tarih }) });
+      await api("/api/saha/notlar", { method: "POST", body: JSON.stringify({ icerik, hatirlatma_tarihi: tarih, musteri_id: _musId }) });
       kapatModal();
       onSave();
     } catch(e) { uyari(e.message); }
@@ -6312,7 +6757,7 @@ function temsilciDetayModal(rep, onSave) {
   const rolRenk = rep.module_role === "admin" ? "#7c3aed" : rep.module_role === "manager" ? "#0284c7" : "#16a34a";
   const initials = (rep.full_name||"?").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
   const secili = new Set(rep.sehirler || []);
-  const ilHtml = TR_ILLER.map(il =>
+  const ilHtml = (window.TR_ILLER_RESMI || []).map(il =>
     `<label style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:16px;border:1px solid ${secili.has(il)?"#3b82f6":"#d1d5db"};background:${secili.has(il)?"#dbeafe":"#fff"};font-size:12px;cursor:pointer;margin:2px;white-space:nowrap">
       <input type="checkbox" value="${esc(il)}" ${secili.has(il)?"checked":""} style="display:none">
       ${esc(il)}
@@ -6869,6 +7314,24 @@ function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// YOL_TARIFI_V1 — pinli müşteri/lokasyona tek-dokunuş navigasyon.
+//   Google Maps "dir" URL'i: mobilde (web ya da Capacitor) native harita uygulamasını
+//   sürüş yol tarifiyle açar, masaüstünde web haritayı açar. Native webview'de sistem
+//   tarayıcısına devret ki uygulama-içinde hapsolmasın.
+function yolTarifi(lat, lng, etiket) {
+  if (lat == null || lng == null || lat === "" || lng === "") {
+    uyari("Bu kaydın pinli konumu yok."); return;
+  }
+  const url = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(lat + "," + lng)}&travelmode=driving`;
+  try {
+    if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+      window.open(url, "_system");
+    } else {
+      window.open(url, "_blank", "noopener");
+    }
+  } catch (e) { location.href = url; }
+}
+
 // Foto küçültme: max 1280px, JPEG 0.72 → base64
 function kucult(file) {
   return new Promise(resolve => {
@@ -6936,10 +7399,20 @@ function injectStyles() {
   --ol-orta:  20px;
   --ol-buyuk: 26px;
   --ol-dev:   34px;                 /* tek hayati sayi (EVA) */
+
+  /* ── SAHA_TEMA_FIX — VARSAYILAN TEMA = AÇIK. OS koyu modunda da AÇIK kalır.
+     Kabuk açık tema için tasarlandı; koyu token'lar sızınca masaüstü/incognito
+     karanlık modda kartlar siyah, firma başlıkları koyu-üstüne-koyu okunmaz oluyordu. ── */
+  color-scheme: light;
+  --zemin-0: #FBFBFA; --zemin-1: #FFFFFF; --zemin-2: #F4F4F2;
+  --cizgi: rgba(0,0,0,.09); --cizgi-g: rgba(0,0,0,.18);
+  --tx-0: #16161A; --tx-1: #5F5F66; --tx-2: #85858C; --tx-3: #A8A8AE;
+  --kirmizi: #C43D28; --kirmizi-z: #FDF0ED;
+  --sari: #8A5D06;    --sari-z: #FEF6E7;
+  --yesil: #106B4A;   --yesil-z: #EAF7F1;
 }
 
-/* ══ KOYU TEMA (varsayilan: ofis, masaustu, aksam) ══ */
-:root,
+/* ══ KOYU TEMA (yalnızca opt-in: [data-tema="koyu"]) — OS koyu modu artık SIZMAZ ══ */
 [data-tema="koyu"] {
   --zemin-0: #0A0A0B;               /* sayfa */
   --zemin-1: #0F0F11;               /* kart */
@@ -6992,6 +7465,20 @@ function injectStyles() {
     --sari:#8A5D06;    --sari-z:#FEF6E7;
     --yesil:#106B4A;   --yesil-z:#EAF7F1;
   }
+}
+
+/* SAHA_TEMA_FIX2 — KESİN: app.js <html>'e data-tema="koyu" set ediyor (BI kabuğu koyu).
+   Açık token'ları doğrudan saha yüzeyine (.saha-app) ve modal katmanına (.modal-fon) sabitle;
+   element üstüne yazılan custom property, html[data-tema=koyu]'dan miras alınanı EZER.
+   Böylece global koyu tema ne olursa olsun saha HER ZAMAN açık/okunur kalır. */
+.saha-app, .modal-fon {
+  color-scheme: light;
+  --zemin-0:#FBFBFA; --zemin-1:#FFFFFF; --zemin-2:#F4F4F2;
+  --cizgi:rgba(0,0,0,.09); --cizgi-g:rgba(0,0,0,.18);
+  --tx-0:#16161A; --tx-1:#5F5F66; --tx-2:#85858C; --tx-3:#A8A8AE;
+  --kirmizi:#C43D28; --kirmizi-z:#FDF0ED;
+  --sari:#8A5D06;    --sari-z:#FEF6E7;
+  --yesil:#106B4A;   --yesil-z:#EAF7F1;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -7146,6 +7633,50 @@ body {
 
   .saha-app{width:100%;max-width:100%;height:100%;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:#0f172a;display:flex;flex-direction:column;overflow:hidden}
   .saha-head{flex-shrink:0;z-index:20;background:#0f172a;color:#fff;padding:10px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  /* RECEPTION_V1 — alt room bar (Ana·Saha·Rakip·Kokpit) */
+  .saha-roombar{flex-shrink:0;z-index:20;background:#fff;border-top:1px solid #e2e8f0;display:flex;padding-bottom:env(safe-area-inset-bottom,0px)}
+  .saha-rtab{flex:1;border:0;background:none;padding:9px 2px 11px;font-size:11px;color:#64748b;display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;font-weight:600}
+  .saha-rtab span{font-size:19px}
+  .saha-rtab.on{color:#0284c7;font-weight:800}
+  /* Reception tiles */
+  .rec-wrap{padding:6px 2px 20px}
+  .rec-hi{font-size:20px;font-weight:800;color:#0f172a;margin:6px 2px 2px}
+  .rec-sub{font-size:13px;color:#94a3b8;margin:0 2px 16px}
+  .rec-tiles{display:flex;flex-direction:column;gap:12px}
+  .rec-tile{display:flex;align-items:center;gap:14px;width:100%;text-align:left;border:1px solid #e2e8f0;border-left:4px solid var(--rc);background:#fff;border-radius:14px;padding:16px 16px;cursor:pointer;box-shadow:0 1px 3px rgba(15,23,42,.05)}
+  .rec-ico{font-size:26px;flex-shrink:0}
+  .rec-txt{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+  .rec-txt b{font-size:16px;color:#0f172a}
+  .rec-txt small{font-size:12px;color:#94a3b8}
+  .rec-arrow{font-size:22px;color:var(--rc);font-weight:700}
+  /* Mobil Kokpit */
+  .kok-wrap{padding:8px 2px 24px}
+  .kok-vitals{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+  .kok-v{background:#0f172a;color:#fff;border-radius:14px;padding:14px}
+  .kok-v .l{font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.4px}
+  .kok-v .n{font-size:24px;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums}
+  .kok-v .w{font-size:11px;margin-top:3px}
+  .kok-sec{background:#fff;border:1px solid #e2e8f0;border-radius:14px;padding:12px 14px;margin-bottom:12px}
+  .kok-sb{font-size:11px;font-weight:800;color:#475569;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px}
+  .kok-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-top:1px solid #f1f5f9;font-size:13px}
+  .kok-row:first-of-type{border-top:0}
+  .kok-row .rk{color:#0f172a}
+  .kok-row .rv{font-variant-numeric:tabular-nums;font-weight:700}
+  /* CEO_MOBIL_V1 — mobil CEO Assistant sohbet */
+  .ceo-wrap{display:flex;flex-direction:column;height:100%;background:#f8fafc}
+  .ceo-msgs{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:12px 12px 6px}
+  .ceo-hi{text-align:center;color:#7c3aed;font-weight:800;font-size:15px;margin:10px 4px 16px;display:flex;flex-direction:column;gap:4px}
+  .ceo-hi small{color:#94a3b8;font-weight:500;font-size:12px}
+  .ceo-b{max-width:88%;margin:7px 0;padding:11px 13px;font-size:14px;line-height:1.55;white-space:pre-wrap;word-wrap:break-word;border-radius:14px}
+  .ceo-u{margin-left:auto;background:#0284c7;color:#fff;border-bottom-right-radius:4px}
+  .ceo-a{margin-right:auto;background:#fff;color:#0f172a;border:1px solid #e2e8f0;border-left:3px solid #7c3aed;border-bottom-left-radius:4px}
+  .ceo-think{color:#a78bfa;font-style:italic;background:#faf5ff;border-left-color:#a78bfa}
+  .ceo-err{border-left-color:#ef4444;color:#b91c1c}
+  .ceo-bar{flex-shrink:0;display:flex;gap:8px;align-items:flex-end;padding:8px 10px calc(8px + env(safe-area-inset-bottom,0px));background:#fff;border-top:1px solid #e2e8f0}
+  .ceo-bar textarea{flex:1;resize:none;border:1px solid #cbd5e1;border-radius:18px;padding:10px 14px;font-size:14px;line-height:1.4;max-height:120px;font-family:inherit;outline:none}
+  .ceo-bar textarea:focus{border-color:#7c3aed}
+  .ceo-bar button{flex-shrink:0;width:40px;height:40px;border-radius:50%;border:0;background:#7c3aed;color:#fff;font-size:17px;cursor:pointer}
+  .ceo-bar button:disabled{opacity:.5}
   .saha-title{font-size:17px}.saha-title b{color:#38bdf8}
   .saha-user{margin-left:auto;font-size:12px;opacity:.9;display:flex;align-items:center;gap:6px}
   .saha-role{background:#38bdf8;color:#0f172a;padding:1px 7px;border-radius:9px;font-weight:700;font-size:11px}

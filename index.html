@@ -120,7 +120,7 @@
       </div>
     </div>
 
-    <div class="app-shell">
+    <!-- APPSHELL_FLASH_FIX: hidden by default; applyShellChromeState shows block only for legacy shell roles (prevents FOUC flash before JS runs) --><div class="app-shell" style="display:none">
       <aside class="sidebar" aria-label="Primary">
         <div class="brand">
           <div class="brand-mark">D</div>
@@ -1072,7 +1072,7 @@
     </template>
 
     <script src="https://alcdn.msauth.net/browser/2.39.0/js/msal-browser.min.js"></script>
-    <script type="module" src="/app.js?v=20260705-52"></script>
+    <script type="module" src="/app.js?v=20260714-2"></script>
 
     <!-- Derive Intelligence module surface -->
     <div id="portal-surface" style="display:none;"></div>

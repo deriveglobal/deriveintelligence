@@ -38,6 +38,12 @@ COPY shells ./shells
 COPY database ./database
 
 # ⚠ ERP YUKLEME MOTORU — imajin icinde. docker cp ile degil.
+# ⚠ OTOMATIK SURUMLEME (cache-bust) — her shell dosyasinin ICERIK HASH'i ?v='e yazilir.
+#   Elle ?v= guncellemek UNUTULUR (14 Tem: saha.js 6 gun eski surumle yuklendi, is karanlikta).
+#   Bu adim insan hatasini imkansiz kilar: dosya degisti mi hash degisir, degismedi mi ayni kalir.
+COPY stamp_versions.mjs ./stamp_versions.mjs
+RUN node stamp_versions.mjs /app
+
 COPY erp_ingest.py ./erp_ingest.py
 
 # yuklenen dosyalar icin gecici dizin (node kullanicisi yazabilmeli)

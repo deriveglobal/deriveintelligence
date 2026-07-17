@@ -38,18 +38,15 @@ export function initBiSurface(container, me, sub, callbacks) {
   // -> departman yetkisi anlamsizdi. Artik permissions.departments NE DIYORSA O.
   const allowedDepts = _depts;
 
+  // ODA_TEMIZLIK_V1 — org-geneli SADECE 5 oda (Fatih): Kokpit · CEO Assistant · Fiyat · Rakip Fiyatları · Veri.
+  //   Kaldırılan officer odaları: sales · pricing · warehouse · it · orders · brand-analysis (+ "Bugün" sekmesi, aşağıda).
+  //   Kokpit ANA/açılış odası. price-list/rakip permissions.departments ile yetki-korumalı kalır (filter aşağıda).
   const OFFICERS = [
-    { id: "sales",     label: "Satış",          name: "Satış Direktörü",       emoji: "👩‍💼", color: "#2563eb", bg: "linear-gradient(160deg,#0f1f4a 0%,#0a0a1e 100%)" },
-    { id: "pricing",   label: "Fiyatlandırma",  name: "Fiyat Analisti",        emoji: "📊",  color: "#7c3aed", bg: "linear-gradient(160deg,#1a0a3a 0%,#0a0a1e 100%)" },
-    { id: "warehouse", label: "Depo",            name: "Lojistik Direktörü",    emoji: "📦",  color: "#059669", bg: "linear-gradient(160deg,#062a1a 0%,#0a0a1e 100%)" },
-    { id: "it",        label: "Sistem",          name: "IT Direktörü",          emoji: "💻",  color: "#d97706", bg: "linear-gradient(160deg,#2a1a00 0%,#0a0a1e 100%)" },
-    { id: "orders",    label: "Sipariş",         name: "Satın Alma Direktörü",  emoji: "🛒",  color: "#0891b2", bg: "linear-gradient(160deg,#012a3a 0%,#0a0a1e 100%)" }
-    ,{ id: "brand-analysis", label: "Marka",  name: "Marka Fırsatları",      emoji: "🔍",  color: "#be185d", bg: "linear-gradient(160deg,#2a0516 0%,#0a0a1e 100%)" }
-    ,{ id: "price-list",     label: "Fiyat", name: "Fiyat Listeleri",       emoji: "📋",  color: "#059669", bg: "linear-gradient(160deg,#012a1a 0%,#0a0a1e 100%)" }
-    ,{ id: "rakip",   label: "Rakip Fiyatlar",  name: "Rakip Analisti",    emoji: "🏷", color: "#dc2626", bg: "linear-gradient(160deg,#3a0505 0%,#0a0a1e 100%)" }
+     { id: "price-list",     label: "Fiyat", name: "Fiyat Listeleri",       emoji: "📋",  color: "#059669", bg: "linear-gradient(160deg,#012a1a 0%,#0a0a1e 100%)" }
+    ,{ id: "rakip",   label: "Rakip Fiyatları",  name: "Rakip Analisti",    emoji: "🏷", color: "#dc2626", bg: "linear-gradient(160deg,#3a0505 0%,#0a0a1e 100%)" }
   ].filter(d => allowedDepts.includes(d.id));
 
-  let activeDept = 'bugun';  /* ANA_UI_V1 */
+  let activeDept = 'finans';  /* ANA_UI_V1 · ODA_TEMIZLIK_V1: açılış = Kokpit */
 
 
 
@@ -77,16 +74,15 @@ export function initBiSurface(container, me, sub, callbacks) {
           <div class="vmo-brand-text">Derive <strong>Intelligence</strong> <span class="vmo-brand-sub">Virtual Management Office</span></div>
         </div>
         <nav class="vmo-tabs">
-          ${OFFICERS.map(o => `
-            <button class="vmo-tab ${o.id===activeDept?"active":""}" data-dept="${o.id}" style="--c:${o.color}">
-              <span>${o.emoji}</span> ${o.label}
-            </button>`).join("")}
-          <button class="vmo-tab active" data-dept="bugun" style="--c:#8A8A8F">Bugün</button>
-          <button class="vmo-tab" data-dept="veri" style="--c:#8A8A8F">Veri</button>
-          <button class="vmo-tab" data-dept="finans" style="--c:#8A8A8F">Finans</button>
+          <button class="vmo-tab active" data-dept="finans" style="--c:#8A8A8F">Kokpit</button>
           <button class="vmo-tab" data-dept="brain" style="--c:#e11d48">
             <span>🧠</span> CEO Assistant
           </button>
+          ${OFFICERS.map(o => `
+            <button class="vmo-tab" data-dept="${o.id}" style="--c:${o.color}">
+              <span>${o.emoji}</span> ${o.label}
+            </button>`).join("")}
+          <button class="vmo-tab" data-dept="veri" style="--c:#8A8A8F">Veri</button>
         </nav>
         <div class="vmo-header-right">
           <span class="vmo-tenant">${esc(me.tenantName || "")}</span>
@@ -641,12 +637,248 @@ export function initBiSurface(container, me, sub, callbacks) {
       _f.dataset.dept = 'finans';
       _f.className = 'vmo-room vmo-room-hidden';
       _f.style.cssText = 'background:var(--zemin-0);color:var(--tx-0);overflow-y:auto;padding:0';
-      _f.innerHTML = '<div id="finans-govde" style="max-width:1080px;margin:0 auto;padding:26px 28px 40px"><div style="color:var(--tx-2);font-size:13px">Yükleniyor…</div></div>';
+      _f.innerHTML = '<iframe id="kokpit-frame" src="/api/bi/kokpit" style="width:100%;height:100%;min-height:82vh;border:0;display:block;background:#05070a" title="Finans Kokpiti"></iframe>'; try{_f.style.padding='0';}catch(e){}
       _o.appendChild(_f);
     }
   }
 
+  var _METRIK_TANIM = {
+    dso:{ ad:'DSO — Tahsilat Süresi', tanim:'Alacağın ortalama kaç günde tahsile döndüğü. Düşük = para hızlı geliyor.', formul:'alacak ÷ günlük kredili satış', kaynak:'bi_musteri_risk + satış faturaları', guven:'snapshot (bugün) · geçmiş yaklaşık', uyari:'Markaya/segmente bölünemez (allocation yasak).' },
+    stok_deger:{ ad:'Stok Değeri', tanim:'Eldeki stoğun maliyet değeri — satış fiyatı değil, alış maliyeti.', formul:'Σ adet × birim ağırlıklı alış maliyeti', kaynak:'bi_stok_anlik × bi_stok_hareket', guven:'snapshot · geçmiş yaklaşık (~%0,2)', uyari:'Pozisyon metriği — bugün itibarıyla.' },
+    alacak:{ ad:'Alacak', tanim:'Müşterilerden tahsil edilecek toplam bakiye (çek/senet hariç).', formul:'Σ hesap_bakiyesi (müşteri)', kaynak:'bi_musteri_risk', guven:'snapshot · geçmiş yaklaşık', uyari:'toplam_risk DEĞİL — çek/senet + bekleyen sipariş hariç.' },
+    ciro:{ ad:'Ciro — Lastik Satış Geliri', tanim:'Lastik satışından gelen gelir (KDV hariç satır tutarı).', formul:'Σ satır_tutar · ebat dolu = lastik', kaynak:'bi_satis_faturalari', guven:'kesin', uyari:'Yalnız lastik; servis/diğer kalemler hariç.' },
+    adet:{ ad:'Adet — Satış Hacmi', tanim:'Satılan lastik adedi. Fiyattan bağımsız hacim göstergesi.', formul:'Σ miktar', kaynak:'bi_satis_faturalari', guven:'kesin', uyari:'—' },
+    marj:{ ad:'Marj — Brüt Kâr (TL)', tanim:'Satış geliri eksi satılan malın alış maliyeti. TL cinsinden, yüzde DEĞİL.', formul:'Σ (satır_tutar − miktar × birim maliyet)', kaynak:'satış × bi_stok_hareket ağırlıklı maliyet', guven:'kesin (kapsam etiketli)', uyari:'BRÜT — iskonto/prim/gider düşülmemiş · güncel maliyet bazı · #38 prim-marjından farklı.' },
+    net:{ ad:'Net İşletme Sermayesi', tanim:'İşe bağlı net para: stok + alacak − tedarikçi borcu.', formul:'stok + alacak − borç', kaynak:'türev (üç metrik)', guven:'snapshot', uyari:'En zayıf bacağı kadar güçlü; borç geçmişi yok.' }
+  };
+  function _metrikInfo(key){
+    if(!_METRIK_TANIM[key]) return '';
+    return '<span class="mi-ikon" data-mi="'+key+'" style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;border:0.5px solid var(--cizgi-g);color:var(--tx-2);font-size:9px;cursor:pointer;margin-left:5px;vertical-align:middle" title="tanım">i</span>';
+  }
+  function _metrikInfoAc(ev, key){
+    ev.stopPropagation();
+    var old=document.getElementById('mi-pop'); if(old) old.remove();
+    var t=_METRIK_TANIM[key]; if(!t) return;
+    var p=document.createElement('div'); p.id='mi-pop';
+    p.style.cssText='position:fixed;z-index:99999;max-width:300px;background:var(--zemin-1);border:0.5px solid var(--cizgi-g);border-radius:10px;padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,.28);font-size:12px;line-height:1.6';
+    p.innerHTML='<div style="font-weight:600;font-size:13px;margin-bottom:6px">'+esc(t.ad)+'</div>'
+      + '<div style="color:var(--tx-1);margin-bottom:8px">'+esc(t.tanim)+'</div>'
+      + '<div style="color:var(--tx-2)"><b>Formül:</b> '+esc(t.formul)+'</div>'
+      + '<div style="color:var(--tx-2)"><b>Kaynak:</b> '+esc(t.kaynak)+'</div>'
+      + '<div style="color:var(--tx-2)"><b>Güven:</b> '+esc(t.guven)+'</div>'
+      + (t.uyari && t.uyari!=='—' ? '<div style="color:#E8B84B;margin-top:6px"><b>⚠</b> '+esc(t.uyari)+'</div>':'');
+    document.body.appendChild(p);
+    var x=Math.min(ev.clientX, window.innerWidth-320); var y=ev.clientY+14;
+    if(y > window.innerHeight-190) y=ev.clientY-190;
+    p.style.left=Math.max(8,x)+'px'; p.style.top=Math.max(8,y)+'px';
+    setTimeout(function(){ document.addEventListener('click', function _c(){ var e=document.getElementById('mi-pop'); if(e)e.remove(); document.removeEventListener('click',_c); }); },0);
+  }
+  if(!window.__miInit){ window.__miInit=true;
+    document.addEventListener('click', function(e){
+      var el=e.target && e.target.closest ? e.target.closest('.mi-ikon') : null;
+      if(el){ _metrikInfoAc(e, el.getAttribute('data-mi')); }
+    });
+  }
+
+  function _spark(vals, w, hh, col, partial){
+    if(!vals || vals.length<2) return '';
+    var mn=Math.min.apply(null,vals), mx=Math.max.apply(null,vals), rng=(mx-mn)||1;
+    var xy=vals.map(function(v,i){ return { x:(i/(vals.length-1))*w, y:hh-((v-mn)/rng)*(hh-4)-2 }; });
+    function pstr(a){ return a.map(function(p){return p.x.toFixed(1)+','+p.y.toFixed(1);}).join(' '); }
+    var b=xy[xy.length-1];
+    var svg='<svg width="'+w+'" height="'+hh+'" viewBox="0 0 '+w+' '+hh+'" style="display:block">';
+    if(partial && xy.length>=2){
+      var a=xy[xy.length-2];
+      svg+='<polyline points="'+pstr(xy.slice(0,xy.length-1))+'" fill="none" stroke="'+col+'" stroke-width="1.5" stroke-linejoin="round"/>';
+      svg+='<line x1="'+a.x.toFixed(1)+'" y1="'+a.y.toFixed(1)+'" x2="'+b.x.toFixed(1)+'" y2="'+b.y.toFixed(1)+'" stroke="'+col+'" stroke-width="1.5" stroke-dasharray="2,2"/>';
+      svg+='<circle cx="'+b.x.toFixed(1)+'" cy="'+b.y.toFixed(1)+'" r="2.8" fill="none" stroke="'+col+'" stroke-width="1.5"/>';
+    } else {
+      svg+='<polyline points="'+pstr(xy)+'" fill="none" stroke="'+col+'" stroke-width="1.5" stroke-linejoin="round"/>';
+      svg+='<circle cx="'+b.x.toFixed(1)+'" cy="'+b.y.toFixed(1)+'" r="2.5" fill="'+col+'"/>';
+    }
+    return svg+'</svg>';
+  }
+
+  async function _finansSeriCiz(){
+    var el=document.getElementById('finans-seri-bolum'); if(!el) return;
+    var d={seriler:{}};
+    try{ var r=await fetch('/api/bi/finans-seri',{credentials:'same-origin'}); d=await r.json(); }
+    catch(e){ el.innerHTML=''; return; }
+    var S=d.seriler||{};
+    var conf=[
+      {key:'dso', ad:'DSO — tahsilat süresi', renk:'#E8B84B', fmt:function(v){return Math.round(v)+' gün';}, tersIyi:true},
+      {key:'stok_deger', ad:'Stok değeri', renk:'#5AA9E6', fmt:function(v){return _M(v);}, tersIyi:false},
+      {key:'alacak', ad:'Alacak', renk:'#7EC97E', fmt:function(v){return _M(v);}, tersIyi:false}
+    ];
+    var _n=new Date(); var curAy=_n.getFullYear()+'-'+String(_n.getMonth()+1).padStart(2,'0');
+    var govde='';
+    conf.forEach(function(c,idx){
+      var seri=S[c.key]; if(!seri||seri.length<2) return;
+      var vals=seri.map(function(x){return x.deger;});
+      var cur=vals[vals.length-1];
+      var y12= seri.length>12 ? vals[vals.length-13] : vals[0];
+      var dpct= y12 ? Math.round(100*(cur-y12)/Math.abs(y12)) : null;
+      var okYon= c.tersIyi ? (dpct<0) : (dpct>0);
+      var okRenk= dpct==null?'var(--tx-2)':(okYon?'var(--yesil)':'var(--kirmizi)');
+      var ok= dpct==null?'':(dpct>0?'▲':'▼');
+      var kismi=(seri[seri.length-1].donem===curAy);
+      govde+='<div style="display:flex;align-items:center;gap:14px;padding:12px 0'+(idx>0?';border-top:0.5px solid var(--cizgi)':'')+'">'
+        + '<div style="flex:1;min-width:0"><div style="font-size:13px;margin-bottom:2px">'+esc(c.ad)+_metrikInfo(c.key)+'</div>'
+        + '<div style="font-size:11px;color:var(--tx-2)">'+seri.length+' ay · '+esc(seri[0].donem)+' → bugün</div></div>'
+        + '<div style="width:120px">'+_spark(vals,120,32,c.renk,kismi)+'</div>'
+        + '<div style="text-align:right;min-width:96px">'
+        + '<div class="n" style="font-size:15px">'+c.fmt(cur)+(kismi?'<span style="font-size:10px;color:var(--tx-2)" title="kapanmamış ay"> ○</span>':'')+'</div>'
+        + '<div style="font-size:11px;color:'+okRenk+'">'+ok+' '+(dpct==null?'—':(Math.abs(dpct)+'% · 12 ay'))+'</div>'
+        + '</div></div>';
+    });
+    if(!govde){ el.innerHTML=''; return; }
+    var h='<div class="etiket" style="margin-bottom:10px">METRİK TRENDİ · son 18 ay</div>';
+    h+='<div class="kart">'+govde
+      + '<div style="font-size:11px;color:var(--tx-2);margin-top:8px;line-height:1.6">'
+      + '○ son nokta = kapanmamış ay (bugün itibarıyla anlık); önceki aylar kapanmış. Geçmiş rekonstrüksiyon ~%7. Kaynak: metrik omurgası.</div></div>';
+    el.innerHTML=h;
+  }
+
+  var _markaAy = 6;
+
+  async function _markaDetay(row){
+    var det = row.nextElementSibling;
+    if(!det || !det.classList.contains('marka-detay')) return;
+    var caret = row.querySelector('.mk-ok');
+    if(det.style.display!=='none'){ det.style.display='none'; if(caret)caret.style.transform=''; return; }
+    det.style.display='block'; if(caret)caret.style.transform='rotate(90deg)';
+    if(det.getAttribute('data-yuklendi')===String(_markaAy)) return;
+    det.innerHTML='<div style="font-size:12px;color:var(--tx-2);padding:8px 0">yükleniyor…</div>';
+    var mk=row.getAttribute('data-marka'); var d={noktalar:[],onceki:{}};
+    try{ var r=await fetch('/api/bi/finans-marka-detay?marka='+encodeURIComponent(mk)+'&ay='+_markaAy,{credentials:'same-origin'}); d=await r.json(); if(d.error)throw new Error(d.error);}
+    catch(e){ det.innerHTML='<div class="d-kirmizi" style="font-size:12px;padding:6px 0">detay gelmedi: '+esc(e.message)+'</div>'; return; }
+    var pts=d.noktalar||[]; var onc=d.onceki||{};
+    if(!pts.length){ det.innerHTML='<div style="font-size:12px;color:var(--tx-2);padding:6px 0">bu pencerede satış yok</div>'; det.setAttribute('data-yuklendi',String(_markaAy)); return; }
+    var kaps=pts[pts.length-1].marj_kapsam;
+    var metr=[
+      {ad:'Ciro', key:'ciro', fld:'ciro', renk:'#5AA9E6', fmt:function(v){return v==null?'—':_M(v);}},
+      {ad:'Adet', key:'adet', fld:'adet', renk:'#B98AE6', fmt:function(v){return v==null?'—':Number(v).toLocaleString('tr-TR');}},
+      {ad:'Marj', key:'marj', fld:'marj', renk:'#7EC97E', fmt:function(v){return v==null?'—':_M(v);}}
+    ];
+    var ciroToplam=pts.reduce(function(a,p){return a+(p.ciro||0);},0);
+    var hh='';
+    metr.forEach(function(m,i){
+      var vals=pts.map(function(p){return p[m.fld]==null?0:p[m.fld];});
+      var toplam=pts.reduce(function(a,p){return a+(p[m.fld]==null?0:p[m.fld]);},0);
+      var varMi=(m.fld!=='marj') || pts.some(function(p){return p.marj!=null;});
+      var cur=varMi?toplam:null;
+      var prev=onc[m.fld];
+      var dpct=(prev!=null&&prev!=0&&cur!=null)?Math.round(100*(cur-prev)/Math.abs(prev)):null;
+      var okc=dpct==null?'var(--tx-2)':(dpct>=0?'var(--yesil)':'var(--kirmizi)');
+      var oki=dpct==null?'':(dpct>=0?'▲':'▼');
+      var spk=pts.length>=2 ? _spark(vals,110,26,m.renk,false) : '<div style="font-size:10px;color:var(--tx-3);text-align:center;padding-top:8px">tek ay</div>';
+      hh+='<div style="display:flex;align-items:center;gap:12px;padding:7px 0'+(i>0?';border-top:0.5px solid var(--cizgi)':'')+'">'
+        + '<div style="width:52px;font-size:12px;color:var(--tx-2)">'+m.ad+_metrikInfo(m.key)+'</div>'
+        + '<div style="width:110px">'+spk+'</div>'
+        + '<div class="n" style="flex:1;text-align:right;font-size:13px">'+m.fmt(cur)+(m.fld==='marj'&&cur!=null&&ciroToplam?' <span style="color:var(--tx-2);font-size:11px">(%'+Math.round(100*cur/ciroToplam)+')</span>':'')+' <span style="font-size:11px;color:'+okc+'">'+oki+' '+(dpct==null?'—':Math.abs(dpct)+'%')+'</span></div></div>';
+    });
+    hh+='<div style="font-size:10px;color:var(--tx-3);margin-top:5px;line-height:1.6">'+pts.length+' ay penceresi · YoY geçen yıl aynı dönem · marj kapsam %'+(kaps==null?'—':kaps)+(kaps!=null&&kaps<100?' (eksik maliyet)':'')+' · marj brüt, dönem-eşleşmeli maliyet (atom)</div>';
+    det.innerHTML=hh; det.setAttribute('data-yuklendi',String(_markaAy));
+    _markaSebepCiz(det, mk);
+    _markaDragCiz(det, mk);
+  }
+
+  async function _markaSebepCiz(det, mk){
+    var box=document.createElement("div"); det.appendChild(box);
+    var d={};
+    try{ var r=await fetch("/api/bi/finans-marka-sebep?marka="+encodeURIComponent(mk),{credentials:"same-origin"}); d=await r.json(); }catch(e){ return; }
+    if(!d || d.error || !d.anlati) return;
+    var gr = d.guven==="kesin" ? "var(--tx-1)" : (d.guven==="belirsiz" ? "var(--kirmizi)" : "var(--tx-2)");
+    var h="<div style=\"margin-top:12px;border-top:0.5px solid var(--cizgi);padding-top:10px\">"
+      + "<div style=\"font-size:12px;font-weight:600;margin-bottom:6px\">💡 SEBEP <span style=\"font-weight:400;color:"+gr+"\">("+esc(String(d.guven||""))+")</span></div>"
+      + "<div style=\"font-size:12px;line-height:1.55;color:var(--tx-1)\">"+esc(String(d.anlati))+"</div>";
+    if(d.oneri) h+="<div style=\"font-size:12px;line-height:1.5;color:var(--tx-2);margin-top:6px\">"+esc(String(d.oneri))+"</div>";
+    if(d.soru){
+      h+="<div id=\"sebep-soru-kutu\" style=\"margin-top:10px;padding:9px;border:0.5px solid var(--cizgi-g);border-radius:8px\">"
+        +"<div style=\"font-size:11px;color:var(--tx-2);margin-bottom:7px\">🎓 "+esc(String(d.soru.soru))+"</div>"
+        +"<div id=\"sebep-secenek\" style=\"display:flex;flex-wrap:wrap;gap:6px\"></div></div>";
+    }
+    h+="</div>"; box.innerHTML=h;
+    if(d.soru){
+      var wrap=box.querySelector("#sebep-secenek"); var ops=d.soru.secenekler||[];
+      ops.forEach(function(op){
+        var b=document.createElement("button"); b.textContent=op;
+        b.style.cssText="font-size:11px;padding:4px 9px;border-radius:7px;cursor:pointer;border:0.5px solid var(--cizgi-g);background:transparent;color:var(--tx-1)";
+        b.addEventListener("click",function(){ _sebepCevapla(box, d.soru.id, op); });
+        wrap.appendChild(b);
+      });
+    }
+  }
+  async function _sebepCevapla(box, id, cevap){
+    var el=box.querySelector("#sebep-soru-kutu");
+    if(el) el.innerHTML="<div style=\"font-size:11px;color:var(--tx-2)\">… kaydediliyor</div>";
+    try{
+      var r=await fetch("/api/bi/sistem-soru-cevap",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:id,cevap:cevap})});
+      var d=await r.json();
+      if(el) el.innerHTML="<div style=\"font-size:11px;color:var(--tx-2)\">🎓 "+esc(String(d.mesaj||"Öğrendim."))+"</div>";
+    }catch(e){ if(el) el.innerHTML="<div style=\"font-size:11px;color:var(--kirmizi)\">kaydedilemedi</div>"; }
+  }
+  async function _markaDragCiz(det, mk){
+    var box=document.createElement("div"); det.appendChild(box);
+    var d={satirlar:[]};
+    try{ var r=await fetch("/api/bi/finans-marka-drag?marka="+encodeURIComponent(mk)+"&ay="+_markaAy,{credentials:"same-origin"}); d=await r.json(); if(d.error)return; }catch(e){ return; }
+    var rows=d.satirlar||[]; if(!rows.length) return;
+    function _tl(v){ return v==null?"—":Number(v).toLocaleString("tr-TR"); }
+    var h="<div style=\"margin-top:12px;border-top:0.5px solid var(--cizgi);padding-top:10px\">"
+      + "<div style=\"font-size:12px;font-weight:600;margin-bottom:6px\">🔻 KÂR SIZINTISI SKU’LARI <span style=\"font-weight:400;color:var(--tx-2)\">(marka marjı %"+d.marka_marj_pct+")</span></div>";
+    rows.forEach(function(x){
+      var neg = x.marj_pct!=null && x.marj_pct<0;
+      h += "<div style=\"padding:5px 0;border-top:0.5px solid var(--cizgi)\">"
+        + "<div style=\"display:flex;justify-content:space-between;font-size:12px\"><span><b>"+esc(x.ebat)+"</b> · "+_tl(x.adet)+" adet</span>"
+        + "<span style=\"color:"+(neg?"var(--kirmizi)":"var(--tx-1)")+"\">"+_tl(x.fiyat)+" fiyat · <b>%"+(x.marj_pct==null?"—":x.marj_pct)+"</b></span></div>"
+        + "<div style=\"font-size:11px;color:var(--tx-2);margin-top:2px\">maliyet "+_tl(x.maliyet)+" · marka ort’a çıksa +"+_M(x.ek_kar)+" · %15 için <b>+%"+(x.gereken_zam==null?"—":x.gereken_zam)+"</b> zam"+(x.piyasa?" · piyasa(perakende) "+_tl(x.piyasa):" · piyasa yok")+"</div></div>";
+    });
+    h += "<div style=\"font-size:10px;color:var(--tx-3);margin-top:5px\">Piyasa=perakende, bizim=bayi (yön sinyali). Zam alanı varsa fiyatı güncelle.</div></div>";
+    box.innerHTML=h;
+  }
+
+  async function _finansTrendCiz(){
+    var el = document.getElementById('finans-trend-bolum'); if(!el) return;
+    try{
+      var r = await fetch('/api/bi/finans-trend?metrik=ciro_lastik&boyut=marka&ay='+_markaAy, {credentials:'same-origin'});
+      var d = await r.json(); if(d.error) throw new Error(d.error);
+      var rows = d.satirlar || [];
+      var _aylarTR=['Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'];
+      var _n=new Date(); var _end=new Date(_n.getFullYear(), _n.getMonth(), 1);
+      var _cs=new Date(_end); _cs.setMonth(_cs.getMonth()-_markaAy);
+      var _last=new Date(_end); _last.setMonth(_last.getMonth()-1);
+      function _lbl(dd){ return _aylarTR[dd.getMonth()]+' '+dd.getFullYear(); }
+      var _aralik = (_markaAy===1) ? _lbl(_last) : (_lbl(_cs)+'–'+_lbl(_last));
+      var _sec='<div style="display:flex;gap:6px;margin-bottom:10px">';
+      [1,3,6,12].forEach(function(nn){
+        var aktif=(nn===_markaAy);
+        _sec+='<button class="donem-btn" data-ay="'+nn+'" style="font-size:11px;padding:4px 10px;border-radius:7px;cursor:pointer;border:0.5px solid '+(aktif?'var(--tx-2)':'var(--cizgi-g)')+';background:transparent;color:'+(aktif?'var(--tx-1)':'var(--tx-2)')+';font-weight:'+(aktif?'600':'400')+'">'+nn+' ay</button>';
+      });
+      _sec+='</div>';
+      var h = '<div class="etiket" style="margin-bottom:6px">MARKA TRENDİ — lastik cirosu · '+_aralik+' <span style="color:var(--tx-3);font-weight:400">(YoY)</span>'+_metrikInfo('ciro')+'</div>'+_sec;
+      if(!rows.length){ el.innerHTML=h+'<div style="font-size:12px;color:var(--tx-2)">bu pencerede veri yok</div>';
+        el.querySelectorAll('.donem-btn').forEach(function(bt){ bt.addEventListener('click',function(){ _markaAy=parseInt(bt.getAttribute('data-ay')); _finansTrendCiz(); }); }); return; }
+      h += '<div class="kart">';
+      rows.forEach(function(x){
+        var yoy = x.yoy_pct;
+        var renk = (yoy==null) ? 'var(--tx-2)' : (Number(yoy)>=0 ? '#34d399' : '#f87171');
+        var ok = (yoy==null) ? '' : (Number(yoy)>=0 ? '▲' : '▼');
+        var _mk=esc(String(x.ad||''));
+        h += '<div class="marka-satir satir" data-marka="'+_mk+'" style="cursor:pointer">'
+           + '<div><span class="mk-ok" style="display:inline-block;width:12px;color:var(--tx-3);transition:transform .15s">▸</span> '+esc(String(x.ad||'').slice(0,24))+'</div>'
+           + '<div class="n">'+_M(x.onceki)+' → '+_M(x.simdi)
+           + ' <span style="color:'+renk+';font-size:12px;margin-left:6px">'+ok+' '+(yoy==null?'—':yoy+'%')+'</span></div></div>';
+        h += '<div class="marka-detay" style="display:none;padding:0 0 8px 20px"></div>';
+      });
+      h += '</div><div style="font-size:11px;color:var(--tx-3);margin-top:6px">Kaynak: bi_metrik_gecmis · ciro_lastik × marka · güven: kesin · '+_aralik+' vs geçen yıl aynı dönem · <span style="color:var(--tx-2)">markaya tıkla → ciro/adet/marj</span></div>';
+      el.innerHTML = h;
+      el.querySelectorAll('.donem-btn').forEach(function(bt){ bt.addEventListener('click',function(){ _markaAy=parseInt(bt.getAttribute('data-ay')); _finansTrendCiz(); }); });
+      el.querySelectorAll('.marka-satir').forEach(function(row){ row.addEventListener('click', function(){ _markaDetay(row); }); });
+    }catch(e){ el.innerHTML = '<div class="d-kirmizi" style="font-size:12px">Marka trendi gelmedi: '+esc(e.message)+'</div>'; }
+  }
+
   async function ciz_finans() {
+    if (!document.getElementById('finans-govde')) return; /* kokpit iframe aktif */
     const g = document.getElementById('finans-govde');
     if (!g) return;
     let d;
@@ -700,7 +932,9 @@ export function initBiSurface(container, me, sub, callbacks) {
        + 'Tedarikçi borcu yeşil çünkü <b>senin sermayeni finanse ediyor</b>. Bu borç kapandıkça bağlı sermaye artar.</div>';
     h += '</div>';
 
-    if (OD.length) {
+    h += '<div id="finans-trend-bolum" style="margin-top:28px"><div style="color:var(--tx-2);font-size:13px">Marka trendi yükleniyor…</div></div>';
+    h += '<div id="finans-seri-bolum" style="margin-top:28px"></div>';
+      if (OD.length) {
       var _tp = 0;
       OD.forEach(function(x){ _tp += Number(x.tutar_tl || 0); });
       h += '<div class="etiket" style="margin-bottom:10px">ÖDEME TAKVİMİ — dört ayda ' + _M(_tp) + ' ₺</div>';
@@ -749,7 +983,10 @@ export function initBiSurface(container, me, sub, callbacks) {
       h += '</div>';
     }
 
-    g.innerHTML = h;
+    
+      g.innerHTML = h;
+      _finansTrendCiz();
+      _finansSeriCiz();
 
     g.querySelectorAll('.dn').forEach(function(el){
       el.addEventListener('click', function(e){
@@ -781,7 +1018,8 @@ export function initBiSurface(container, me, sub, callbacks) {
       d = await r.json();
     } catch(e) {}
 
-    let h = '<div class="etiket" style="margin-bottom:12px">ERP DOSYALARI</div>';
+    let h = '<div id="veri-alarm"></div>';
+    h += '<div class="etiket" style="margin-bottom:12px">ERP DOSYALARI</div>';
 
     // ⚠ Sistem hangi dosyayi bekledigini BILIR. 'account balance' AYLARDIR
     //   gelmiyordu ve bunu TESADUFEN bulduk.
@@ -809,6 +1047,7 @@ export function initBiSurface(container, me, sub, callbacks) {
        + '</div>';
     h += '<div id="veri-sonuc"></div>';
     g.innerHTML = h;
+    _saglikAlarmCiz();
 
     const drop = document.getElementById('veri-drop');
     const inp  = document.getElementById('veri-dosya');
@@ -820,6 +1059,58 @@ export function initBiSurface(container, me, sub, callbacks) {
       if (e.dataTransfer.files[0]) _yukle(e.dataTransfer.files[0]);
     };
     inp.onchange = function(){ if (inp.files[0]) _yukle(inp.files[0]); };
+  }
+
+  async function _saglikAlarmCiz() {
+    const box = document.getElementById('veri-alarm');
+    if (!box) return;
+    let d = { alarmlar: [] };
+    try {
+      const r = await fetch('/api/bi/saglik-alarm', { credentials:'same-origin' });
+      d = await r.json();
+    } catch(e) { return; }
+    const a = d.alarmlar || [];
+    if (!a.length) {
+      box.innerHTML = '<div class="kart" style="margin-bottom:20px"><div style="display:flex;justify-content:space-between;align-items:baseline">'
+        + '<span class="etiket" style="margin:0">VERİ SAĞLIK</span>'
+        + '<span class="n d-yesil" style="font-size:12px">✅ açık alarm yok</span></div></div>';
+      return;
+    }
+    let h = '<div class="kart kart-karar" style="margin-bottom:20px">';
+    h += '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">'
+       + '<span class="etiket" style="margin:0">⚠ VERİ SAĞLIK — ' + a.length + ' açık alarm</span>'
+       + '<span style="font-size:12px;color:var(--tx-2)">tanımadığını sessizce kabul etme</span></div>';
+    a.forEach(function(x){
+      var tipEt = x.tip==='mukerrer' ? 'mükerrer artışı'
+                : x.tip==='mutabakat' ? 'ortalama sıçraması'
+                : x.tip==='aralik' ? 'aralık dışı' : 'bilinmeyen değer';
+      h += '<div style="padding:10px 0;border-top:0.5px solid var(--cizgi)">'
+         + '<div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline">'
+         + '<span style="font-size:13px"><b>' + esc(x.tablo) + '</b> · ' + esc(x.kolon||'') + '</span>'
+         + '<span class="n d-sari" style="font-size:11px">' + esc(tipEt) + (x.adet?(' · '+Number(x.adet).toLocaleString('tr-TR')+'×'):'') + '</span></div>'
+         + '<div style="font-size:13px;color:var(--tx-1);margin:4px 0 8px">' + esc(x.deger||'') + '</div>'
+         + '<div style="display:flex;gap:8px">'
+         + '<button data-karar="kabul" data-id="' + x.id + '" style="font-size:12px;padding:5px 12px;border-radius:8px;border:0.5px solid var(--cizgi-g);background:var(--zemin-1);color:var(--tx-1);cursor:pointer">Bilinen kümeye ekle</button>'
+         + '<button data-karar="reddet" data-id="' + x.id + '" style="font-size:12px;padding:5px 12px;border-radius:8px;border:0.5px solid var(--kirmizi);color:var(--kirmizi);background:transparent;cursor:pointer">Gerçek bozulma</button>'
+         + '</div></div>';
+    });
+    h += '</div>';
+    box.innerHTML = h;
+    box.querySelectorAll('button[data-karar]').forEach(function(bt){
+      bt.onclick = function(){ _saglikKarar(bt.dataset.id, bt.dataset.karar, bt); };
+    });
+  }
+
+  async function _saglikKarar(id, karar, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    try {
+      await fetch('/api/bi/saglik-alarm-karar', {
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ id: id, karar: karar })
+      });
+    } catch(e) {}
+    _saglikAlarmCiz();
   }
 
   async function _yukle(dosya) {

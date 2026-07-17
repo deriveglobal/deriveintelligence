@@ -8339,7 +8339,7 @@ function applyShellChromeState(shellManagedRole) {
   topbar?.classList.toggle("hidden", shellManagedRole);
   workspaceShell?.classList.toggle("hidden", shellManagedRole);
   if (appShell) {
-    appShell.style.display = shellManagedRole ? "block" : "";
+    appShell.style.display = shellManagedRole ? "block" : "none";  // APPSHELL_HIDE_FIX: non-shell roles hide legacy shell (was "" = visible grid, leaked over login/dashboard on mobile)
     appShell.style.minHeight = shellManagedRole ? "100vh" : "";
     appShell.style.background = shellManagedRole ? "var(--color-bg)" : "";
   }
@@ -12505,11 +12505,14 @@ async function initPlatformSession() {
     // acmak yanlis — ustelik hideAllSurfacesExcept onu BI'da baslatiyordu.
     const _sahaSub = (me.subscriptions || []).find(x => x.moduleId === "saha");
     const _sahaRep = _sahaSub && _sahaSub.moduleRole === "rep";
+    // MOBIL_YONLENDIRME_V1 — native (Capacitor) app'te ya da ?saha=1 ile HERKES saha resepsiyonuna düşer; BI masaüstü kabuğu mobilde açılmaz.
+    const _nativeMobil = (typeof window !== "undefined") && (((window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())) || (new URLSearchParams(location.search).has("saha")));
+    const _mobilSaha = _nativeMobil && !!_sahaSub;
 
     // Load module shells for each active subscription
     for (const sub of me.subscriptions || []) {
       if (sub.moduleId === "intelligence") {
-        if (_sahaRep) continue;          // temsilci: BI kabugu YOK
+        if (_sahaRep || _mobilSaha) continue;          // temsilci VEYA mobil: BI kabugu YOK
         await loadBiSurface(me, sub);
       } else if (sub.moduleId === "saha") {
         await loadSahaSurface(me, sub);
@@ -12522,10 +12525,15 @@ async function initPlatformSession() {
       .filter(s => !(_sahaRep && s.moduleId === "intelligence"))   // REP_LANDING_V1
       .map(s => s.moduleId);
     if (moduleIds.includes("intelligence") && moduleIds.includes("saha")) {
-      hideAllSurfacesExcept("bi-surface");
-      const biEl = document.getElementById("bi-surface");
-      if (biEl) biEl.style.display = "block";
-      addSahaModuleToggle();
+      if (_mobilSaha) {
+        // MOBIL_YONLENDIRME_V1 — mobil: BI değil, saha resepsiyonu görünür.
+        hideAllSurfacesExcept("saha-surface");
+      } else {
+        hideAllSurfacesExcept("bi-surface");
+        const biEl = document.getElementById("bi-surface");
+        if (biEl) biEl.style.display = "block";
+        addSahaModuleToggle();
+      }
     }
     // ADMIN_PANEL_V1 — Yonetim paneli DOM'a yuklendi ama hideAllSurfacesExcept onu
     // gizliyordu ve ona gidecek dugme YOKTU. Tenant admin icin gecis dugmesi ekle.
@@ -12581,7 +12589,7 @@ async function loadSahaSurface(me, sub) {
   container.style.cssText = "display:block;position:fixed;top:0;left:0;right:0;bottom:0;z-index:100;overflow:hidden;width:100%;max-width:100%;";
 
   try {
-    const { initSahaSurface } = await import("/shells/saha.js?v=20260707-18");
+    const { initSahaSurface } = await import("/shells/saha.js?v=20260714-2");
     initSahaSurface(container, me, sub, { authHeaders });
   } catch (err) {
     container.innerHTML = `<div class="platform-error">KRB Saha yüklenemedi: ${err.message}</div>`;

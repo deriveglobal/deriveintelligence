@@ -2,3 +2,13 @@ node_modules/
 backups/
 *.bak*
 .env
+
+# scratch: kesif/patch scriptleri, arsiv, APK binary, stray root kopyalar (commit edilmez)
+/*.sh
+/patch_*.py
+/*.apk
+shells/*.apk
+/derive_arsiv/
+/migrate_*.sql
+/saha.js
+/kokpit.html
