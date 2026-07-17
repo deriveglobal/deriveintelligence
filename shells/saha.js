@@ -355,6 +355,7 @@ function renderReception() {
   m.innerHTML = `
     <div class="rec-wrap">
       <div class="rec-hi">${selam}${ad ? ", " + esc(ad) : ""} 👋</div>
+      <div class="rec-selam" id="rec-selam-line" style="font-size:13px;color:#475569;margin:2px 0 12px;line-height:1.45;min-height:18px"></div>
       <div class="rec-sub">Bir oda seç</div>
       <div class="rec-tiles">
         ${tiles.map(([id, ico, l, sub, c]) => `
@@ -366,6 +367,16 @@ function renderReception() {
       </div>
     </div>`;
   m.querySelectorAll(".rec-tile").forEach(b => b.addEventListener("click", () => setRoom(b.dataset.room)));
+  // REP_SELAM_V1 — sicak + gercek-temelli karsilama satiri (async, ekrani bloke etmez)
+  (async () => {
+    try {
+      const _sr = await fetch("/api/saha/recep-selam", { headers: S.headers() });
+      if (!_sr.ok) return;
+      const _sd = await _sr.json();
+      const _sel = document.getElementById("rec-selam-line");
+      if (_sel && _sd && _sd.selam) _sel.textContent = _sd.selam;
+    } catch (e) {}
+  })();
 }
 // KOKPIT_MOBIL_V1 — mobil-optimize kokpit (yönetim): vitals + kanal + segment + sezon + marka + piyasa + içgörü.
 async function vKokpitMobil() {

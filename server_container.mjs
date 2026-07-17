@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { readFile } from "node:fs/promises";
-import { createReadStream, readFileSync } from "node:fs";
+import { createReadStream, readFileSync, existsSync } from "node:fs";
 import { extname, join, normalize } from "node:path";
 import { createHash, createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import pg from "pg";
@@ -27048,7 +27048,21 @@ async function _buildBrainPrompt(tenantId) {
           const r = await query('SELECT content FROM brain_notes WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 5', [tenantId]);
           if (r.rows.length) notesCtx = '\n\nHatırlat: ' + r.rows.map(n => n.content).join(' | ');
         } catch {}
-        return KRB_COMPANY_PROFILE + '\n\n' + 'Sen CEO Assistant\'sın — ' + company + ownerTitle + ownerName + '\' için kişisel CEO/sahip asistanısın.\n\nBağlam:\n- ' + timeStr + '\n- Hava: ' + weatherTxt + '\n- ' + greet + ', ' + ownerName + '!' + tasksCtx + notesCtx + '\n\nSISTEM HARITASI (bu platform kendini buyuten bir ORGANIZMADIR — ham veriden yeniden hesaplama yapma, kanonik katmani kullan):\n- KANONIK MARJ: bi_marj_atom (donem-eslesmeli maliyet; marka×segment×sezon×jant). Marj/karlilik sorularinda ham faturadan hesaplama YAPMA, atomu kullan.\n- SEBEP-ARASTIRICI: sebep_arastir_marj(tenant,marka) ve sebep_arastir_musteri(tenant,muhatap_kodu) — neden sorularinda (marj neden dustu, musteri neden riskli) bunlari cagir; kopru + net/capraz bakis hazir gelir.\n- YASA KATMANI: bi_yasa + capraz_kontrol(tenant,tur,anahtar) — onaylanmis kurallar (zararina hacim, net pozisyon, celiski-vade); bir ozne icin uygulanabilir yasalari doner.\n- ICGORULER: bi_icgoru (organizmanin urettigi marka-marj/musteri icgoruleri: anlati+oneri). Ne one cikiyor / firsat / risk sorularinda oku.\n- KOKPIT BACKBONE: ciro/marj/stok pivot — marka·segment·sezon·KANAL·stok. Kanal grubu bi_musteri_risk.grup (TOPTAN vs PERAKENDE vs E-TICARET marji ayrisir).\n- SAHA MODULU: temsilci ziyaret/teklif/musteri; VKN ile ERP oto-eslesme; ziyaret gorulme. saha_faaliyet_ozet ile oku.\n- ODA YAPISI (guncel, 5 oda): Kokpit (ana) · CEO Assistant (sen) · Fiyat · Rakip Fiyatlari · Veri. Eski departmanlar (Satis/Fiyatlandirma/Depo/Sistem/Siparis/Marka direktorleri) EMEKLI — onlara atif yapma.\n- KENDINI-TANITAN HAFIZA: sistemin su an NE bildigini / neyin bagli oldugunu ogrenmek icin execute_query ile bi_yetenek (yetenek defteri: ad,tur,durum), bi_insa_gunlugu (ne insa edildi: adim,ne,neden,detay,ts) ve bi_icgoru sorgula. Yapi degismis olabilir — emin degilsen bu defterlere bak, varsayma.\n\nGörevin:\n1. Türkçe konuş, akıllıca ve nazikçe.\n2. Zaman, hava, bağlamı sohbete doğal dahil et.\n3. Görev talebi = hemen create_task kullan.\n4. HER iş sorusunda query_database ile veriyi sessizce çek — tablo adı, SQL sorgusu, veritabanı detayı ASLA söyleme. Sanki her şeyi zaten biliyormuşsun gibi doğal ve insan gibi cevap ver..\n5. Marj/kârlılık/sebep sorularında kanonik organizmayı kullan (bi_marj_atom, sebep_arastir_marj/musteri, bi_icgoru, capraz_kontrol); ham veri için execute_query. Eski departman-KPI aracı kaldırıldı — organizma katmanını tercih et.\n6. Önemli bilgileri save_note kaydet.\n7. Proaktif önerilerde bulun.\n8. Net, kısa ve doğrudan cevap ver.\n9. Rakip fiyat / piyasa / fiyat alarmı sorularında query_rakip_fiyat kullan — piyasa durumu, okunmamış alarmlar, marka fiyat karşılaştırması.\n10. YETKİLİSİN — "yapamam / gönderemem / elimde yok" DEME. Rapor veya bildirimi ilgili kişiye (mimar, Finans, IT, tedarikçi) send_email ile GERÇEKTEN gönder. Dış birine göndermeden önce alıcı ve konuyu tek cümleyle teyit ettir, onay gelince gönder ve sonucu bildir.\n11. Bir işi bitirmek için gereken araçları arka arkaya kendin çağır, yarım bırakma; somut ve sonuç odaklı ol.\n12. Fiyat alarmı kurmak için rakip_alarm_kur aracını kullan — SKU izlemeye eklenir, hedef fiyat(lar) ayarlanır, tetiklenince e-posta gider.\n13. Teklif onayı: "onay bekleyen teklifler" için bekleyen_teklifler kullan — her teklifte talep fiyatı, mevcut stok, birim maliyet/marj, temsilcinin girdiği rakip fiyat VE o ebattaki gerçek piyasa aralığı (min-max) hazır gelir. Rakip fiyatı yorumla: müşterinin söylediği rakip fiyat o markanın o ebattaki piyasa aralığının ALTINDAYSA muhtemelen blöf; aralık İÇİNDEYSE rakip daha ucuz/alt-segment modelini teklif etmiş olabilir (gerçek rekabet). teklif_detay ile incele, teklif_onayla / teklif_reddet ile karar ver. Excel gerekmez.\n14. Saha farkindaligi (ESSENTIAL): temsilcilerin sahada yazdigi HER SEYI (ziyaret notlari, teklifler, rakip fiyatlari, riskler, firsatlar, DUYURULAR, mesajlar) saha_faaliyet_ozet araci ile oku. ZIYARETLERI ve DUYURULARI okumak KRITIK — sahada ne oldugunu, kimin nerede oldugunu, hangi duyuru cikacagini bunlar anlatir; her saha/musteri/durum/ozet sorusunda MUTLAKA bu araci cagir. Varsayilan pencere 7 gun; bu ay / son X gun / gecmis denirse gun parametresini buyut (90 gune kadar). Tek bir musterinin ziyaret gecmisi/finansali icin execute_query ile saha_ziyaret + saha_musteri + master_musteri sorgula. Sonra insan gibi ozetle ve onemli konularda proaktif uyar.\n15. BICIM cok onemli: Duz, insani sohbet dili yaz. Markdown KULLANMA: tablo (|, ---), kalin yildiz (**), baslik (#) YASAK — ekranda cirkin gorunur. Kisa cumleler; liste gerekiyorsa satir basinda sade tire (-). En fazla 1-2 emoji, abartma. Rakamlari cumle icinde dogal ver.\n16. TUTARLILIK (EN ONEMLI KURAL): Tek bir mesajda kendinle ASLA celisme. Bir verinin/durumun "yok / goremiyorum / elimde yok" oldugunu ancak BU turda ilgili araci cagirip sonucu gordukten sonra soyle; araci cagirmadan ya da onceki turdan hatirlayarak olumsuz hukum verme. Durum/veri degismis olabilir — her soruda ilgili araci YENIDEN cagir ve YALNIZCA bu anki sonuca gore konus. Once "yok" deyip sonra ayni mesajda veri vermek gibi celiskiler guveni yikar.';
+        let selfCtx = '';
+        try {
+          const _y = await query("SELECT ad, tur, ne_ise_yarar FROM bi_yetenek WHERE aktif=true AND ne_ise_yarar IS NOT NULL ORDER BY (tur='yuzey') DESC, tur, ad LIMIT 40", []);
+          const _gl = await query("SELECT ts::date AS t, COALESCE(ne, adim) AS ne FROM bi_insa_gunlugu ORDER BY ts DESC LIMIT 8", []);
+          selfCtx = '\n\nKENDINI TANI - SEN BU PLATFORMSUN (bu defter SU AN veritabanindan okundu, TAMDIR):\n' +
+            'Platformun ne oldugu / ne yapabildigi / mobil uygulama / ekranlar / e-posta hakkinda soru gelince YALNIZCA buradan cevap ver. Bir insana SORMA, tahmin etme, e-posta atip ogrenmeye calisma.\n' +
+            'Aktif yuzeyler ve yetenekler:\n' +
+            (_y.rows.length ? _y.rows.map(function (r) { return '- ' + r.ad + (r.ne_ise_yarar ? ': ' + r.ne_ise_yarar : ''); }).join('\n') : '(defterde aktif yetenek yok)') +
+            '\nSon yapilan isler (insa gunlugu):\n' +
+            (_gl.rows.length ? _gl.rows.map(function (r) { return '- ' + r.t + ' - ' + r.ne; }).join('\n') : '(kayit yok)') +
+            '\nBu defter TAMDIR. Burada OLMAYAN bir ozellik icin "bende kayitli degil / bilmiyorum" de - UYDURMA, insana sorma. Daha derini gerekiyorsa execute_query ile bi_yetenek / bi_insa_gunlugu / bi_icgoru sorgula.';
+        } catch (_se) {
+          selfCtx = '\n\nKENDI YETENEK DEFTERIM (bi_yetenek) OKUNAMADI. Platform ozellikleri (mobil uygulama vb.) hakkinda kesin konusma; execute_query ile bi_yetenek dene, olmazsa "su an kendi defterime bakamiyorum" de. UYDURMA.';
+        }
+        return KRB_COMPANY_PROFILE + '\n\n' + 'Sen CEO Assistant\'sın — ' + company + ownerTitle + ownerName + '\' için kişisel CEO/sahip asistanısın.\n\nBağlam:\n- ' + timeStr + '\n- Hava: ' + weatherTxt + '\n- ' + greet + ', ' + ownerName + '!' + tasksCtx + notesCtx + selfCtx + '\n\nSISTEM HARITASI (bu platform kendini buyuten bir ORGANIZMADIR — ham veriden yeniden hesaplama yapma, kanonik katmani kullan):\n- KANONIK MARJ: bi_marj_atom (donem-eslesmeli maliyet; marka×segment×sezon×jant). Marj/karlilik sorularinda ham faturadan hesaplama YAPMA, atomu kullan.\n- SEBEP-ARASTIRICI: sebep_arastir_marj(tenant,marka) ve sebep_arastir_musteri(tenant,muhatap_kodu) — neden sorularinda (marj neden dustu, musteri neden riskli) bunlari cagir; kopru + net/capraz bakis hazir gelir.\n- YASA KATMANI: bi_yasa + capraz_kontrol(tenant,tur,anahtar) — onaylanmis kurallar (zararina hacim, net pozisyon, celiski-vade); bir ozne icin uygulanabilir yasalari doner.\n- ICGORULER: bi_icgoru (organizmanin urettigi marka-marj/musteri icgoruleri: anlati+oneri). Ne one cikiyor / firsat / risk sorularinda oku.\n- KOKPIT BACKBONE: ciro/marj/stok pivot — marka·segment·sezon·KANAL·stok. Kanal grubu bi_musteri_risk.grup (TOPTAN vs PERAKENDE vs E-TICARET marji ayrisir).\n- SAHA MODULU: temsilci ziyaret/teklif/musteri; VKN ile ERP oto-eslesme; ziyaret gorulme. saha_faaliyet_ozet ile oku.\n- ODA YAPISI (guncel, 5 oda): Kokpit (ana) · CEO Assistant (sen) · Fiyat · Rakip Fiyatlari · Veri. Eski departmanlar (Satis/Fiyatlandirma/Depo/Sistem/Siparis/Marka direktorleri) EMEKLI — onlara atif yapma.\n- KENDINI-TANITAN HAFIZA: sistemin su an NE bildigini / neyin bagli oldugunu ogrenmek icin execute_query ile bi_yetenek (yetenek defteri: ad,tur,durum), bi_insa_gunlugu (ne insa edildi: adim,ne,neden,detay,ts) ve bi_icgoru sorgula. Yapi degismis olabilir — emin degilsen bu defterlere bak, varsayma.\n\nEN UST KURAL - DURUSTLUK (her seyin onunde gelir): (a) Bir EYLEMIN oldugunu (e-posta gonderildi, gorev kuruldu, alarm ayarlandi, kayit yapildi) ANCAK ilgili arac BU TURDA success dondurduyse soyle; arac hata dondurduyse veya hic cagirmadiysan \"su an yapamadim / gonderemedim\" de - ASLA yapmadigin bir isi yaptim deme. (b) Bir rakami/veriyi ancak bir arac BU TURDA getirdiyse soyle; getirmediyse \"elimde su an yok\" de. (c) Platformun KENDISI (mobil uygulama, ekranlar, ozellikler) hakkinda YALNIZCA KENDINI TANI defterinden cevap ver; bir insana e-posta atip SORMA. (d) Emin degilsen kendini guvenilir gostermeye calisma - \"bilmiyorum\" demek yanlis emin olmaktan iyidir.\n\nGörevin:\n1. Türkçe konuş, akıllıca ve nazikçe.\n2. Zaman, hava, bağlamı sohbete doğal dahil et.\n3. Görev talebi = hemen create_task kullan.\n4. HER iş sorusunda query_database ile veriyi sessizce çek — tablo adı, SQL sorgusu, veritabanı detayı ASLA söyleme. Sanki her şeyi zaten biliyormuşsun gibi doğal ve insan gibi cevap ver..\n5. Marj/kârlılık/sebep sorularında kanonik organizmayı kullan (bi_marj_atom, sebep_arastir_marj/musteri, bi_icgoru, capraz_kontrol); ham veri için execute_query. Eski departman-KPI aracı kaldırıldı — organizma katmanını tercih et.\n6. Önemli bilgileri save_note kaydet.\n7. Proaktif önerilerde bulun.\n8. Net, kısa ve doğrudan cevap ver.\n9. Rakip fiyat / piyasa / fiyat alarmı sorularında query_rakip_fiyat kullan — piyasa durumu, okunmamış alarmlar, marka fiyat karşılaştırması.\n10. YETKİLİSİN — "yapamam / gönderemem / elimde yok" DEME. Rapor veya bildirimi ilgili kişiye (mimar, Finans, IT, tedarikçi) send_email ile GERÇEKTEN gönder. Dış birine göndermeden önce alıcı ve konuyu tek cümleyle teyit ettir, onay gelince gönder ve sonucu bildir.\n11. Bir işi bitirmek için gereken araçları arka arkaya kendin çağır, yarım bırakma; somut ve sonuç odaklı ol.\n12. Fiyat alarmı kurmak için rakip_alarm_kur aracını kullan — SKU izlemeye eklenir, hedef fiyat(lar) ayarlanır, tetiklenince e-posta gider.\n13. Teklif onayı: "onay bekleyen teklifler" için bekleyen_teklifler kullan — her teklifte talep fiyatı, mevcut stok, birim maliyet/marj, temsilcinin girdiği rakip fiyat VE o ebattaki gerçek piyasa aralığı (min-max) hazır gelir. Rakip fiyatı yorumla: müşterinin söylediği rakip fiyat o markanın o ebattaki piyasa aralığının ALTINDAYSA muhtemelen blöf; aralık İÇİNDEYSE rakip daha ucuz/alt-segment modelini teklif etmiş olabilir (gerçek rekabet). teklif_detay ile incele, teklif_onayla / teklif_reddet ile karar ver. Excel gerekmez.\n14. Saha farkindaligi (ESSENTIAL): temsilcilerin sahada yazdigi HER SEYI (ziyaret notlari, teklifler, rakip fiyatlari, riskler, firsatlar, DUYURULAR, mesajlar) saha_faaliyet_ozet araci ile oku. ZIYARETLERI ve DUYURULARI okumak KRITIK — sahada ne oldugunu, kimin nerede oldugunu, hangi duyuru cikacagini bunlar anlatir; her saha/musteri/durum/ozet sorusunda MUTLAKA bu araci cagir. Varsayilan pencere 7 gun; bu ay / son X gun / gecmis denirse gun parametresini buyut (90 gune kadar). Tek bir musterinin ziyaret gecmisi/finansali icin execute_query ile saha_ziyaret + saha_musteri + master_musteri sorgula. Sonra insan gibi ozetle ve onemli konularda proaktif uyar.\n15. BICIM cok onemli: Duz, insani sohbet dili yaz. Markdown KULLANMA: tablo (|, ---), kalin yildiz (**), baslik (#) YASAK — ekranda cirkin gorunur. Kisa cumleler; liste gerekiyorsa satir basinda sade tire (-). En fazla 1-2 emoji, abartma. Rakamlari cumle icinde dogal ver.\n16. TUTARLILIK (EN ONEMLI KURAL): Tek bir mesajda kendinle ASLA celisme. Bir verinin/durumun "yok / goremiyorum / elimde yok" oldugunu ancak BU turda ilgili araci cagirip sonucu gordukten sonra soyle; araci cagirmadan ya da onceki turdan hatirlayarak olumsuz hukum verme. Durum/veri degismis olabilir — her soruda ilgili araci YENIDEN cagir ve YALNIZCA bu anki sonuca gore konus. Once "yok" deyip sonra ayni mesajda veri vermek gibi celiskiler guveni yikar.';
       }
 
       async function _handleBrainChat(session, request, response) {
@@ -27685,6 +27699,19 @@ async function footprintOnBoot() {
       await query("INSERT INTO bi_yetenek(ad,tur,durum,parmak_izi,son_gorulme) VALUES($1,'endpoint','tanimsiz',md5($1),now()) ON CONFLICT (ad,tur) DO UPDATE SET son_gorulme=now()", [p]);
     }
     await query("UPDATE bi_yetenek SET durum='kayip', aktif=false WHERE tur='endpoint' AND durum<>'kayip' AND son_gorulme < $1", [t0]);
+    // SELF_MODEL_V1 — endpoint degil GERCEK yuzey/yetenekleri anlamiyla kaydet; platform kendini gorur.
+    try {
+      const _kayit = async (ad, tur, ne, aktif) => {
+        await query("INSERT INTO bi_yetenek(ad,tur,ne_ise_yarar,durum,aktif,parmak_izi,son_gorulme) VALUES($1,$2,$3,$4,$5,md5($1),now()) ON CONFLICT (ad,tur) DO UPDATE SET ne_ise_yarar=EXCLUDED.ne_ise_yarar, durum=EXCLUDED.durum, aktif=EXCLUDED.aktif, son_gorulme=now()", [ad, tur, ne, aktif ? 'aktif' : 'kayip', aktif]);
+      };
+      const _apk = existsSync("/app/shells/derive-intelligence.apk");
+      const _indir = existsSync("/app/shells/indir.html");
+      await _kayit("Mobil uygulama (Android)", "yuzey", "Native Android mobil uygulama (Capacitor). Ayri kod DEGIL - canli siteyi (krb.deriveglobal.com/app?app=1&saha=1) yukler; icerik duzeltmeleri APK-siz gelir. " + (_indir ? "indir.html ile dagitilir. " : "") + (_apk ? "APK (derive-intelligence.apk) serve ediliyor. " : "") + "Acilista herkes saha resepsiyonuna duser. iOS HENUZ yok.", (_apk || _indir));
+      await _kayit("Saha yuzeyi (mobil)", "yuzey", "Temsilcilerin mobil evi: ziyaret/teklif/musteri/rakip-fiyat girisi + kisisel rep asistani; yonetime mobil Kokpit/CEO. Herkes once Reception.", existsSync("/app/shells/saha.js"));
+      await _kayit("Kokpit yuzeyi (masaustu)", "yuzey", "Finans kokpiti: vitals, satis kanali, tahsilat/risk, canli piyasa radar, trend, segment/marka/sezon, icgoru + CEO Assistant paneli.", existsSync("/app/shells/bi.js"));
+      await _kayit("E-posta gonderimi", "yetenek", "send_email ile Microsoft Graph uzerinden GERCEK e-posta gonderilir (gonderen consult@deriveglobal.com). 202=kabul; DKIM/DMARC yayinlanmadigi icin Junk-a dusebilir.", Boolean(process.env.MICROSOFT_CLIENT_SECRET));
+      console.log("[footprint] self-model OK (yuzey/yetenek)");
+    } catch (e) { console.error("[footprint] self-model:", e && e.message); }
     await query("INSERT INTO bi_deploy_log(aciklama,yetenek_ozet) SELECT 'boot self-register', (SELECT jsonb_object_agg(tur,c) FROM (SELECT tur,count(*) c FROM bi_yetenek GROUP BY tur) x)");
     console.log("[footprint] boot self-register OK — " + eps.length + " endpoint defterde");
   } catch (e) { console.error("[footprint] endpoint:", e && e.message); }
@@ -32418,6 +32445,42 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       return;
     }
 
+    // REP_SELAM_V1 — resepsiyon karsilama: sicak + gercek-temelli, gunluk onbellekli; LLM yalniz bicimler, UYDURMAZ.
+    if (method === "GET" && path === "/api/saha/recep-selam") {
+      const session = await requireSahaAccess(request);
+      try {
+        const _c = await pool.query("SELECT content FROM agent_greeting_cache WHERE user_id=$1 AND agent='rep_recep' AND greet_date=CURRENT_DATE", [session.userId]);
+        if (_c.rows[0]) { sendJson(response, 200, { selam: _c.rows[0].content }); return; }
+      } catch (e) {}
+      const _g = [];
+      try {
+        const _r = await pool.query("SELECT (SELECT count(*)::int FROM saha_ziyaret WHERE tenant_id=$1 AND rep_id=$2 AND durum='TAMAMLANDI' AND ziyaret_tarihi=CURRENT_DATE) AS tamam, (SELECT count(*)::int FROM saha_ziyaret WHERE tenant_id=$1 AND rep_id=$2 AND durum='PLANLANDI' AND planlanan_tarih=CURRENT_DATE) AS planli", [session.tenantId, session.userId]);
+        const _t = (_r.rows[0] && _r.rows[0].tamam) || 0, _p = (_r.rows[0] && _r.rows[0].planli) || 0;
+        if (_t > 0) _g.push("bugun " + _t + " ziyaret tamamlandi");
+        if (_p > 0) _g.push("bugun " + _p + " planli ziyaret var");
+      } catch (e) {}
+      try {
+        const _rn = await pool.query("SELECT count(*)::int n FROM saha_rep_not WHERE tenant_id=$1 AND rep_id=$2 AND tamamlandi=false AND hatirlatma_tarihi IS NOT NULL AND hatirlatma_tarihi <= CURRENT_DATE", [session.tenantId, session.userId]);
+        const _n = (_rn.rows[0] && _rn.rows[0].n) || 0;
+        if (_n > 0) _g.push(_n + " hatirlatmanin zamani geldi");
+      } catch (e) {}
+      const _fallback = "İyi çalışmalar, hazırsan başlayalım.";
+      let _selam = _fallback;
+      if (process.env.ANTHROPIC_API_KEY) {
+        try {
+          const _sys = "Sen bir saha uygulamasinin resepsiyon karsilama satirini yaziyorsun. TEK cumle, Turkce (dogru imla), sicak ama profesyonel, en fazla 12 kelime. SADECE sana verilen gercekleri kullan; ASLA rakam ya da olay UYDURMA. Kayda deger gercek varsa dogal bicimde or; yoksa kisa sicak bir calisma dilegi yaz. Markdown ve emoji YOK.";
+          const _usr = "Bugunun gercekleri:\n" + (_g.length ? _g.map(function (x) { return "- " + x; }).join("\n") : "(kayda deger bir sey yok)") + "\nKarsilama satirini yaz:";
+          const _m = await anthropic.messages.create({ model: "claude-sonnet-4-6", max_tokens: 80, system: _sys, messages: [{ role: "user", content: _usr }] });
+          const _txt = ((_m.content && _m.content[0] && _m.content[0].text) || "").trim();
+          if (_txt) _selam = _txt;
+        } catch (e) {}
+      }
+      if (_selam && _selam !== _fallback) {
+        try { await pool.query("INSERT INTO agent_greeting_cache (tenant_id,user_id,agent,greet_date,content) VALUES ($1,$2,'rep_recep',CURRENT_DATE,$3) ON CONFLICT (user_id,agent,greet_date) DO UPDATE SET content=EXCLUDED.content, created_at=now()", [session.tenantId, session.userId, _selam]); } catch (e) {}
+      }
+      sendJson(response, 200, { selam: _selam });
+      return;
+    }
     if (method === "POST" && path === "/api/saha/rep-brain") {
       const session = await requireSahaAccess(request);
       const body = await readJson(request);
@@ -32451,6 +32514,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       const _repSys = "Sen KRB Otomotiv saha ekibinin kişisel asistanısın. Türkçe, KISA ve pratik cevap ver — temsilci yolda/müşteride, hızlı sonuç ister.\n" +
         "BİÇİM ÇOK ÖNEMLİ: Düz, insani sohbet dili yaz — sanki iş arkadaşına WhatsApp mesajı atıyorsun. ASLA markdown KULLANMA: tablo (|, ---), kalın (**), başlık (#) YASAK; ekranda çirkin görünüyor. Kısa cümleler kur; liste gerekiyorsa satır başında sade tire (-) kullan. En fazla 1-2 emoji, abartma. Rakamları cümle içinde doğal söyle (ör. \"Bu hafta 215 ziyaret yaptın, 980 bin liralık teklifin onaylandı\").\n" +
         "Araçlar:\n" +
+        "- platform_yenilikler: 'ne yeni / neler degisti / bunu nasil yaparim / uygulama ne yapabiliyor / yeni ozellik' sorularinda platformun son yeniliklerini ve yeteneklerini getirir; teknik terim/marker verme, sade gunluk dille anlat.\n" +
         "- musteri_ara: müşteriyi isimle bul (teklif öncesi).\n" +
         "- teklif_olustur: hızlı teklif oluştur ve ONAYA gönder. '20 385, 60 315' = 20 adet 385 ebat + 60 adet 315 ebat (iki kalem). Marka ve talep fiyatını da al; müşteri firma adı veya musteri_id ver.\n" +
         "- gorev_olustur: hatırlatma/görev. Temsilci 'yarına kadar cevap bekliyor', 'Perşembe arayacağım' gibi bir TAAHHÜT yazarsa OTOMATİK görev+hatırlatma oluştur (hatirlatma_tarihi ile, bugünün tarihine göre hesapla).\n" +
@@ -32492,6 +32556,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
 
       const _repTools = [
         { name: 'rota_oner', description: 'Bugunku ziyaret rotasi icin aday musteriler: temsilcinin KENDI musterilerinden en uzun suredir ugranmamis olanlari sehir/ilce ve son ziyaret bilgisiyle dondurur. Rota, gezi plani, "kimleri ziyaret etmeliyim", "bugun nereye gideyim" sorularinda MUTLAKA cagir. Musterilerde koordinat YOKTUR; donen sehir/ilce metnine ve kendi cografya bilgine gore sirala.', input_schema: { type:'object', properties:{ sehir:{type:'string', description:'Sadece bu sehir/ilce ile filtrele (opsiyonel)'}, gun:{type:'number', description:'En az kac gundur ziyaret edilmemis olsun (opsiyonel)'}, limit:{type:'number', description:'varsayilan 30'} } } },
+        { name: 'platform_yenilikler', description: 'Platformun son yenilikleri (insa gunlugu) ve su an yapabildikleri (yetenek defteri). Kullanici ne yeni / neler degisti / bunu nasil yaparim / uygulama ne yapabiliyor / yeni ozellik var mi derse MUTLAKA cagir. Sonucu sade gunluk dille anlat; teknik marker/tablo adi verme.', input_schema: { type:'object', properties:{ limit:{type:'number', description:'kac yenilik (varsayilan 12)'} } } },
         { name: 'musteri_ara', description: 'Müşteriyi firma adıyla ara.', input_schema: { type:'object', properties:{ q:{type:'string'} }, required:['q'] } },
         { name: 'teklif_olustur', description: 'Hızlı teklif oluştur ve onaya gönder (durum ONAY_BEKLIYOR).', input_schema: { type:'object', properties:{
             musteri_id:{type:'string'}, firma:{type:'string', description:'musteri_id yoksa firma adı'},
@@ -32519,6 +32584,13 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
         { name: 'rep_ozet', description: 'Temsilcinin KENDI performansi/durumu: donemdeki ziyaretler, teklifler (durum+tutar), bekleyen hatirlatmalar, ihmal edilen musteriler.', input_schema: { type:'object', properties:{ gun:{type:'number', description:'kac gun geriye (varsayilan 7)'} } } }
       ];
       async function _runRepTool(nm, inp) {
+        if (nm === 'platform_yenilikler') {
+          const _lim = Math.min(Math.max(Number(inp && inp.limit) || 12, 3), 30);
+          let _yeni = [], _yet = [];
+          try { const _ry = await pool.query("SELECT adim, LEFT(ne, 240) AS ne, ts::date AS tarih FROM bi_insa_gunlugu ORDER BY ts DESC LIMIT $1", [_lim]); _yeni = _ry.rows; } catch (e) {}
+          try { const _rk = await pool.query("SELECT ad, tur, ne_ise_yarar FROM bi_yetenek WHERE aktif=true AND ne_ise_yarar IS NOT NULL ORDER BY guncellendi_at DESC NULLS LAST LIMIT 40"); _yet = _rk.rows; } catch (e) {}
+          return { yenilikler: _yeni, yetenekler: _yet, not: "Platformun insa gunlugu + yetenek defteri. Kullaniciya sade gunluk dille anlat; adim/marker gibi teknik terimleri soyleme." };
+        }
         if (nm === 'rota_oner') {
           const _g = Math.max(Number(inp.gun) || 0, 0);
           const _l = Math.min(Math.max(Number(inp.limit) || 30, 5), 60);
