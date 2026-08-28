@@ -289,7 +289,461 @@ function clearLoginRateLimit(email) { _loginAttempts.delete(email); }
 // ── Global API rate limiting (per-IP, in-memory) ────────────────────────────
 // 300 requests per minute per IP. Respects X-Forwarded-For from nginx.
 const _apiRateMap = new Map();
-setInterval(() => _apiRateMap.clear(), 60 * 1000); // flush every minute
+setInterval(() => _apiRateMap.clear(), 60 * 1000);
+
+// ===== FINANSAL_ICGORU_V1 — AI finansal içgörü (trend + ₺ etki). Günlük cache + saatlik scheduler. =====
+const FIN_YILLIK_MALIYET = parseFloat(process.env.FIN_YILLIK_MALIYET || "0.50"); // yıllık TL finansman maliyeti (ayarlanabilir)
+
+function _finTrend(seri) {
+  if (!seri || !seri.length) return null;
+  const son = seri[seri.length - 1];
+  const at = (n) => seri[seri.length - 1 - n] || null;
+  const p1 = at(1), p3 = at(3), p12 = at(12);
+  const chg = (a, b) => (a && b && b.deger) ? Math.round((a.deger - b.deger) / Math.abs(b.deger) * 1000) / 10 : null;
+  return { son: son.deger, son_ay: son.ay, mom_pct: chg(son, p1), q_pct: chg(son, p3), yoy_pct: chg(son, p12),
+           p3_deger: p3 ? p3.deger : null, p12_deger: p12 ? p12.deger : null };
+}
+
+async function _finIcgoruContext(T, q) {
+  q = q || query;
+  const ms = (await q(`SELECT metrik, to_char(donem,'YYYY-MM') ay, deger::float8 deger
+      FROM bi_metrik_gecmis WHERE tenant_id::text=$1 AND boyut_tipi='sirket' AND periyot='ay'
+        AND metrik IN ('dso','alacak','ciro_lastik','stok_deger') AND donem >= (CURRENT_DATE - INTERVAL '15 months')
+      ORDER BY metrik, donem`, [T])).rows;
+  const seri = {};
+  for (const r of ms) (seri[r.metrik] = seri[r.metrik] || []).push({ ay: r.ay, deger: r.deger });
+  const trend = {};
+  for (const k of Object.keys(seri)) trend[k] = _finTrend(seri[k]);
+
+  const br = (await q(`WITH rev AS (
+        SELECT SUM(satir_tutar) FILTER (WHERE fatura_tarihi >= CURRENT_DATE - INTERVAL '12 months') rev12
+        FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND satir_tutar>0),
+      risk AS (SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, hesap_bakiyesi, GREATEST(vadesi_gecmis,0) vg, musteri_mi, COALESCE(NULLIF(TRIM(grup),''),'') grup
+        FROM bi_musteri_risk WHERE tenant_id::text=$1 ORDER BY muhatap_kodu, export_date DESC), /* GRUP_FIX_V1 */
+      cb AS (SELECT musteri_kodu, MIN(LEAST(tedarikci_bakiye,0)) borc FROM bi_cari_bakiye WHERE tenant_id::text=$1 GROUP BY musteri_kodu),
+      j AS (SELECT r.hesap_bakiyesi, r.vg, COALESCE(cb.borc,0) borc FROM risk r LEFT JOIN cb ON cb.musteri_kodu=r.muhatap_kodu WHERE r.musteri_mi AND r.grup NOT ILIKE '%TEDAR%' AND GREATEST(r.hesap_bakiyesi,0) > 0),
+      ragg AS (SELECT SUM(GREATEST(hesap_bakiyesi,0)) bakiye, SUM(vg) gecikmis_brut, SUM(GREATEST(vg+borc,0)) gecikmis_net FROM j)
+      SELECT COALESCE(rev12,0)::float8 rev12, COALESCE(bakiye,0)::float8 bakiye,
+             COALESCE(gecikmis_brut,0)::float8 gecikmis_brut, COALESCE(gecikmis_net,0)::float8 gecikmis_net,
+             COALESCE(rev12,0)::float8/365.0 gunluk FROM rev, ragg`, [T])).rows[0] || {};
+
+  const kar = (await q(`SELECT COALESCE(SUM(ciro),0)::float8 ciro, COALESCE(SUM(brut_kar),0)::float8 brut_kar
+      FROM bi_marj_atom WHERE tenant_id::text=$1 AND ay >= (CURRENT_DATE - INTERVAL '12 months')`, [T])).rows[0] || {};
+
+  const _mv = (await q(`SELECT COALESCE(NULLIF(TRIM(odeme_kosulu),''),'—') k, SUM(satir_tutar)::float8 t
+      FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND satir_tutar>0 AND fatura_tarihi >= CURRENT_DATE - INTERVAL '12 months' GROUP BY 1`, [T])).rows;
+  const _tv = (await q(`SELECT COALESCE(NULLIF(TRIM(vade_turu),''),'—') k, SUM(satir_kdv_haric)::float8 t
+      FROM bi_tedarikci_faturalari WHERE tenant_id::text=$1 AND satir_kdv_haric>0 AND fatura_tarihi >= CURRENT_DATE - INTERVAL '12 months' GROUP BY 1`, [T])).rows;
+  const _gun = (l) => { const x = String(l || "").toLocaleLowerCase("tr"); if (/(peşin|pesin|nakit|havale|kredi kart|çek|cek|senet)/.test(x)) return 0; const m = x.match(/(\d+)\s*g[üu]n/); return m ? parseInt(m[1], 10) : null; };
+  const _ortGun = (rows) => { let ag = 0, tt = 0; for (const r of rows) { const d = _gun(r.k); const t = Number(r.t) || 0; if (d != null && t > 0) { ag += d * t; tt += t; } } return tt > 0 ? Math.round(ag / tt * 10) / 10 : 0; };
+  const musteri_vade = _ortGun(_mv), tedarikci_vade = _ortGun(_tv);
+
+  const gecikmis_brut = Number(br.gecikmis_brut) || 0, gecikmis = Number(br.gecikmis_net) || 0, bakiye = Number(br.bakiye) || 0, rev12 = Number(br.rev12) || 0, gunluk = Number(br.gunluk) || 0;
+  const brut_kar = Number(kar.brut_kar) || 0, ciro_marj = Number(kar.ciro) || 0;
+  const finans_yil = gecikmis * FIN_YILLIK_MALIYET;
+  const etki = {
+    overdue: Math.round(gecikmis), overdue_brut: Math.round(gecikmis_brut), mahsup: Math.round(gecikmis_brut - gecikmis), overdue_pct_alacak: bakiye > 0 ? Math.round(gecikmis / bakiye * 1000) / 10 : null,
+    finans_maliyeti_yil: Math.round(finans_yil), finans_maliyeti_ay: Math.round(finans_yil / 12),
+    finans_pct_ciro: rev12 > 0 ? Math.round(finans_yil / rev12 * 1000) / 10 : null,
+    finans_pct_brutkar: brut_kar > 0 ? Math.round(finans_yil / brut_kar * 1000) / 10 : null,
+    brut_kar_yil: Math.round(brut_kar), brut_marj_pct: ciro_marj > 0 ? Math.round(brut_kar / ciro_marj * 1000) / 10 : null,
+    ima_dso_toplam: gunluk > 0 ? Math.round(bakiye / gunluk * 10) / 10 : null,
+    ima_dso_vadesinde: gunluk > 0 ? Math.round((bakiye - gecikmis) / gunluk * 10) / 10 : null,
+    yillik_maliyet_oran: FIN_YILLIK_MALIYET
+  };
+  // 6) KÖKEN (kim / nereden): en büyük gecikmiş hesaplar + temsilci + vade kırılımı
+  const _CB = "cb AS (SELECT musteri_kodu, MIN(LEAST(tedarikci_bakiye,0)) borc FROM bi_cari_bakiye WHERE tenant_id::text=$1 GROUP BY musteri_kodu)"; /* FINNET_FIX_V1 */
+  const _topRows = (await q(`WITH r AS (SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, muhatap_adi, satis_calisani, odeme_kosulu,
+              GREATEST(vadesi_gecmis,0) vg, musteri_mi, GREATEST(hesap_bakiyesi,0) bak, COALESCE(NULLIF(TRIM(grup),''),'') grup
+            FROM bi_musteri_risk WHERE tenant_id::text=$1 ORDER BY muhatap_kodu, export_date DESC),
+        ${_CB}
+      SELECT r.muhatap_kodu kod, COALESCE(NULLIF(TRIM(r.muhatap_adi),''),r.muhatap_kodu) ad,
+        COALESCE(NULLIF(TRIM(r.satis_calisani),''),'—') rep, COALESCE(NULLIF(TRIM(r.odeme_kosulu),''),'—') vade,
+        r.vg::float8 brut, COALESCE(cb.borc,0)::float8 borc, GREATEST(r.vg+COALESCE(cb.borc,0),0)::float8 net
+      FROM r LEFT JOIN cb ON cb.musteri_kodu=r.muhatap_kodu
+      WHERE r.musteri_mi AND r.grup NOT ILIKE '%TEDAR%' AND r.bak>0 AND GREATEST(r.vg+COALESCE(cb.borc,0),0)>0 ORDER BY net DESC LIMIT 12`, [T])).rows;
+  const _repRows = (await q(`WITH r AS (SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, COALESCE(NULLIF(TRIM(satis_calisani),''),'—') rep,
+          GREATEST(vadesi_gecmis,0) vg, musteri_mi
+        FROM bi_musteri_risk WHERE tenant_id::text=$1 ORDER BY muhatap_kodu, export_date DESC),
+        ${_CB}
+      SELECT r.rep, SUM(GREATEST(r.vg+COALESCE(cb.borc,0),0))::float8 tut,
+        COUNT(*) FILTER (WHERE GREATEST(r.vg+COALESCE(cb.borc,0),0)>0)::int adet
+      FROM r LEFT JOIN cb ON cb.musteri_kodu=r.muhatap_kodu
+      WHERE r.musteri_mi GROUP BY r.rep HAVING SUM(GREATEST(r.vg+COALESCE(cb.borc,0),0))>0 ORDER BY tut DESC LIMIT 8`, [T])).rows;
+  const _vadeRows = (await q(`WITH r AS (SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, COALESCE(NULLIF(TRIM(odeme_kosulu),''),'—') vade,
+          GREATEST(vadesi_gecmis,0) vg, musteri_mi, GREATEST(hesap_bakiyesi,0) bak, COALESCE(NULLIF(TRIM(grup),''),'') grup
+        FROM bi_musteri_risk WHERE tenant_id::text=$1 ORDER BY muhatap_kodu, export_date DESC),
+        ${_CB}
+      SELECT r.vade, SUM(GREATEST(r.vg+COALESCE(cb.borc,0),0))::float8 tut
+      FROM r LEFT JOIN cb ON cb.musteri_kodu=r.muhatap_kodu
+      WHERE r.musteri_mi AND r.grup NOT ILIKE '%TEDAR%' AND r.bak>0 GROUP BY r.vade HAVING SUM(GREATEST(r.vg+COALESCE(cb.borc,0),0))>0 ORDER BY tut DESC LIMIT 8`, [T])).rows;
+  const _pctOv = (v) => gecikmis > 0 ? Math.round(v / gecikmis * 1000) / 10 : null;
+  const _sumVg = (a) => a.reduce((x, y) => x + (Number(y.net) || 0), 0);
+  const top5 = _sumVg(_topRows.slice(0, 5)), top10 = _sumVg(_topRows.slice(0, 10));
+  const koken = {
+    top: _topRows.map(r => ({ kod: r.kod, ad: r.ad, vade: r.vade, overdue: Math.round(r.net), brut: Math.round(r.brut), krb_borc: Math.round(r.borc), pct: _pctOv(r.net) })), // NOREP_V1
+    top5_pct: _pctOv(top5), top10_pct: _pctOv(top10),
+    by_vade: _vadeRows.map(r => ({ vade: r.vade, overdue: Math.round(r.tut), pct: _pctOv(r.tut) }))
+  };
+
+  // 7) SİMÜLASYON (aksiyon → sayı etkisi). DSO alacak/günlük-ciro bazlı.
+  const _sim = (tahsil, ad) => {
+    const t = Math.max(0, Math.min(tahsil, gecikmis));
+    const yeniBakiye = Math.max(0, bakiye - t);
+    return { ad, tahsil: Math.round(t), yeni_overdue: Math.round(gecikmis - t),
+      yeni_dso: gunluk > 0 ? Math.round(yeniBakiye / gunluk * 10) / 10 : null,
+      tasarruf_yil: Math.round(t * FIN_YILLIK_MALIYET), tasarruf_ay: Math.round(t * FIN_YILLIK_MALIYET / 12),
+      brutkar_geri_pct: brut_kar > 0 ? Math.round(t * FIN_YILLIK_MALIYET / brut_kar * 1000) / 10 : null };
+  };
+  const simulasyon = [
+    _sim(top5, "En büyük 5 gecikmiş hesap tahsil edilse"),
+    _sim(top10, "En büyük 10 gecikmiş hesap tahsil edilse"),
+    _sim(gecikmis * 0.5, "Gecikmişin %50'si tahsil edilse")
+  ];
+
+  return { trend, kopru: { rev12: Math.round(rev12), bakiye: Math.round(bakiye), gecikmis: Math.round(gecikmis), gunluk: Math.round(gunluk) },
+           kar: { ciro: Math.round(ciro_marj), brut_kar: Math.round(brut_kar) },
+           vade: { musteri_vade, tedarikci_vade, fark: Math.round((musteri_vade - tedarikci_vade) * 10) / 10 },
+           etki, koken, simulasyon };
+}
+
+const _FIN_SYS = `Sen bir Türk lastik+jant toptancısının kıdemli finans analistisin (CFO gözüyle).
+Sana şirketin CANLI finansal metrik serileri, trendleri ve ₺ etki hesapları JSON olarak verilir. Görevin: en önemli 3-5 finansal içgörüyü çıkarmak.
+KURALLAR:
+- SADECE verilen JSON'daki sayıları kullan. Sayı UYDURMA. Her içgörüyü mümkünse bir ₺ etkiyle bağla (etki_tl).
+- Trend'i yorumla (MoM/YoY yön, kırılma noktası). Öneri uygulanabilir ve KISA olsun.
+- "koken" verisi KİM/NEREDEN sorusunu yanıtlar: en büyük gecikmiş MÜŞTERİ hesapları (top) ve vade kırılımı (by_vade). En az bir içgörü gecikmenin KAYNAĞINI (hangi MÜŞTERİ / vade tipi en çok pay alıyor) somut müşteri isim/rakamıyla göstersin. Satış temsilcisi/rep kırılımı İSTENMİYOR — temsilci bazlı içgörü ÜRETME, sadece müşteri.
+- ÖNEMLİ (NET): gecikmiş alacak NET bazlıdır — aynı muhataba firmanın borcu (tedarikçi bakiyesi) mahsup edilir. koken.top'ta her hesabın brut/krb_borc/net değeri ayrı. MUTAFLAR gibi hesaplar brütte büyük görünür ama KRB borcuyla netleşir; ASLA brüt gecikmişi gerçek risk gibi sunma, NET kullan. etki.overdue=net, etki.overdue_brut=brüt, etki.mahsup=fark. TEDARİKÇİ grubundaki muhataplar (ör. Continental/TEVZİ) MÜŞTERİ DEĞİLDİR ve gecikmiş alacaktan hariç tutulmuştur — onları müşteri riski gibi anma.
+- "simulasyon" verisi AKSİYON→ETKİ senaryolarıdır (tahsilat → DSO/finansman tasarrufu). Önerilerini bu senaryolardaki gerçek tasarruf rakamlarıyla destekle.
+- Türkçe, net, yönetim diliyle. Abartma yok; ama riski açıkça söyle. Rakamları M₺ olarak yaz.
+- Çıktı SADECE şu şemada GEÇERLİ JSON dizisi olsun, başka hiçbir metin YOK:
+[{"baslik":"kısa başlık","ozet":"tek cümle","anlati":"2-3 cümle, sayılarla","oneri":"tek cümle aksiyon","etki_tl":<sayı ₺/yıl veya null>,"etki_aciklama":"etki_tl neyi ölçüyor","siddet":"yuksek|orta|dusuk","metrik":"dso|alacak|vade|marj|stok|ciro"}]`;
+
+async function _finIcgoruUret(T, q) {
+  const ctx = await _finIcgoruContext(T, q);
+  const msg = await anthropic.messages.create({
+    model: "claude-sonnet-4-6", max_tokens: 4000, system: _FIN_SYS, // FINPARSE_FIX_V2
+    messages: [{ role: "user", content: "CANLI FİNANSAL VERİ (JSON):\n" + JSON.stringify(ctx) + "\n\nEn önemli 3-5 finansal içgörüyü yukarıdaki şemada JSON dizisi olarak ver. Sadece JSON." }]
+  });
+  let raw = (msg.content || []).filter(x => x.type === "text").map(x => x.text).join("").trim(); // FINPARSE_FIX_V2
+  let txt = raw.replace(/```json/gi, "").replace(/```/g, "").trim();
+  const _tp = (t) => { try { return JSON.parse(t); } catch (e) { return null; } };
+  const _norm = (t) => t.replace(/[\r\n\t]+/g, " ");
+  let arr = null;
+  for (const cand of [txt, _norm(txt)]) {
+    let p = _tp(cand);
+    if (p && !Array.isArray(p) && Array.isArray(p.icgoruler)) p = p.icgoruler;
+    if (Array.isArray(p)) { arr = p; break; }
+    const i = cand.indexOf("["), j = cand.lastIndexOf("]");
+    if (i >= 0 && j > i) { const p2 = _tp(cand.slice(i, j + 1)); if (Array.isArray(p2)) { arr = p2; break; } }
+  }
+  if (!arr || !arr.length) {
+    const objs = _norm(txt).match(/\{[^{}]*\}/g) || [];
+    const sal = [];
+    for (const o of objs) { const x = _tp(o); if (x && (x.baslik || x.ozet)) sal.push(x); }
+    if (sal.length) arr = sal;
+  }
+  if (!Array.isArray(arr)) arr = [];
+  if (!arr.length) { console.error("[fin-icgoru] parse bos - ham(0..300):", raw.slice(0, 300)); ctx._ham = raw.slice(0, 800); }
+  return { icgoruler: arr, baglam: ctx };
+}
+
+async function _finIcgoruGunluk(T, zorla, q) {
+  q = q || query;
+  const gun = new Date().toISOString().slice(0, 10);
+  if (!zorla) {
+    const c = (await q(`SELECT to_char(gun,'YYYY-MM-DD') gun, icgoruler, baglam, uretildi_at FROM bi_finansal_icgoru WHERE tenant_id::text=$1 AND gun=$2`, [T, gun])).rows[0];
+    if (c) return { cache: true, gun: c.gun, icgoruler: c.icgoruler, baglam: c.baglam, uretildi_at: c.uretildi_at };
+  }
+  const out = await _finIcgoruUret(T, q);
+  await q(`INSERT INTO bi_finansal_icgoru (tenant_id, gun, icgoruler, baglam, uretildi_at)
+      VALUES ($1::uuid, $2, $3::jsonb, $4::jsonb, now())
+      ON CONFLICT (tenant_id, gun) DO UPDATE SET icgoruler=EXCLUDED.icgoruler, baglam=EXCLUDED.baglam, uretildi_at=now()`,
+    [T, gun, JSON.stringify(out.icgoruler), JSON.stringify(out.baglam)]);
+  return { cache: false, gun, icgoruler: out.icgoruler, baglam: out.baglam };
+}
+
+let _finBusy = false;
+/* BOLUM_ICGORU_V1 — her kirilim bolumune kendi icgoru + odak trend. Grounded facts (SQL) + Claude cumle. */
+let _bolumDbOk = false;
+async function _ensureBolumIcgoruDb(q){
+  q = q || query;
+  if (_bolumDbOk) return;
+  await q("CREATE TABLE IF NOT EXISTS bi_bolum_icgoru (tenant_id uuid NOT NULL, gun date NOT NULL, payload jsonb NOT NULL, uretildi_at timestamptz DEFAULT now(), PRIMARY KEY (tenant_id, gun))");
+  _bolumDbOk = true;
+}
+function _bolumTr(n){ return (n==null) ? "—" : String(n).replace(".", ","); }
+function _bolumIsle(rows, bolum){
+  const months = Array.from(new Set(rows.map(function(r){return r.ay;}))).sort();
+  const last13 = months.slice(-13);
+  const vals = Array.from(new Set(rows.map(function(r){return r.d;}).filter(Boolean)));
+  const byVal = {};
+  for (const v of vals){
+    const m = {};
+    rows.filter(function(r){return r.d===v;}).forEach(function(r){ m[r.ay] = {c:(+r.c||0), mj:(r.mj==null?null:+r.mj)}; });
+    const cur = last13.slice(-3), prev = last13.slice(-6,-3);
+    const sumc = function(a){ return a.reduce(function(t,ay){ return t + ((m[ay]&&m[ay].c)||0); }, 0); };
+    const bm = function(a){ let n=0,d=0; a.forEach(function(ay){ const x=m[ay]; if(x&&x.c&&x.mj!=null){ n+=x.mj*x.c; d+=x.c; } }); return d?n/d:null; };
+    const cc = sumc(cur), pc = sumc(prev), cmj = bm(cur), pmj = bm(prev);
+    byVal[v] = { cur_c:cc, prev_c:pc, cur_mj:cmj, prev_mj:pmj,
+      delta_pct: pc>0 ? Math.round((cc-pc)/pc*100) : null,
+      seri: last13.map(function(ay){ return m[ay]?m[ay].mj:null; }),
+      seri_c: last13.map(function(ay){ return m[ay]?+((m[ay].c)).toFixed(2):null; }) };
+  }
+  const material = vals.filter(function(v){ return byVal[v].cur_c>0; }).sort(function(a,b){ return byVal[b].cur_c-byVal[a].cur_c; });
+  const totc = material.reduce(function(t,v){ return t+byVal[v].cur_c; }, 0);
+  const topShare = material.length && totc>0 ? byVal[material[0]].cur_c/totc : 0;
+  // esik: cur ciroya gore anlamli olanlar (toplamin >=%3'u) — kucuk gurultuyu ele
+  const anlamli = material.filter(function(v){ return totc>0 && byVal[v].cur_c/totc >= 0.03; });
+  const loss = anlamli.filter(function(v){ return byVal[v].cur_mj!=null && byVal[v].cur_mj<0; }).sort(function(a,b){ return byVal[a].cur_mj-byVal[b].cur_mj; });
+  const drop = anlamli.filter(function(v){ return byVal[v].cur_mj!=null && byVal[v].prev_mj!=null && (byVal[v].cur_mj-byVal[v].prev_mj) < -1.0; }).sort(function(a,b){ return (byVal[a].cur_mj-byVal[a].prev_mj)-(byVal[b].cur_mj-byVal[b].prev_mj); });
+  const grow = anlamli.filter(function(v){ return byVal[v].delta_pct!=null; }).sort(function(a,b){ return byVal[b].delta_pct-byVal[a].delta_pct; });
+  let odak=null, sebep=null;
+  if (loss.length){ odak=loss[0]; sebep="zarar"; }
+  else if (drop.length){ odak=drop[0]; sebep="marj_dus"; }
+  else if (grow.length && byVal[grow[0]].delta_pct>=15){ odak=grow[0]; sebep="buyume"; }
+  else if (material.length){ odak=material[0]; sebep="lider"; }
+  const f = odak ? byVal[odak] : null;
+  return { bolum:bolum, odak:odak, sebep:sebep,
+    seri: f?f.seri:[], seri_c: f?f.seri_c:[],
+    facts: { bolum:bolum, odak:odak, sebep:sebep,
+      cur_ciro_myon: f?+f.cur_c.toFixed(2):null,
+      cur_marj_pct: (f&&f.cur_mj!=null)?+f.cur_mj.toFixed(1):null,
+      onceki_marj_pct: (f&&f.prev_mj!=null)?+f.prev_mj.toFixed(1):null,
+      ciro_degisim_pct: f?f.delta_pct:null,
+      lider: material[0]||null, lider_pay_pct: Math.round(topShare*100),
+      zararli: loss.slice(0,3), en_buyuyen: (grow[0]&&byVal[grow[0]].delta_pct>=15)?{ad:grow[0],pct:byVal[grow[0]].delta_pct}:null } };
+}
+function _bolumFallback(o){
+  const f = o.facts; if (!f || !f.odak) return null;
+  if (o.sebep==="zarar") return f.odak+" zararına satılıyor (marj %"+_bolumTr(f.cur_marj_pct)+"); en büyük marj sürükleyici.";
+  if (o.sebep==="marj_dus") return f.odak+" marjı %"+_bolumTr(f.onceki_marj_pct)+"'ten %"+_bolumTr(f.cur_marj_pct)+"'e geriledi.";
+  if (o.sebep==="buyume") return f.odak+" son çeyrekte %"+f.ciro_degisim_pct+" büyüdü; marj %"+_bolumTr(f.cur_marj_pct)+".";
+  return f.odak+" lider (cironun %"+f.lider_pay_pct+"'i); marj %"+_bolumTr(f.cur_marj_pct)+".";
+}
+async function _evTanim(t){ /* PROMPT_EVREN_V1 */ try{ const _r=(await query("SELECT evren_tanim($1::uuid) t",[t])).rows[0]; return (_r&&_r.t)?String(_r.t):"lastik toptancısı"; }catch(_e){ return "lastik toptancısı"; } }
+async function _bolumIcgoruUret(T, q){
+  q = q || query;
+  let _tnAgn=null,_tnEvren=null; try { const _rAgn=(await q("SELECT name, evren_tanim(id) AS tanim FROM platform_tenants WHERE id=$1",[T])).rows[0]; if(_rAgn){ if(_rAgn.name) _tnAgn=String(_rAgn.name); if(_rAgn.tanim) _tnEvren=String(_rAgn.tanim); } } catch(_e){} /* TENANT_KIMLIK_AGNOSTIK_V1 PROMPT_EVREN_V1 */
+  const AY = "(CURRENT_DATE - INTERVAL '15 months')";
+  const native = async function(dimexpr){
+    return (await q("SELECT to_char(ay,'YY-MM') ay, "+dimexpr+" d, round(sum(ciro)/1e6,3)::float8 c, "+
+      "round(100*sum(brut_kar)/nullif(sum(ciro),0),1)::float8 mj FROM bi_marj_atom "+
+      "WHERE tenant_id::text=$1 AND ay>="+AY+" AND ay < date_trunc('month',CURRENT_DATE) GROUP BY 1,2 ORDER BY 1", [T])).rows;
+  };
+  const marka = await native("marka");
+  const segment = await native("kategori_segment(kategori, tenant_id::uuid)");
+  const sezon = await native("kategori_sezon(kategori, tenant_id::uuid)");
+  let kanal = [];
+  try {
+    kanal = (await q("WITH cust AS (SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, grup FROM bi_musteri_risk WHERE tenant_id::text=$1 ORDER BY muhatap_kodu, export_date DESC) "+
+      "SELECT to_char(date_trunc('month',f.fatura_tarihi),'YY-MM') ay, kanal_normalize(c.grup) d, "+
+      "round(sum(f.satir_tutar)/1e6,3)::float8 c, "+
+      "round(100*(sum(f.satir_tutar)-sum(f.miktar*a.birim_maliyet))/nullif(sum(f.satir_tutar),0),1)::float8 mj "+
+      "FROM bi_satis_faturalari f JOIN bi_marj_atom a ON a.tenant_id::text=f.tenant_id::text AND a.kalem_kodu=f.kalem_kodu AND a.ay=date_trunc('month',f.fatura_tarihi)::date "+
+      "LEFT JOIN cust c ON c.muhatap_kodu=f.musteri_kodu "+
+      "WHERE f.tenant_id::text=$1 AND f.fatura_tarihi>="+AY+" AND f.miktar>0 GROUP BY 1,2 ORDER BY 1", [T])).rows;
+  } catch (e) { console.error("[bolum-icgoru kanal]", e && e.message); kanal = []; }
+  const O = { kanal:_bolumIsle(kanal,"kanal"), segment:_bolumIsle(segment,"segment"), marka:_bolumIsle(marka,"marka"), sezon:_bolumIsle(sezon,"sezon") };
+  // deterministik yedek her zaman hazir
+  ["kanal","segment","marka","sezon"].forEach(function(k){ O[k].hikaye = _bolumFallback(O[k]); O[k].kaynak = "kural"; });
+  // Claude: tek cagri, 4 bolumu dogal cumleye cevir (sayilari UYDURMA)
+  try {
+    const facts = { kanal:O.kanal.facts, segment:O.segment.facts, marka:O.marka.facts, sezon:O.sezon.facts };
+    const SYS = "Sen " + (_tnAgn||"KRB") + " adlı " + (_tnEvren||"lastik toptancısı") + "nın analistisin. Patrona kokpitteki 4 kırılım bölümünü (kanal, segment, marka, sezon) anlatıyorsun. "+
+      "Sana her bölüm için DOĞRULANMIŞ bulgular JSON olarak verilecek (odak=o bölümde dikkat çeken değer, sebep, marj/ciro sayıları). "+
+      "Her bölüm için TEK kısa cümle (en fazla 20 kelime) yaz: o bölümde şu an ne dikkat çekiyor ve kısaca neden. "+
+      "KATI: yalnız verilen sayıları kullan, ASLA yeni sayı/oran/isim uydurma; odak boşsa (null) o bölüm için boş string ver; her cümle farklı ve doğal analist ağzı; sayıları %13,9 gibi Türkçe yaz; başlık/madde/etiket YOK. "+
+      "Çıktı SADECE şu JSON olsun, başka hiçbir şey yazma: {\"kanal\":\"...\",\"segment\":\"...\",\"marka\":\"...\",\"sezon\":\"...\"}";
+    const msg = await anthropic.messages.create({ model:"claude-sonnet-4-6", max_tokens:400,
+      messages:[{ role:"user", content: SYS + "\n\nBULGULAR:\n" + JSON.stringify(facts) + "\n\nSadece JSON:" }] });
+    const raw = ((msg.content && msg.content[0] && msg.content[0].text) || "").trim();
+    const mm = raw.match(/\{[\s\S]*\}/);
+    if (mm){ const j = JSON.parse(mm[0]);
+      ["kanal","segment","marka","sezon"].forEach(function(k){ if (j[k] && String(j[k]).trim()){ O[k].hikaye = String(j[k]).trim(); O[k].kaynak = "ai"; } }); }
+  } catch (e) { console.error("[bolum-icgoru ai]", e && e.message); }
+  return { gun: new Date().toISOString().slice(0,10),
+    kanal:{odak:O.kanal.odak,sebep:O.kanal.sebep,hikaye:O.kanal.hikaye,kaynak:O.kanal.kaynak,seri:O.kanal.seri,seri_c:O.kanal.seri_c},
+    segment:{odak:O.segment.odak,sebep:O.segment.sebep,hikaye:O.segment.hikaye,kaynak:O.segment.kaynak,seri:O.segment.seri,seri_c:O.segment.seri_c},
+    marka:{odak:O.marka.odak,sebep:O.marka.sebep,hikaye:O.marka.hikaye,kaynak:O.marka.kaynak,seri:O.marka.seri,seri_c:O.marka.seri_c},
+    sezon:{odak:O.sezon.odak,sebep:O.sezon.sebep,hikaye:O.sezon.hikaye,kaynak:O.sezon.kaynak,seri:O.sezon.seri,seri_c:O.sezon.seri_c} };
+}
+async function _bolumIcgoruGunluk(T, zorla, q){
+  q = q || query;
+  await _ensureBolumIcgoruDb(q);
+  const gun = new Date().toISOString().slice(0,10);
+  if (!zorla){
+    const c = (await q("SELECT payload FROM bi_bolum_icgoru WHERE tenant_id=$1::uuid AND gun=$2", [T, gun])).rows[0];
+    if (c) return Object.assign({ cache:true }, c.payload);
+  }
+  const out = await _bolumIcgoruUret(T, q);
+  await q("INSERT INTO bi_bolum_icgoru (tenant_id, gun, payload, uretildi_at) VALUES ($1::uuid,$2,$3::jsonb,now()) "+
+    "ON CONFLICT (tenant_id, gun) DO UPDATE SET payload=EXCLUDED.payload, uretildi_at=now()", [T, gun, JSON.stringify(out)]);
+  return Object.assign({ cache:false }, out);
+}
+
+/* SAHA_SESI_V1 — sahanin sesi (tum elle-girilen icerik) + emergent rakip. Grounded + Claude; durust bos durum. */
+let _sahaDbOk = false;
+async function _ensureSahaSesiDb(q){
+  q = q || query;
+  if (_sahaDbOk) return;
+  await q("CREATE TABLE IF NOT EXISTS bi_saha_sesi (tenant_id uuid NOT NULL, gun date NOT NULL, payload jsonb NOT NULL, uretildi_at timestamptz DEFAULT now(), PRIMARY KEY (tenant_id, gun))");
+  _sahaDbOk = true;
+}
+/* SAHA_HAFIZA_V3 — kalici entity hafizasi (marka/tedarikci) */
+let _hafizaDbOk = false;
+async function _ensureSahaHafizaDb(q){
+  q = q || query;
+  if (_hafizaDbOk) return;
+  await q("CREATE TABLE IF NOT EXISTS bi_saha_hafiza (tenant_id uuid NOT NULL, tur text NOT NULL, ad text NOT NULL, ilk_gorulme date NOT NULL, son_gorulme date NOT NULL, gun_sayisi int NOT NULL DEFAULT 1, kanit jsonb NOT NULL DEFAULT '[]', guncel_at timestamptz DEFAULT now(), PRIMARY KEY (tenant_id, tur, ad))");
+  _hafizaDbOk = true;
+}
+const _MARKA_SOZ = ["Michelin","Bridgestone","Continental","Pirelli","Goodyear","Dunlop","Hankook","Yokohama","Kumho","Nokian","Nexen","Toyo","Falken","Sailun","Triangle","Windforce","Aeolus","Linglong","Doublestar","Double Coin","Kapsen","Leao","RoadX","Compasal","Aplus","Wanli","Maxxis","GT Radial","Goodride","Westlake","Ovation","Marshal","BFGoodrich","Cooper","Firestone","Vredestein","Apollo","Ceat","Lassa","Petlas","Starmaxx","Kormoran","Rota","Matador","Barum","Debica","Tigar","Riken","Tatko","Leo","Petrolas","Hifly","Sunfull","Fortuna"];
+function _markaBul(metin){
+  const t = " " + String(metin||"").toLocaleLowerCase("tr") + " ";
+  const hit = [];
+  for (const b of _MARKA_SOZ){ const lb = b.toLocaleLowerCase("tr"); if (t.indexOf(lb) >= 0) hit.push(b); }
+  return hit;
+}
+function _gunOffset(n){ const d = new Date(); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
+async function _sahaHafizaGuncelle(T, q, gunStr, sig, ziy, rak, ted){
+  await _ensureSahaHafizaDb(q);
+  const obs = {};
+  const add = (tur, ad, baglam) => { ad = String(ad||"").trim(); if(!ad) return; const k = tur+"|"+ad;
+    (obs[k] = obs[k] || {tur, ad, n:0, baglam:new Set()}); obs[k].n++; if(baglam) obs[k].baglam.add(baglam); };
+  sig.forEach(x => _markaBul((x.firma||"")+" "+(x.ozet||"")).forEach(m => add("marka", m, ((x.tip||"").toLowerCase()==="rakip")?"rakip":"saha")));
+  ziy.forEach(x => _markaBul(x.notlar||"").forEach(m => add("marka", m, "ziyaret")));
+  rak.forEach(x => { if(x.marka){ const mm=_markaBul(x.marka); (mm.length?mm:[String(x.marka).trim()]).forEach(m => add("marka", m, "rakip-fiyat")); } });
+  (ted||[]).forEach(t => { const k="tedarikci|"+t.ad; obs[k] = {tur:"tedarikci", ad:t.ad, n:1, baglam:new Set(["alım "+Math.round((Number(t.tut)||0)/1000)+"K₺/30g"])}; });
+
+  const keys = Object.keys(obs);
+  if(!keys.length) return;
+  let ex = [];
+  try {
+    const inClause = keys.map((_,i)=>"($"+(i*2+2)+",$"+(i*2+3)+")").join(",");
+    ex = (await q("SELECT tur,ad,kanit FROM bi_saha_hafiza WHERE tenant_id=$1::uuid AND (tur,ad) IN ("+inClause+")",
+      [T].concat(keys.flatMap(k=>[obs[k].tur,obs[k].ad])))).rows;
+  } catch(e){ console.error("[hafiza oku]", e && e.message); }
+  const exMap = {}; ex.forEach(r => exMap[r.tur+"|"+r.ad] = r.kanit || []);
+  for (const k of keys){
+    const o = obs[k];
+    let kanit = (exMap[k]||[]).filter(e => e && e.gun !== gunStr);
+    kanit.push({ gun:gunStr, n:o.n, baglam:[...o.baglam].slice(0,4) });
+    kanit = kanit.slice(-60);
+    const gunler = [...new Set(kanit.map(e=>e.gun))];
+    try {
+      await q("INSERT INTO bi_saha_hafiza (tenant_id,tur,ad,ilk_gorulme,son_gorulme,gun_sayisi,kanit,guncel_at) " +
+        "VALUES ($1::uuid,$2,$3,$4::date,$4::date,$5,$6::jsonb,now()) " +
+        "ON CONFLICT (tenant_id,tur,ad) DO UPDATE SET son_gorulme=$4::date, gun_sayisi=$5, kanit=$6::jsonb, " +
+        "ilk_gorulme=LEAST(bi_saha_hafiza.ilk_gorulme,$4::date), guncel_at=now()",
+        [T, o.tur, o.ad, gunStr, gunler.length, JSON.stringify(kanit)]);
+    } catch(e){ console.error("[hafiza yaz]", o.ad, e && e.message); }
+  }
+}
+async function _sahaHafizaOku(T, q){
+  let rows = [];
+  try { rows = (await q("SELECT tur,ad,ilk_gorulme,son_gorulme,gun_sayisi,kanit,(CURRENT_DATE - ilk_gorulme) yas_gun " +
+    "FROM bi_saha_hafiza WHERE tenant_id=$1::uuid ORDER BY son_gorulme DESC, gun_sayisi DESC LIMIT 80", [T])).rows; }
+  catch(e){ console.error("[hafiza oku2]", e && e.message); return []; }
+  const d7 = _gunOffset(7), d14 = _gunOffset(14);
+  return rows.map(r => {
+    const k = r.kanit || [];
+    const l7 = k.filter(e=>e.gun>d7).reduce((a,e)=>a+(e.n||0),0);
+    const p7 = k.filter(e=>e.gun<=d7 && e.gun>d14).reduce((a,e)=>a+(e.n||0),0);
+    let egilim = (r.gun_sayisi<=1) ? "yeni" : (l7>p7*1.3 ? "artıyor" : (l7<p7*0.7 && p7>0 ? "azalıyor" : "sabit"));
+    const son = k.length ? (k[k.length-1].baglam||[]) : [];
+    return { tur:r.tur, ad:r.ad, yas_gun:Number(r.yas_gun)||0, gun_sayisi:r.gun_sayisi, egilim,
+      son_baglam:son, toplam:k.reduce((a,e)=>a+(e.n||0),0), son7:l7 };
+  });
+}
+
+async function _sahaSesiUret(T, q){ /* SAHA_RAKIP_V6 — kisa rakip aktivitesi, isimli + bu ay vs gecen ay */
+  q = q || query;
+  let _tnAgn=null,_tnEvren=null; try { const _rAgn=(await q("SELECT name, evren_tanim(id) AS tanim FROM platform_tenants WHERE id=$1",[T])).rows[0]; if(_rAgn){ if(_rAgn.name) _tnAgn=String(_rAgn.name); if(_rAgn.tanim) _tnEvren=String(_rAgn.tanim); } } catch(_e){} /* TENANT_KIMLIK_AGNOSTIK_V1 PROMPT_EVREN_V1 */
+  const safe = async (sql, p, e) => { try { return (await q(sql, p)).rows; } catch(x){ console.error("[saha-rakip "+e+"]", x && x.message); return []; } };
+  const sigR = await safe("SELECT s.ozet, COALESCE(m.il,'') il, to_char(s.created_at,'YYYY-MM-DD') gun FROM saha_sinyal s LEFT JOIN saha_musteri m ON m.id=s.musteri_id WHERE s.tenant_id=$1 AND lower(COALESCE(s.tip,''))='rakip' AND s.created_at >= now()-interval '60 days'", [T], "sigR");
+  const ziyN = await safe("SELECT z.notlar, COALESCE(m.il,'') il, to_char(z.created_at,'YYYY-MM-DD') gun FROM saha_ziyaret z LEFT JOIN saha_musteri m ON m.id=z.musteri_id WHERE z.tenant_id=$1 AND z.notlar IS NOT NULL AND z.created_at >= now()-interval '60 days'", [T], "ziyN");
+  const rakT = await safe("SELECT rakip_marka marka, COALESCE(il,'') il, ebat, rakip_fiyat fiyat, to_char(created_at,'YYYY-MM-DD') gun FROM saha_rakip_teklif WHERE tenant_id=$1 AND rakip_marka IS NOT NULL AND created_at >= now()-interval '60 days'", [T], "rakT");
+  const scr = await safe("WITH g AS (SELECT marka, CASE WHEN profil IS NULL THEN concat(genislik,'R',cap) ELSE concat(genislik,'/',profil,'R',cap) END ebat, fiyat, gecerli_tarih, row_number() OVER (PARTITION BY url ORDER BY gecerli_tarih DESC) rn FROM bi_rakip_fiyat_gecmis WHERE gecerli_tarih >= CURRENT_DATE - interval '90 days') SELECT a.marka, a.ebat, round((a.fiyat-b.fiyat)/nullif(b.fiyat,0)*100,1) dusus_pct FROM g a JOIN g b ON b.marka=a.marka AND b.ebat=a.ebat AND b.rn=a.rn+1 WHERE a.rn=1 AND a.fiyat < b.fiyat*0.95 ORDER BY dusus_pct ASC LIMIT 10", [], "scr");
+
+  const gunStr = new Date().toISOString().slice(0,10);
+  const d30 = _gunOffset(30);
+  const B = {};
+  const addB = (m, il, gun, ornek) => { m = String(m||"").trim(); if(!m) return; (B[m]=B[m]||{marka:m,bu_sehir:new Set(),bu_n:0,gecen_n:0,ornek:[]});
+    if (gun > d30){ B[m].bu_n++; if(il) B[m].bu_sehir.add(il); if(ornek && B[m].ornek.length<3) B[m].ornek.push(ornek); } else { B[m].gecen_n++; } };
+  sigR.forEach(x=> _markaBul(x.ozet).forEach(m=> addB(m, x.il, x.gun)));
+  ziyN.forEach(x=> _markaBul(x.notlar).forEach(m=> addB(m, x.il, x.gun)));
+  rakT.forEach(x=>{ const m=(_markaBul(x.marka)[0]||String(x.marka||"").trim()); addB(m, x.il, x.gun, (x.il?x.il+": ":"")+m+" "+(x.ebat||"")+" "+(x.fiyat||"")+"₺"); });
+  const aktif = Object.values(B).filter(b=>b.bu_n>0).map(b=>({ marka:b.marka, sehirler:[...b.bu_sehir].filter(Boolean).slice(0,8),
+    bu_ay:b.bu_n, gecen_ay:b.gecen_n, durum:(b.gecen_n===0?"yeni":(b.bu_n>=b.gecen_n*1.5?"arttı":(b.bu_n<=b.gecen_n*0.6?"azaldı":"benzer"))), ornek:b.ornek }))
+    .sort((a,b)=> (b.bu_ay-a.bu_ay))  .slice(0,14);
+
+  const veri = { marka_sayisi:aktif.length, rakip_gozlem_bu_ay:aktif.reduce((a,b)=>a+b.bu_ay,0), web_dusus_n:scr.length };
+  const out = { _v:6, veri, genel:null, gozlemler:[] };
+
+  try {
+    if (aktif.length || scr.length){
+      const corpus = { bugun:gunStr, rakip_marka_aktivitesi: aktif.map(b=>({marka:b.marka, sehirler:b.sehirler, bu_ay_gozlem:b.bu_ay, gecen_ay_gozlem:b.gecen_ay, durum:b.durum, ornek_fiyatlar:b.ornek})), web_online_fiyat_dususleri: scr };
+      const SYS = "Sen " + (_tnAgn||"KRB") + " " + (_tnEvren||"lastik toptancisi") + "nin rakip-izleme analistisin. Sana rakip markalarin BU AY ve GECEN AY saha gozlem sayilari, hangi SEHIRLERDE gorunduğu ve ornek fiyatlar verildi. " +
+        "Patrona SADECE RAKIP AKTIVITESINI cok KISA anlat. MUSTERI adi ya da musteri-bazli detay VERME. Roman yazma, uzun yazma. " +
+        "Yalniz ONEMLI olanlari sec: YENI ortaya cikan ya da BU AY belirgin ARTAN rakipler. Her gozlem 1-2 KISA cumle: hangi marka, hangi sehirlerde one cikiyor, ve daha onceye/gecen aya gore nasil. " +
+        "Ton ornegi: 'Kocaeli, Ankara ve Bolu ziyaretlerinde Pirelli agresif fiyat veriyor; daha once boyle bir gozlem yoktu, bu ay cok one cikti.' " +
+        "Tek bir markaya takilma — veride hangi rakipler gercekten hareketliyse onlari yaz (Pirelli sadece ornek). Belirgin hareket yoksa az yaz ya da bos birak. Uydurma; yalniz verilen sayilari/sehirleri kullan. 'Veritabani, izleme, sistem, yapay zeka' deme. saha_rakip aracini cagir.";
+      const TOOL = { name:"saha_rakip", description:"Rakip aktivite ozeti (kisa)", input_schema:{ type:"object", properties:{
+        genel:{ type:"string", description:"Bu ay rakip cephesinde genel resim, TEK kisa cumle" },
+        gozlemler:{ type:"array", description:"Onemli rakip hareketleri; her biri marka + hangi sehirler + gecen aya gore",
+          items:{ type:"object", properties:{ marka:{type:"string"}, anlati:{type:"string", description:"1-2 KISA cumle: sehirler + daha onceye gore (yeni/artti)"} }, required:["marka","anlati"] } }
+      }, required:["gozlemler"] } };
+      const msg = await anthropic.messages.create({ model:"claude-sonnet-4-6", max_tokens:1500, tools:[TOOL], tool_choice:{ type:"tool", name:"saha_rakip" }, messages:[{ role:"user", content: SYS + "\n\nVERI:\n" + JSON.stringify(corpus) }] });
+      const tu = (msg.content || []).find(b => b && b.type === "tool_use");
+      const j = tu ? (tu.input || {}) : null;
+      if (j){ if (j.genel) out.genel = String(j.genel).trim();
+        if (Array.isArray(j.gozlemler)) out.gozlemler = j.gozlemler.filter(x=>x&&x.anlati).map(x=>({marka:String(x.marka||"").trim(), anlati:String(x.anlati||"").trim()})).slice(0,8);
+      } else { console.error("[saha-rakip] tool_use gelmedi"); }
+    }
+  } catch(e){ console.error("[saha-rakip ai]", e && e.message); }
+
+  if (!out.gozlemler.length && aktif.length){
+    out.gozlemler = aktif.filter(b=>b.durum==="yeni"||b.durum==="arttı").slice(0,5).map(b=>({ marka:b.marka,
+      anlati:(b.sehirler.length?b.sehirler.slice(0,4).join(", ")+"'de ":"")+"bu ay "+b.bu_ay+" gözlem"+(b.durum==="yeni"?" — daha önce yoktu":" (geçen ay "+b.gecen_ay+")")+"." }));
+    if (!out.genel) out.genel = aktif.length+" rakip marka bu ay sahada gözlemlendi.";
+  }
+  return out;
+}
+async function _sahaSesiGunluk(T, zorla, q){
+  q = q || query;
+  await _ensureSahaSesiDb(q);
+  const gun = new Date().toISOString().slice(0,10);
+  if (!zorla){
+    const c = (await q("SELECT payload FROM bi_saha_sesi WHERE tenant_id=$1::uuid AND gun=$2", [T, gun])).rows[0];
+    if (c && c.payload && c.payload._v===6) return Object.assign({ cache:true }, c.payload);
+  }
+  const out = await _sahaSesiUret(T, q);
+  await q("INSERT INTO bi_saha_sesi (tenant_id, gun, payload, uretildi_at) VALUES ($1::uuid,$2,$3::jsonb,now()) " +
+    "ON CONFLICT (tenant_id, gun) DO UPDATE SET payload=EXCLUDED.payload, uretildi_at=now()", [T, gun, JSON.stringify(out)]);
+  return Object.assign({ cache:false }, out);
+}
+
+async function _finIcgoruScheduler() {
+  if (_finBusy) return; _finBusy = true;
+  try {
+    const gun = new Date().toISOString().slice(0, 10);
+    const tenants = (await query(`SELECT DISTINCT tenant_id::text t FROM bi_metrik_gecmis WHERE boyut_tipi='sirket' AND metrik='dso'`)).rows;
+    for (const row of tenants) {
+      const T = row.t; if (!T) continue;
+      try {
+        const has = (await query(`SELECT 1 FROM bi_finansal_icgoru WHERE tenant_id::text=$1 AND gun=$2`, [T, gun])).rowCount;
+        if (has) continue;
+        await _finIcgoruGunluk(T, false);
+        console.log("[fin-icgoru] uretildi", T, gun);
+      } catch (e) { console.error("[fin-icgoru] uretim hata", T, e && e.message); }
+    }
+  } catch (e) { console.error("[fin-icgoru scheduler]", e && e.message); }
+  finally { _finBusy = false; }
+}
+setInterval(() => { _finIcgoruScheduler().catch(() => {}); }, 60 * 60 * 1000); // saatte bir: bugünkü yoksa üret
+setTimeout(() => { _finIcgoruScheduler().catch(() => {}); }, 45 * 1000);       // açılıştan sonra ilk deneme
+ // flush every minute
 function getClientIp(request) {
   const fwd = request.headers['x-forwarded-for'];
   return (fwd ? fwd.split(',')[0] : request.socket?.remoteAddress || 'unknown').trim();
@@ -311,7 +765,7 @@ const HTML_SECURITY_HEADERS = {
   "X-Frame-Options": "SAMEORIGIN",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
-  "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:"
+  "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; img-src 'self' data: blob: https://tile.openstreetmap.org https://*.tile.openstreetmap.org; connect-src 'self'; font-src 'self' data:" /* HARITA_CSP_V1 */
 };
 
 // TOTP (RFC 6238) implementation using node:crypto — no external dependencies
@@ -4093,7 +4547,7 @@ async function authenticateUser({ email, password }) {
   await ensureAccessControlSchema();
   await ensureCreatorUser();
   const normalized = normalizeEmail(email);
-  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14);
+  let expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14); // SESSION_TTL_V1 fallback
   const result = await query(
     `select
        u.*,
@@ -4128,11 +4582,28 @@ async function authenticateUser({ email, password }) {
     _pending2fa.set(pendingToken, { userId: user.id, expiresAt: Date.now() + 5 * 60 * 1000 });
     return { twoFactorRequired: true, pendingToken };
   }
+  try { expiresAt = new Date(Date.now() + await _sessionTtlMs(user.id, user.role)); } catch (e) {} // SESSION_TTL_V1
   const token = await createSession(user.id, { userAgent: "password" }, expiresAt);
   await query("update users set last_login_at = now() where id = $1", [user.id]);
   return { user, sessionToken: token, expiresAt };
 }
 
+// SESSION_TTL_V1 — rol-bazli oturum omru (guvenlik): yonetici/mudur 24s, saha temsilcisi 7g.
+//   Client AUTO_LOGOUT_V1 politikasini SUNUCUDA da uygular; calinan cerez 14 gun yasamaz.
+//   Her cagri try/catch ile korunur: hata olursa rep TTL'e duser, giris ASLA kirilmaz.
+const SESSION_TTL_STAFF_MS = 24 * 60 * 60 * 1000;
+const SESSION_TTL_REP_MS   = 7 * 24 * 60 * 60 * 1000;
+async function _sessionTtlMs(userId, platformRole) {
+  const pr = String(platformRole || "").toLowerCase();
+  if (pr === "platform_owner" || pr === "company_owner" || pr === "admin") return SESSION_TTL_STAFF_MS;
+  try {
+    const r = await query(
+      `SELECT 1 FROM tenant_user_modules
+        WHERE user_id = $1 AND active = true AND module_role IN ('admin','manager') LIMIT 1`,
+      [userId]);
+    return r.rowCount ? SESSION_TTL_STAFF_MS : SESSION_TTL_REP_MS;
+  } catch (e) { return SESSION_TTL_REP_MS; }
+}
 async function createSession(userId, metadata = {}, expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14)) {
   if (!userId) throw new Error("User id is required for session creation.");
   const token = randomBytes(32).toString("base64url");
@@ -4142,6 +4613,19 @@ async function createSession(userId, metadata = {}, expiresAt = new Date(Date.no
     [userId, hashToken(token), expiresAt, metadata]
   );
   return token;
+}
+
+async function kaydetOlay(opts) { /* KAYDET_OLAY_V1 */
+  try {
+    var o = opts || {};
+    if (o.audit) {
+      await query("INSERT INTO audit_events (organization_id, actor_user_id, event_type, entity_type, entity_id, metadata) VALUES ($1,$2,$3,$4,$5,$6)",
+        [o.organizationId || null, o.userId || null, o.tip || "olay", o.entityTip || null, o.entityId || null, o.payload || {}]);
+    } else {
+      await query("INSERT INTO bi_etkinlik (tenant_id, kullanici, oda, bolum, olay_tipi, ref_id, payload) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        [o.tenantId || null, o.kullanici || null, o.oda || null, o.bolum || null, o.tip || "olay", o.refId || null, o.payload || {}]);
+    }
+  } catch (e) {}
 }
 
 async function getSessionUser(request) {
@@ -4180,6 +4664,7 @@ async function getSessionUser(request) {
   );
   if (!result.rowCount) return null;
   const row = result.rows[0];
+  query("UPDATE user_sessions SET last_active_at = now() WHERE id = $1 AND (last_active_at IS NULL OR last_active_at < now() - interval '60 seconds')", [row.session_id]).catch(function(){}); /* LAST_ACTIVE_HEARTBEAT_V1 */
   const _role = normalizeRole(row.assignment_role || row.project_role || row.organization_role || row.role);
   const _sess = {
     sessionId: row.session_id,
@@ -18646,7 +19131,8 @@ async function handleApi(request, response) {
         sendJson(response, 401, { error: "Geçersiz doğrulama kodu." }); return;
       }
       _pending2fa.delete(String(pendingToken));
-      const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14);
+      let expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 14);
+      try { expiresAt = new Date(Date.now() + await _sessionTtlMs(pending.userId, null)); } catch (e) {} // SESSION_TTL_V1
       const token = await createSession(pending.userId, { userAgent: "password+2fa" }, expiresAt);
       await query("UPDATE users SET last_login_at = now() WHERE id = $1", [pending.userId]);
       const uRow = await query(
@@ -18680,8 +19166,8 @@ async function handleApi(request, response) {
     try {
       const session = await requireAuth(request);
       const secret = totpNewSecret();
-      const label = encodeURIComponent(`KRB Intelligence:${session.email}`);
-      const otpauthUrl = `otpauth://totp/${label}?secret=${secret}&issuer=KRB%20Intelligence&algorithm=SHA1&digits=6&period=30`;
+      const label = encodeURIComponent(`Derive Intelligence:${session.email}`);
+      const otpauthUrl = `otpauth://totp/${label}?secret=${secret}&issuer=Derive%20Intelligence&algorithm=SHA1&digits=6&period=30`;
       sendJson(response, 200, { secret, otpauthUrl });
     } catch (error) {
       sendJson(response, error.statusCode || 401, { error: error.message });
@@ -20059,6 +20545,7 @@ async function ensurePlatformSchema() {
       expires_at timestamptz NOT NULL DEFAULT (now() + interval '7 days'),
       created_at timestamptz NOT NULL DEFAULT now()
     );
+    ALTER TABLE user_invitations ADD COLUMN IF NOT EXISTS modules_json jsonb;
     CREATE TABLE IF NOT EXISTS bi_ingestion_log (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       tenant_id uuid NOT NULL REFERENCES platform_tenants(id) ON DELETE CASCADE,
@@ -20190,7 +20677,7 @@ async function requireBiDept(request, dept) {
   const session = await requireModuleAccess(request, "intelligence");
   // platform_owner ve modul admin'i her sekmeyi gorur
   if (normalizeRole(session.role) === "platform_owner") return session;
-  if (session.moduleRole === "admin") return session;
+  if (session.moduleRole === "admin" && dept !== "ikodasi") return session;  /* IK_LOCK_V2 - ikodasi admin-bypass kapali; yalniz platform_owner + departments.ikodasi */
   const perms = session.permissions || {};
   const depts = Array.isArray(perms.departments) ? perms.departments : [];
   if (!depts.includes(dept)) {
@@ -20211,11 +20698,12 @@ async function requireModuleAccess(request, moduleId) {
     if (!_pOwnerHasTenant.rowCount) {
       let _tName = null;
       if (session.tenantId) {
-        const _tn = await query("SELECT name FROM platform_tenants WHERE id=$1 AND status='active'", [session.tenantId]);
+        const _tn = await query("SELECT name, config_json FROM platform_tenants WHERE id=$1 AND status='active'", [session.tenantId]); /* TENANT_ALIAS_V1 */
         _tName = _tn.rows[0] ? _tn.rows[0].name : null;
+        var _tCfg = _tn.rows[0] ? _tn.rows[0].config_json : null;
         if (!_tName) session.tenantId = null;
       }
-      return { ...session, tenantId: session.tenantId || null, tenantName: _tName, tenantRole: "platform_owner",
+      return { ...session, tenantId: session.tenantId || null, tenantName: _tName, tenantAlias: ((_tCfg&&_tCfg.alias?String(_tCfg.alias).trim():"")||_tName), tenantRole: "platform_owner",
                moduleRole: "admin", plan: "internal", features: {}, permissions: {} };
     }
     // Has tenant membership — fall through to full tenant lookup below
@@ -20257,6 +20745,8 @@ async function requireModuleAccess(request, moduleId) {
     ...session,
     tenantId:    row.tenant_id,
     tenantName:  row.tenant_name,
+    tenantAlias: ((row.tenant_config&&row.tenant_config.alias?String(row.tenant_config.alias).trim():"")||row.tenant_name), /* TENANT_ALIAS_V1 */
+    tenantConfig: (row.tenant_config||null), /* DEKRB_SERVER_V1 */
     tenantRole:  row.tenant_role,
     moduleRole:  row.module_role,
     plan:        row.plan_features,
@@ -20274,7 +20764,7 @@ async function requireTenantAdmin(request) {
     return { ...session, tenantId: null, tenantRole: "platform_owner" };
 
   const result = await query(`
-    SELECT pt.id AS tenant_id, pt.name AS tenant_name, tu.tenant_role
+    SELECT pt.id AS tenant_id, pt.name AS tenant_name, pt.config_json AS tenant_config, tu.tenant_role
     FROM tenant_users tu
     JOIN platform_tenants pt ON pt.id = tu.tenant_id AND pt.status = 'active'
     WHERE tu.user_id = $1 AND tu.active = true AND tu.tenant_role = 'tenant_admin'
@@ -20286,6 +20776,7 @@ async function requireTenantAdmin(request) {
 
   const row = result.rows[0];
   return { ...session, tenantId: row.tenant_id, tenantName: row.tenant_name,
+           tenantAlias: ((row.tenant_config&&row.tenant_config.alias?String(row.tenant_config.alias).trim():"")||row.tenant_name),
            tenantRole: row.tenant_role };
 }
 
@@ -20328,12 +20819,15 @@ async function requireTenantAdmin(request) {
       : _p.startsWith('/api/bi/health')      ? 'it'
       : _p.startsWith('/api/bi/ingest')      ? 'it'
       : 'sales';   // TANIMSIZ /api/bi/* -> EN KISITLI varsayilan (acik birakma)
+    /* YETKI_FAZ1 — musteri karti uclari merkezi 'sales' kapisindan muaf; kendi handler'i musterikart enforce eder. */
+    if (!(_p === '/api/bi/musteri-skor' || _p === '/api/bi/musteri-kiyas' || _p === '/api/bi/musteri-fiyat-liste' || _p === '/api/bi/ebat-ara')) {
     try {
       await requireBiDept(request, _dept);
     } catch (e) {
       sendJson(response, e.statusCode || 403,
                { error: e.message || 'Yetkiniz yok.', gereken_yetki: _dept });
       return;
+    }
     }
   }
 
@@ -20361,7 +20855,7 @@ async function requireTenantAdmin(request) {
       const r = await anthropic.messages.create({
         model: 'claude-sonnet-4-6',
         max_tokens: 400,
-        system: 'Sen KRB Otomotiv icin lastik pazari analistisin. Turkce, KISA (2-3 cumle), '
+        system: 'Sen bu firmanın lastik pazari analistisin. Turkce, KISA (2-3 cumle), '
               + 'somut ve rakama dayali yaz. Sana verilmeyen bir rakami UYDURMA. '
               + 'Veri yetersizse "bu konuda yeterli veri yok" de. Baglam: ' + ctx,
         messages: [{ role: 'user', content: mesaj }]
@@ -21032,7 +21526,7 @@ if (request.method === 'GET' && url.pathname === '/api/bi/brand-compare/sizes') 
       SELECT DISTINCT ebat
       FROM bi_satis_faturalari
       WHERE tenant_id = $1::text
-        AND grup_adi LIKE 'LASTIK%'   -- LASTIK_FILTRE_V1
+        AND grup_adi LIKE evren_desen(tenant_id)   -- LASTIK_FILTRE_V1
         AND ($2 = 'ALL' OR kategori = $2)
         AND ($3 = '' OR ebat ILIKE $3)
         AND ebat IS NOT NULL AND ebat <> ''
@@ -21139,7 +21633,7 @@ if (request.method === 'GET' && url.pathname === '/api/bi/brand-index') {
         FROM bi_satis_faturalari s
         JOIN last_purchase lp ON lp.kalem_kodu = s.kalem_kodu
         WHERE s.tenant_id = $1::text
-          AND s.grup_adi LIKE 'LASTIK%'   -- LASTIK_FILTRE_V1
+          AND s.grup_adi LIKE evren_desen(s.tenant_id)   -- LASTIK_FILTRE_V1
           AND s.fatura_tarihi >= CURRENT_DATE - ($2 * INTERVAL '1 month')
           AND s.miktar > 0 AND lp.cost > 0
           AND ($4 = 'ALL' OR s.kategori = $4)
@@ -21511,7 +22005,7 @@ if (request.method === 'GET' && url.pathname === '/api/bi/brand-alerts') {
         FROM bi_satis_faturalari s
         JOIN last_purchase lp ON lp.kalem_kodu = s.kalem_kodu
         WHERE s.tenant_id = $1::text
-          AND s.grup_adi LIKE 'LASTIK%'   -- LASTIK_FILTRE_V1
+          AND s.grup_adi LIKE evren_desen(s.tenant_id)   -- LASTIK_FILTRE_V1
           AND s.fatura_tarihi >= CURRENT_DATE - ($2 * INTERVAL '1 month')
           AND s.miktar > 0 AND lp.cost > 0
       ),
@@ -21675,7 +22169,7 @@ if (request.method === 'GET' && url.pathname === '/api/bi/account-health') {
     try {
       await sendGraphMail({
         to: 'fatih@deriveglobal.com',
-        subject: `[KRB Platform] Not: ${session.name || session.email}`,
+        subject: `[Derive Intelligence] Not: ${session.name || session.email}`,
         body: `
           <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:20px">
             <h3 style="color:#1a1a2e;border-bottom:2px solid #667eea;padding-bottom:8px">
@@ -21740,12 +22234,13 @@ if (request.method === "GET" && url.pathname === "/api/platform/me") {
     if (normalizeRole(session.role) === "platform_owner") {
       let _atName = null;
       if (session.tenantId) {
-        const _t = await query("SELECT name FROM platform_tenants WHERE id=$1 AND status='active'", [session.tenantId]);
+        const _t = await query("SELECT name, config_json FROM platform_tenants WHERE id=$1 AND status='active'", [session.tenantId]); /* TENANT_ALIAS_V1 */
         _atName = _t.rows[0] ? _t.rows[0].name : null;
+        var _atCfg = _t.rows[0] ? _t.rows[0].config_json : null;
       }
       sendJson(response, 200, {
-        userId: session.userId, name: session.name, globalRole: "platform_owner",
-        tenantId: session.tenantId || null, tenantName: _atName, tenantRole: "platform_owner",
+        userId: session.userId, name: session.name, email: session.email, globalRole: "platform_owner",
+        tenantId: session.tenantId || null, tenantName: _atName, tenantAlias: ((_atCfg&&_atCfg.alias?String(_atCfg.alias).trim():"")||_atName), tenantRole: "platform_owner",
         activeTenantId: session.tenantId || null, activeTenantName: _atName,
         subscriptions: []
       });
@@ -21773,7 +22268,7 @@ if (request.method === "GET" && url.pathname === "/api/platform/me") {
              WHERE tu.user_id = $1 AND tu.active = true`, [session.userId])
     ]);
 
-    if (!tenantRow.rowCount) { sendJson(response, 200, { userId: session.userId, name: session.name, globalRole: session.role, tenantId: null, tenantName: null, tenantRole: null, subscriptions: [] }); return; }
+    if (!tenantRow.rowCount) { sendJson(response, 200, { userId: session.userId, name: session.name, email: session.email, globalRole: session.role, tenantId: null, tenantName: null, tenantRole: null, subscriptions: [] }); return; }
 
     const tenant = tenantRow.rows[0];
     const subscriptions = subRows.rows.map(r => ({
@@ -21788,8 +22283,8 @@ if (request.method === "GET" && url.pathname === "/api/platform/me") {
     }));
 
     sendJson(response, 200, {
-      userId: session.userId, name: session.name, globalRole: session.role,
-      tenantId: tenant.id, tenantName: tenant.name, tenantRole: tenant.tenant_role,
+      userId: session.userId, name: session.name, email: session.email, globalRole: session.role,
+      tenantId: tenant.id, tenantName: tenant.name, tenantAlias: ((tenant.tenant_config&&tenant.tenant_config.alias?String(tenant.tenant_config.alias).trim():"")||tenant.name), tenantRole: tenant.tenant_role, /* TENANT_ALIAS_V1 */
       subscriptions
     });
   } catch (error) {
@@ -21961,6 +22456,270 @@ if (request.method === "GET" && url.pathname === "/api/tenant/users") {
   return;
 }
 
+if (request.method === "GET" && url.pathname === "/api/tenant/musteri-atama") {  /* MUSTERI_ATAMA_V1 */
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const tid = session.tenantId;
+    const rp = await query(`
+      SELECT u.id::text id, COALESCE(u.full_name, u.email, '—') ad
+        FROM users u
+       WHERE u.id IN (
+         SELECT user_id FROM tenant_user_modules WHERE tenant_id::text=$1::text AND module_id='saha' AND active=true
+         UNION SELECT DISTINCT sorumlu_rep FROM saha_musteri WHERE tenant_id::text=$1::text AND sorumlu_rep IS NOT NULL
+       ) ORDER BY ad`, [tid]);
+    const r = await query(`
+      WITH ciro AS (SELECT musteri_kodu, SUM(satir_tutar)::numeric yil FROM bi_satis_faturalari
+                     WHERE tenant_id::text=$1::text AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '365 days') GROUP BY musteri_kodu),
+           son AS (SELECT musteri_id, MAX(ziyaret_tarihi) mx FROM saha_ziyaret
+                     WHERE tenant_id::text=$1::text AND durum='TAMAMLANDI' GROUP BY musteri_id)
+      SELECT m.id::text id, m.firma, m.il, m.ilce, m.tip, to_jsonb(m)->>'segment' segment,
+             m.musteri_kodu, m.sorumlu_rep::text rid, COALESCE(c.yil,0)::numeric ciro, s.mx son
+        FROM saha_musteri m
+        LEFT JOIN ciro c ON c.musteri_kodu=m.musteri_kodu
+        LEFT JOIN son s ON s.musteri_id=m.id
+       WHERE m.tenant_id::text=$1::text AND m.aktif=true
+       ORDER BY m.firma`, [tid]);
+    const now = Date.now();
+    const gunOf = (mx) => { if (!mx) return null; const d = new Date(mx); return isNaN(d) ? null : Math.max(0, Math.floor((now - d.getTime()) / 86400000)); };
+    const nameMap = {}; for (const x of rp.rows) nameMap[x.id] = x.ad;
+    const musteriler = r.rows.map((x) => ({
+      id: x.id, firma: x.firma, il: x.il, ilce: x.ilce, tip: x.tip, segment: x.segment || null,
+      kod: x.musteri_kodu || null, rep_id: x.rid || null, rep: x.rid ? (nameMap[x.rid] || null) : null,
+      ciro: Number(x.ciro) || 0, gun: gunOf(x.son)
+    }));
+    sendJson(response, 200, { temsilciler: rp.rows, musteriler });
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+if (request.method === "POST" && url.pathname === "/api/tenant/musteri-atama") {  /* MUSTERI_ATAMA_V1 */
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const tid = session.tenantId, uid = session.userId;
+    const b = await readJson(request);
+    const ids = Array.isArray(b.musteri_ids) ? b.musteri_ids.filter(Boolean) : (b.musteri_id ? [b.musteri_id] : []);
+    const hedef = b.hedef_rep || null;
+    if (!ids.length || !hedef) { sendJson(response, 400, { error: "musteri_ids ve hedef_rep gerekli" }); return; }
+    const hv = await query(`SELECT 1 FROM tenant_users WHERE tenant_id::text=$1::text AND user_id::text=$2::text AND active=true`, [tid, hedef]);
+    if (!hv.rowCount) { sendJson(response, 400, { error: "geçersiz temsilci" }); return; }
+    let n = 0;
+    for (const mid of ids) {
+      const cur = await query(`SELECT sorumlu_rep::text rid FROM saha_musteri WHERE tenant_id::text=$1::text AND id=$2`, [tid, mid]);
+      if (!cur.rowCount) continue;
+      const eski = cur.rows[0].rid;
+      if (eski === hedef) continue;
+      await query(`UPDATE saha_musteri SET sorumlu_rep=$3, updated_at=now() WHERE tenant_id::text=$1::text AND id=$2`, [tid, mid, hedef]);
+      await query(`INSERT INTO saha_musteri_aksiyon (tenant_id,musteri_id,rapor,tur,aktor_id,aktor_rol,hedef_rep,eski_rep)
+                   VALUES ($1,$2,'atama','ATA',$3,'admin',$4,$5)`, [tid, mid, uid, hedef, eski]);
+      n++;
+    }
+    sendJson(response, 200, { ok: true, degisen: n });
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+if (request.method === "GET" && url.pathname === "/api/tenant/musteri-atama/gecmis") {  /* MUSTERI_ATAMA_V1 */
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const tid = session.tenantId;
+    const mid = url.searchParams.get("musteri_id");
+    if (!mid) { sendJson(response, 400, { error: "musteri_id gerekli" }); return; }
+    const r = await query(`SELECT olusturma_ts ts, eski_rep::text eski, hedef_rep::text yeni, aktor_id::text aktor
+        FROM saha_musteri_aksiyon
+       WHERE tenant_id::text=$1::text AND musteri_id=$2 AND tur='ATA'
+       ORDER BY olusturma_ts DESC LIMIT 30`, [tid, mid]);
+    const ids = [...new Set(r.rows.flatMap((x) => [x.eski, x.yeni, x.aktor]).filter(Boolean))];
+    const nm = {};
+    if (ids.length) { const u = await query(`SELECT id::text id, COALESCE(full_name,email,'—') ad FROM users WHERE id::text = ANY($1)`, [ids]); for (const x of u.rows) nm[x.id] = x.ad; }
+    sendJson(response, 200, { gecmis: r.rows.map((x) => ({ ts: x.ts, eski: x.eski ? (nm[x.eski] || '—') : null, yeni: x.yeni ? (nm[x.yeni] || '—') : null, aktor: x.aktor ? (nm[x.aktor] || '—') : null })) });
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// ── YETKI_FAZ2A — Org Bölüm/Üyelik (Yönetim › İzinler › Bölümler) ──
+/* YETKI_FAZ4 — kisi saha yetkisi = (bolum sablonlari birlesimi ∪ personal_grant) − personal_deny. Otoriter Bolumler + kisisel istisna. Tek kaynak. */
+const _sahaDeptUnion = async (tenantId, userId) => {
+  const dr = await query(`SELECT d.template_json FROM tenant_department d JOIN tenant_department_membership m ON m.department_id=d.id AND m.tenant_id=d.tenant_id WHERE d.tenant_id::text=$1::text AND m.user_id=$2`, [tenantId, userId]);
+  const U = new Set();
+  for (const row of dr.rows) { const caps = (row.template_json && row.template_json.capabilities) || []; if (Array.isArray(caps)) caps.forEach(c => U.add(c)); }
+  return U;
+};
+/* YETKI_FAZ5B — yetki degisiklik gunlugu (denetim). Fire-and-forget; hata ana akisi bozmaz. */
+const _yetkiLog = async (tenantId, actorId, eylem, opt) => {
+  try {
+    await query(`INSERT INTO tenant_yetki_log (tenant_id, actor_id, target_user_id, department_id, eylem, detay) VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
+      [tenantId, actorId || null, (opt && opt.target) || null, (opt && opt.department) || null, eylem, JSON.stringify((opt && opt.detay) || {})]);
+  } catch (e) { console.error("yetkiLog:", e && e.message); }
+};
+const _recomputeSahaCaps = async (tenantId, userId) => {
+  const U = await _sahaDeptUnion(tenantId, userId);
+  const pr = await query(`SELECT permissions_json FROM tenant_user_modules WHERE tenant_id::text=$1::text AND user_id=$2 AND module_id='saha'`, [tenantId, userId]);
+  if (!pr.rowCount) return;
+  const pj = pr.rows[0].permissions_json || {};
+  const grant = Array.isArray(pj.personal_grant) ? pj.personal_grant : [];
+  const deny = Array.isArray(pj.personal_deny) ? pj.personal_deny : [];
+  grant.forEach(c => U.add(c));
+  deny.forEach(c => U.delete(c));
+  ["ikodasi","finansodasi"].forEach(c => U.delete(c));  /* IK_BOLUM_V1 */
+  const newPj = Object.assign({}, pj, { departments: Array.from(U) });
+  await query(`UPDATE tenant_user_modules SET permissions_json=$3::jsonb, updated_at=now() WHERE tenant_id::text=$1::text AND user_id=$2 AND module_id='saha'`, [tenantId, userId, JSON.stringify(newPj)]);
+};
+/* IK_BOLUM_V1 — oda capleri (ikodasi/finansodasi) bolum sablonundan intelligence moduluine senkron */
+const _recomputeMgmtRooms = async (tenantId, userId) => {
+  const ROOMS = ["ikodasi","finansodasi"];
+  const dr = await query(`SELECT d.template_json FROM tenant_department d JOIN tenant_department_membership m ON m.department_id=d.id AND m.tenant_id::text=d.tenant_id::text WHERE m.user_id=$2 AND d.tenant_id::text=$1::text`, [tenantId, userId]);
+  const wanted = new Set();
+  for (const row of dr.rows) { const caps = (row.template_json && Array.isArray(row.template_json.capabilities)) ? row.template_json.capabilities : []; ROOMS.forEach(c => { if (caps.includes(c)) wanted.add(c); }); }
+  const ir = await query(`SELECT permissions_json FROM tenant_user_modules WHERE tenant_id::text=$1::text AND user_id=$2 AND module_id='intelligence'`, [tenantId, userId]);
+  if (!ir.rowCount) {
+    if (!wanted.size) return;
+    const pj0 = { departments: Array.from(wanted) };
+    await query(`INSERT INTO tenant_user_modules (tenant_id, user_id, module_id, module_role, permissions_json, active) VALUES ($1,$2,'intelligence','viewer',$3::jsonb,true) ON CONFLICT (tenant_id,user_id,module_id) DO UPDATE SET permissions_json=EXCLUDED.permissions_json, active=true, updated_at=now()`, [tenantId, userId, JSON.stringify(pj0)]);
+    return;
+  }
+  const pj = ir.rows[0].permissions_json || {};
+  const depts = new Set(Array.isArray(pj.departments) ? pj.departments : []);
+  const grant = Array.isArray(pj.personal_grant) ? pj.personal_grant : [];
+  const deny = Array.isArray(pj.personal_deny) ? pj.personal_deny : [];
+  ROOMS.forEach(c => { if (wanted.has(c) || grant.includes(c)) depts.add(c); else depts.delete(c); });
+  deny.forEach(c => { if (ROOMS.includes(c)) depts.delete(c); });
+  const newPj = Object.assign({}, pj, { departments: Array.from(depts) });
+  await query(`UPDATE tenant_user_modules SET permissions_json=$3::jsonb, updated_at=now() WHERE tenant_id::text=$1::text AND user_id=$2 AND module_id='intelligence'`, [tenantId, userId, JSON.stringify(newPj)]);
+};
+
+if (request.method === "GET" && url.pathname === "/api/tenant/departments") {  /* YETKI_FAZ2A */
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const d = await query(`SELECT d.id::text id, d.key, d.ad, d.ikon, d.template_json, d.aktif,
+        (SELECT count(*) FROM tenant_department_membership m WHERE m.department_id=d.id)::int uye
+        FROM tenant_department d WHERE d.tenant_id::text=$1::text ORDER BY d.aktif DESC, d.ad`, [session.tenantId]);
+    sendJson(response, 200, { departments: d.rows });
+  } catch (e) { sendJson(response, e.statusCode || 500, { error: e.message }); }
+  return;
+}
+if (request.method === "POST" && url.pathname === "/api/tenant/departments") {  /* YETKI_FAZ2A */
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const b = await readJson(request) || {};
+    const ad = String(b.ad || "").trim();
+    if (!ad) { sendJson(response, 400, { error: "ad zorunlu" }); return; }
+    const key = (String(b.key || ad).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40)) || ("bolum-" + Math.abs(ad.length * 7 + 3));
+    const ikon = String(b.ikon || "🏷️").slice(0, 8);
+    const tpl = (b.template_json && typeof b.template_json === "object") ? b.template_json : { capabilities: [], scope: { level: "kendi", regions: [], segments: [] } };
+    const r = await query(`INSERT INTO tenant_department (tenant_id, key, ad, ikon, template_json)
+        VALUES ($1,$2,$3,$4,$5::jsonb) ON CONFLICT (tenant_id, key) DO UPDATE SET ad=EXCLUDED.ad, ikon=EXCLUDED.ikon
+        RETURNING id::text id`, [session.tenantId, key, ad, ikon, JSON.stringify(tpl)]);
+    sendJson(response, 201, { ok: true, id: r.rows[0].id, key });
+  } catch (e) { sendJson(response, e.statusCode || 500, { error: e.message }); }
+  return;
+}
+{ const _md = url.pathname.match(/^\/api\/tenant\/departments\/([0-9a-f-]{36})$/);
+  if (_md && request.method === "PATCH") {  /* YETKI_FAZ2A */
+    try {
+      const session = await requireTenantAdmin(request);
+      const b = await readJson(request) || {}; const sets = [], vals = [session.tenantId, _md[1]]; let i = 3;
+      if (b.ad != null) { sets.push(`ad=$${i++}`); vals.push(String(b.ad).trim()); }
+      if (b.ikon != null) { sets.push(`ikon=$${i++}`); vals.push(String(b.ikon).slice(0, 8)); }
+      if (b.template_json != null) { sets.push(`template_json=$${i++}::jsonb`); vals.push(JSON.stringify(b.template_json)); }
+      if (b.aktif != null) { sets.push(`aktif=$${i++}`); vals.push(!!b.aktif); }
+      if (!sets.length) { sendJson(response, 400, { error: "değişiklik yok" }); return; }
+      await query(`UPDATE tenant_department SET ${sets.join(",")} WHERE tenant_id::text=$1::text AND id=$2`, vals);
+      sendJson(response, 200, { ok: true });
+    } catch (e) { sendJson(response, e.statusCode || 500, { error: e.message }); }
+    return;
+  }
+  if (_md && request.method === "DELETE") {  /* YETKI_FAZ2A */
+    try {
+      const session = await requireTenantAdmin(request);
+      await query(`DELETE FROM tenant_department WHERE tenant_id::text=$1::text AND id=$2`, [session.tenantId, _md[1]]);
+      sendJson(response, 200, { ok: true });
+    } catch (e) { sendJson(response, e.statusCode || 500, { error: e.message }); }
+    return;
+  }
+}
+{ const _mm = url.pathname.match(/^\/api\/tenant\/departments\/([0-9a-f-]{36})\/members$/);
+  if (_mm && request.method === "GET") {  /* YETKI_FAZ2A */
+    try {
+      const session = await requireTenantAdmin(request);
+      const u = await query(`SELECT u.id::text id, COALESCE(u.full_name,u.email,'—') ad, u.email,
+          EXISTS(SELECT 1 FROM tenant_department_membership m WHERE m.department_id=$2 AND m.user_id=u.id) uye
+          FROM users u WHERE u.id IN (SELECT user_id FROM tenant_user_modules WHERE tenant_id::text=$1::text)
+          ORDER BY uye DESC, ad`, [session.tenantId, _mm[1]]);
+      sendJson(response, 200, { users: u.rows });
+    } catch (e) { sendJson(response, e.statusCode || 500, { error: e.message }); }
+    return;
+  }
+  if (_mm && request.method === "POST") {  /* YETKI_FAZ2A — üye ekle/çıkar */
+    try {
+      const session = await requireTenantAdmin(request); const did = _mm[1];
+      const b = await readJson(request) || {}; const add = Array.isArray(b.add) ? b.add : []; const rem = Array.isArray(b.remove) ? b.remove : [];
+      for (const uid of add) await query(`INSERT INTO tenant_department_membership (tenant_id, department_id, user_id) VALUES ($1,$2,$3) ON CONFLICT (tenant_id, department_id, user_id) DO NOTHING`, [session.tenantId, did, uid]);
+      if (rem.length) await query(`DELETE FROM tenant_department_membership WHERE tenant_id::text=$1::text AND department_id=$2 AND user_id = ANY($3::uuid[])`, [session.tenantId, did, rem]);
+      for (const uid of [...add, ...rem]) { try { await _recomputeSahaCaps(session.tenantId, uid); await _recomputeMgmtRooms(session.tenantId, uid); } catch (_) {} }  /* YETKI_FAZ4 — uyelik degisince yeniden hesap */
+      await _yetkiLog(session.tenantId, session.userId, "uyelik", { department: did, detay: { eklendi: add.length, cikarildi: rem.length } });  /* YETKI_FAZ5B */
+      sendJson(response, 200, { ok: true, eklendi: add.length, cikarildi: rem.length });
+    } catch (e) { sendJson(response, e.statusCode || 500, { error: e.message }); }
+    return;
+  }
+}
+{ const _ma = url.pathname.match(/^\/api\/tenant\/departments\/([0-9a-f-]{36})\/apply$/);
+  if (_ma && request.method === "POST") {  /* YETKI_FAZ2A — şablonu üyelere uygula (push) */
+    try {
+      const session = await requireTenantAdmin(request); const tid = session.tenantId; const did = _ma[1];
+      const dr = await query(`SELECT template_json FROM tenant_department WHERE tenant_id::text=$1::text AND id=$2`, [tid, did]);
+      if (!dr.rowCount) { sendJson(response, 404, { error: "bölüm yok" }); return; }
+      const tpl = dr.rows[0].template_json || {};
+      const scope = tpl.scope || { level: "kendi", regions: [], segments: [] };
+      /* YETKI_FAZ4 — additive push YERINE: uyelere bu bolumun scope'unu yaz + yetkiyi yeniden hesapla (sablon=yasa; kisisel istisna korunur). */
+      const _mem = (await query(`SELECT user_id FROM tenant_department_membership WHERE department_id=$1 AND tenant_id::text=$2::text`, [did, tid])).rows.map(r => r.user_id);
+      for (const uid of _mem) {
+        await query(`UPDATE tenant_user_modules SET permissions_json=jsonb_set(COALESCE(permissions_json,'{}'::jsonb),'{scope}',$3::jsonb) WHERE tenant_id::text=$1::text AND user_id=$2 AND module_id='saha'`, [tid, uid, JSON.stringify(scope)]);
+        await _recomputeSahaCaps(tid, uid);
+        await _recomputeMgmtRooms(tid, uid);
+      }
+      await _yetkiLog(tid, session.userId, "bolum_uygula", { department: did, detay: { uygulandi: _mem.length } });  /* YETKI_FAZ5B */
+      sendJson(response, 200, { ok: true, uygulandi: _mem.length });
+    } catch (e) { sendJson(response, e.statusCode || 500, { error: e.message }); }
+    return;
+  }
+}
+
+// PATCH /api/tenant/users/:id — tenant rol / aktiflik  /* ROL_AKTIF_V1 */
+{ const _um = url.pathname.match(/^\/api\/tenant\/users\/([0-9a-f-]{36})$/);
+if (request.method === "PATCH" && _um) {
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const _uid = _um[1];
+    if (_uid === session.userId) throw Object.assign(new Error("Kendi kaydınızı değiştiremezsiniz."), { statusCode: 400 });
+    const _cur = await query("SELECT tenant_role, active FROM tenant_users WHERE tenant_id = $1 AND user_id = $2", [session.tenantId, _uid]);
+    if (!_cur.rowCount) throw Object.assign(new Error("Kullanıcı bu tenant'ta bulunamadı."), { statusCode: 404 });
+    if (["platform_owner", "company_owner"].includes(_cur.rows[0].tenant_role)) throw Object.assign(new Error("Sahip (owner) hesabı değiştirilemez."), { statusCode: 403 });
+    const { tenant_role, active } = await readJson(request);
+    let _did = false;
+    if (typeof active === "boolean") {
+      await query("UPDATE tenant_users SET active = $1 WHERE tenant_id = $2 AND user_id = $3", [active, session.tenantId, _uid]);
+      await _yetkiLog(session.tenantId, session.userId, "uye_durum", { target: _uid, detay: { active } });
+      _did = true;
+    }
+    if (tenant_role !== undefined) {
+      const _rol = String(tenant_role);
+      if (!["tenant_admin", "member"].includes(_rol)) throw Object.assign(new Error("Gecersiz rol."), { statusCode: 400 });
+      await query("UPDATE tenant_users SET tenant_role = $1 WHERE tenant_id = $2 AND user_id = $3", [_rol, session.tenantId, _uid]);
+      await _yetkiLog(session.tenantId, session.userId, "uye_rol", { target: _uid, detay: { tenant_role: _rol } });
+      _did = true;
+    }
+    if (!_did) throw Object.assign(new Error("active ya da tenant_role gerekli."), { statusCode: 400 });
+    sendJson(response, 200, { ok: true });
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+} }
+
 // PATCH /api/tenant/users/:id/modules
 const tenantUserModuleMatch = url.pathname.match(/^\/api\/tenant\/users\/([^/]+)\/modules$/);
 if (request.method === "PATCH" && tenantUserModuleMatch) {
@@ -21982,6 +22741,15 @@ if (request.method === "PATCH" && tenantUserModuleMatch) {
       [session.tenantId, module_id]);
     if (!subCheck.rowCount) throw Object.assign(new Error(`No active subscription for module: ${module_id}`), { statusCode: 400 });
 
+    /* YETKI_FAZ4 — Kisiler = kisiye ozel istisna: gonderilen departments(=isaretli) ile bolum-birlesimi farkindan personal_grant/deny turet, sakla (sonraki apply EZMEZ). */
+    let pjStore = permissions_json || {};
+    if (module_id === 'saha') {
+      const _U = await _sahaDeptUnion(session.tenantId, targetUserId);
+      const _D = Array.isArray(pjStore.departments) ? pjStore.departments : [];
+      const _grant = _D.filter(x => !_U.has(x));
+      const _deny = Array.from(_U).filter(x => !_D.includes(x));
+      pjStore = Object.assign({}, pjStore, { personal_grant: _grant, personal_deny: _deny });
+    }
     const result = await query(`
       INSERT INTO tenant_user_modules (tenant_id, user_id, module_id, module_role, permissions_json, active, granted_by)
       VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -21990,10 +22758,60 @@ if (request.method === "PATCH" && tenantUserModuleMatch) {
             active = EXCLUDED.active, granted_by = EXCLUDED.granted_by, updated_at = now()
       RETURNING *`,
       [session.tenantId, targetUserId, module_id, module_role || "viewer",
-       permissions_json || {}, active !== false, session.userId]);
+       pjStore, active !== false, session.userId]);
+    await _yetkiLog(session.tenantId, session.userId, "kisi_yetki", { target: targetUserId, detay: { module_id, role: module_role || "viewer", dep: Array.isArray(pjStore.departments) ? pjStore.departments.length : 0, grant: Array.isArray(pjStore.personal_grant) ? pjStore.personal_grant.length : 0, deny: Array.isArray(pjStore.personal_deny) ? pjStore.personal_deny.length : 0 } });  /* YETKI_FAZ5B */
     sendJson(response, 200, result.rows[0]);
   } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
   return;
+}
+
+// YETKI_FAZ5 — etkin-yetki denetci: kisinin saha yetkisi nereden geliyor (bolum / kisisel-ekleme / kisisel-cikarma / rol)
+{ const _yk = url.pathname.match(/^\/api\/tenant\/users\/([^/]+)\/yetki-kaynak$/);
+  if (_yk && request.method === "GET") {
+    try {
+      const session = await requireTenantAdmin(request); const tid = session.tenantId; const uid = _yk[1];
+      if (!tid) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+      const ur = await query(`SELECT module_role, permissions_json FROM tenant_user_modules WHERE tenant_id::text=$1::text AND user_id=$2 AND module_id='saha'`, [tid, uid]);
+      const row = ur.rows[0] || {}; const pj = row.permissions_json || {};
+      const dr = await query(`SELECT d.ad, d.ikon, d.template_json FROM tenant_department d JOIN tenant_department_membership m ON m.department_id=d.id AND m.tenant_id=d.tenant_id WHERE d.tenant_id::text=$1::text AND m.user_id=$2 ORDER BY d.ad`, [tid, uid]);
+      const bolumler = dr.rows.map(r => ({ ad: r.ad, ikon: r.ikon || "\ud83c\udff7\ufe0f", caps: (r.template_json && Array.isArray(r.template_json.capabilities)) ? r.template_json.capabilities : [] }));
+      sendJson(response, 200, {
+        module_role: row.module_role || null,
+        departments: Array.isArray(pj.departments) ? pj.departments : [],
+        personal_grant: Array.isArray(pj.personal_grant) ? pj.personal_grant : [],
+        personal_deny: Array.isArray(pj.personal_deny) ? pj.personal_deny : [],
+        scope: pj.scope || null,
+        bolumler
+      });
+    } catch (e) { sendJson(response, e.statusCode || 500, { error: e.message }); }
+    return;
+  }
+}
+
+// YETKI_FAZ5B — yetki degisiklik gunlugu okuma
+{ if (url.pathname === "/api/tenant/yetki-log" && request.method === "GET") {
+    try {
+      const session = await requireTenantAdmin(request); const tid = session.tenantId;
+      if (!tid) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+      const uf = url.searchParams.get("user");
+      const lim = Math.max(1, Math.min(200, parseInt(url.searchParams.get("limit") || "100", 10) || 100));
+      const params = [tid]; let wf = "";
+      if (uf) { params.push(uf); wf = ` AND (l.target_user_id::text=$${params.length} OR l.actor_id::text=$${params.length})`; }
+      params.push(lim);
+      const r = await query(`SELECT l.id::text id, l.eylem, l.detay, l.ts,
+              l.actor_id::text actor_id, au.full_name actor_ad, au.email actor_email,
+              l.target_user_id::text target_id, tu.full_name target_ad, tu.email target_email,
+              l.department_id::text dept_id, d.ad dept_ad, d.ikon dept_ikon
+          FROM tenant_yetki_log l
+          LEFT JOIN users au ON au.id=l.actor_id
+          LEFT JOIN users tu ON tu.id=l.target_user_id
+          LEFT JOIN tenant_department d ON d.id=l.department_id
+         WHERE l.tenant_id::text=$1::text${wf}
+         ORDER BY l.ts DESC LIMIT $${params.length}`, params);
+      sendJson(response, 200, { log: r.rows });
+    } catch (e) { sendJson(response, e.statusCode || 500, { error: e.message }); }
+    return;
+  }
 }
 
 // POST /api/tenant/users/invite
@@ -22001,23 +22819,191 @@ if (request.method === "POST" && url.pathname === "/api/tenant/users/invite") {
   try {
     const session = await requireTenantAdmin(request);
     if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
-    const { email, module_id, module_role, permissions_json } = await readJson(request);
+    const _b = await readJson(request); const { email } = _b; /* MULTI_MODULE_INVITE_V1 */
+    let _mods = Array.isArray(_b.modules) ? _b.modules : (_b.module_id ? [{ module_id: _b.module_id, module_role: _b.module_role, permissions_json: _b.permissions_json }] : []);
+    _mods = _mods.filter(m => m && m.module_id).map(m => ({ module_id: String(m.module_id), module_role: m.module_role || "viewer", permissions_json: m.permissions_json || {} }));
+    const _prim = _mods[0] || null;
+    const module_id = _prim ? _prim.module_id : null, module_role = _prim ? _prim.module_role : "viewer", permissions_json = _prim ? _prim.permissions_json : {};
     if (!email) throw Object.assign(new Error("email is required."), { statusCode: 400 });
 
     const token = randomBytes(32).toString("base64url");
     await query(`
-      INSERT INTO user_invitations (tenant_id, invited_email, invited_by, token_hash, module_id, module_role, permissions_json)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      INSERT INTO user_invitations (tenant_id, invited_email, invited_by, token_hash, module_id, module_role, permissions_json, modules_json)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [session.tenantId, email.toLowerCase().trim(), session.userId,
-       hashToken(token), module_id || null, module_role || "viewer", permissions_json || {}]);
+       hashToken(token), module_id || null, module_role || "viewer", permissions_json || {}, JSON.stringify(_mods)]);
 
-    // TODO: send invite email via existing email infrastructure
+    await _yetkiLog(session.tenantId, session.userId, "davet_olustur", { detay: { email: email.toLowerCase().trim(), module_id: module_id || null, role: module_role || "viewer" } });
+    // INVITE_MAIL_V1 — daveti e-posta ile de gonder (fire-and-forget, fail-safe: hata daveti etkilemez, link yanitta doner)
+    (async () => {
+      try {
+        const _link = `${getRequestOrigin(request)}/invite/${token}`;
+        let _tad = "Ekibe";
+        try { const _t = await query("SELECT name FROM platform_tenants WHERE id = $1", [session.tenantId]); if (_t.rowCount && _t.rows[0].name) _tad = _t.rows[0].name; } catch (_e) {}
+        const _body = `<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:480px;margin:0 auto;color:#12182a"><h2>${_tad} sizi ekibe davet etti</h2><p style="color:#4b5462;line-height:1.6">Hesabınızı oluşturup ekibe katılmak için aşağıdaki bağlantıya tıklayın. Bağlantı 7 gün geçerlidir.</p><p style="margin:24px 0"><a href="${_link}" style="background:#12182a;color:#fff;padding:12px 22px;border-radius:10px;text-decoration:none;font-weight:600">Daveti kabul et</a></p><p style="color:#8a8f99;font-size:12px;word-break:break-all">Buton çalışmazsa: ${_link}</p></div>`;
+        await sendGraphMail({ to: email.toLowerCase().trim(), subject: `${_tad} — ekibe davet`, body: _body });
+      } catch (_mailErr) { console.error("[davet-mail]", _mailErr && _mailErr.message); }
+    })();
     // For now return the token for manual sharing
     sendJson(response, 201, {
       message: "Invitation created.",
       inviteUrl: `${getRequestOrigin(request)}/invite/${token}`,
       expiresIn: "7 days"
     });
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /invite/:token — davet kabul sayfasi  /* INVITE_ACCEPT_V1 */
+if (request.method === "GET" && /^\/invite\/[^/]+$/.test(url.pathname)) {
+  try {
+    const _tok = decodeURIComponent(url.pathname.split("/")[2] || "");
+    const _r = await query(
+      `SELECT ui.invited_email, ui.module_id, pt.name AS tenant_name
+         FROM user_invitations ui JOIN platform_tenants pt ON pt.id = ui.tenant_id
+        WHERE ui.token_hash = $1 AND ui.status = 'pending' AND ui.expires_at > now()`, [hashToken(_tok)]);
+    const _esc = (x) => String(x == null ? "" : x).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    let _body;
+    if (!_r.rowCount) {
+      _body = `<div class="c"><div class="ic">⏳</div><h1>Davet geçersiz</h1><p>Bu davet bağlantısı geçersiz veya süresi dolmuş. Yöneticinizden yeni bir davet isteyin.</p></div>`;
+    } else {
+      const _iv = _r.rows[0];
+      const _ex = await query("SELECT 1 FROM users WHERE lower(email) = lower($1) LIMIT 1", [_iv.invited_email]);
+      const _has = _ex.rowCount > 0;
+      _body = `<div class="c">
+        <div class="logo"><svg width="34" height="34" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#e2b04a"/><path d="M8 16h4l3-8 4 16 3-8h4" stroke="#15151f" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+        <h1>${_esc(_iv.tenant_name)}</h1>
+        <p class="sub">Ekibe davet edildiniz · <b>${_esc(_iv.invited_email)}</b></p>
+        <form id="f">
+          ${_has
+            ? `<p class="note">Bu e-posta ile zaten bir hesabınız var. Kabul edince ekibe eklenirsiniz; sonra normal şifrenizle giriş yaparsınız.</p>`
+            : `<label>Ad Soyad</label><input id="name" placeholder="Adınız" autocomplete="name">
+               <label>Şifre belirleyin</label><input id="pw" type="password" placeholder="En az 10 karakter" autocomplete="new-password"><label>Şifre (tekrar)</label><input id="pw2" type="password" placeholder="Şifreyi tekrar girin" autocomplete="new-password"><div style="margin-top:8px;font-size:11.5px;color:#6b7280;text-align:left">En az 10 karakter · en az bir harf ve bir rakam</div>`}
+          <button type="submit" id="btn">${_has ? "Ekibe katıl" : "Hesabı oluştur ve katıl"}</button>
+          <div id="msg" class="msg"></div>
+        </form>
+      </div>
+      <script>
+        var TOK = ${JSON.stringify(_tok)}, HAS = ${_has ? "true" : "false"}, EML = ${JSON.stringify(_iv.invited_email)};  /* FLASH_FIX_V1 */
+        document.getElementById("f").addEventListener("submit", async function (e) {
+          e.preventDefault();
+          var btn = document.getElementById("btn"), msg = document.getElementById("msg");
+          var body = { token: TOK };
+          if (!HAS) {
+            body.name = (document.getElementById("name").value || "").trim();
+            body.password = document.getElementById("pw").value || "";
+            body.passwordConfirm = document.getElementById("pw2").value || "";
+            if (body.password.length < 10) { msg.style.color = "#dc2626"; msg.textContent = "Şifre en az 10 karakter olmalı."; return; }
+            if (!/[a-zA-Z]/.test(body.password) || !/[0-9]/.test(body.password)) { msg.style.color = "#dc2626"; msg.textContent = "Şifre en az bir harf ve bir rakam içermeli."; return; }
+            if (body.password !== body.passwordConfirm) { msg.style.color = "#dc2626"; msg.textContent = "Şifreler eşleşmiyor."; return; }
+          }
+          btn.disabled = true; btn.textContent = "…"; msg.textContent = "";
+          try {
+            var r = await fetch("/api/invite/accept", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+            var d = await r.json(); if (!r.ok) throw new Error(d.error || "Hata");
+            if (d.sessionToken) {
+              try { localStorage.setItem("platformSessionToken", d.sessionToken); localStorage.setItem("krbCurrentUserEmail", EML); } catch (_) {}
+              msg.style.color = "#16a34a"; msg.textContent = "Tamamlandı, yönlendiriliyorsunuz…"; setTimeout(function () { location.href = "/"; }, 700);
+            } else {
+              msg.style.color = "#16a34a"; msg.innerHTML = "Ekibe eklendiniz. <a href='/'>Giriş yapın →</a>"; btn.style.display = "none";
+            }
+          } catch (err) { btn.disabled = false; btn.textContent = HAS ? "Ekibe katıl" : "Hesabı oluştur ve katıl"; msg.style.color = "#dc2626"; msg.textContent = err.message; }
+        });
+      </script>`;
+    }
+    const _html = `<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Davet</title>
+      <style>*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#15151f;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:20px}
+      .c{background:#fff;border-radius:18px;padding:36px 32px;max-width:400px;width:100%;box-shadow:0 30px 70px rgba(0,0,0,.45);text-align:center}
+      .logo{margin-bottom:12px}.ic{font-size:40px;margin-bottom:8px}
+      h1{margin:6px 0 4px;font-size:22px;color:#12182a;letter-spacing:-.02em}.sub{color:#6b7280;font-size:14px;margin:0 0 22px}
+      .note{background:#f4f5f7;border-radius:10px;padding:12px;font-size:13px;color:#4b5462;text-align:left;margin:0 0 16px;line-height:1.5}
+      label{display:block;text-align:left;font-size:12.5px;font-weight:650;color:#4b5462;margin:14px 0 6px}
+      input{width:100%;padding:11px 13px;border:1px solid #d7dbe3;border-radius:10px;font-size:15px;outline:none}
+      input:focus{border-color:#12182a;box-shadow:0 0 0 3px rgba(18,24,42,.08)}
+      button{width:100%;margin-top:20px;padding:13px;border:0;border-radius:10px;background:#12182a;color:#fff;font-size:15px;font-weight:650;cursor:pointer}
+      button:hover{background:#26263a}.msg{margin-top:14px;font-size:13px;min-height:18px}
+      p{color:#4b5462;line-height:1.5}a{color:#2563eb;font-weight:600;text-decoration:none}</style></head>
+      <body>${_body}</body></html>`;
+    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    response.end(_html);
+  } catch (e) {
+    response.writeHead(500, { "Content-Type": "text/html; charset=utf-8" });
+    response.end("<!DOCTYPE html><meta charset=utf-8><h1>Hata</h1>");
+  }
+  return;
+}
+
+// POST /api/invite/accept — daveti kabul et  /* INVITE_ACCEPT_V1 */
+if (request.method === "POST" && url.pathname === "/api/invite/accept") {
+  try {
+    const { token, password, passwordConfirm, name } = await readJson(request);  /* ONBOARD_HARDEN_V1 */
+    if (!token) throw Object.assign(new Error("Geçersiz davet."), { statusCode: 400 });
+    const inv = await query(`SELECT * FROM user_invitations WHERE token_hash = $1 AND status = 'pending' AND expires_at > now()`, [hashToken(token)]);
+    if (!inv.rowCount) throw Object.assign(new Error("Davet geçersiz veya süresi dolmuş."), { statusCode: 404 });
+    const iv = inv.rows[0];
+    const email = String(iv.invited_email).toLowerCase().trim();
+    const existing = await query("SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1", [email]);
+    let userId, isNew = false;
+    if (existing.rowCount) { userId = existing.rows[0].id; }
+    else {
+      const _pw = String(password || "");
+      if (_pw.length < 10) throw Object.assign(new Error("Şifre en az 10 karakter olmalı."), { statusCode: 400 });
+      if (!/[a-zA-Z]/.test(_pw) || !/[0-9]/.test(_pw)) throw Object.assign(new Error("Şifre en az bir harf ve bir rakam içermeli."), { statusCode: 400 });
+      if (["1234567890","0123456789","parola12345","password1234","1111111111","qwertyuiop"].indexOf(_pw.toLowerCase()) !== -1 || /^(.)\1+$/.test(_pw)) throw Object.assign(new Error("Bu şifre çok yaygın, farklı bir şifre seçin."), { statusCode: 400 });
+      if (passwordConfirm !== undefined && String(passwordConfirm) !== _pw) throw Object.assign(new Error("Şifreler eşleşmiyor."), { statusCode: 400 });
+      const u = await query(
+        `INSERT INTO users (email, full_name, name, role, auth_provider, password_hash, status)
+         VALUES ($1, $2, $2, 'bi_user', 'local', $3, 'active') RETURNING id`,
+        [email, (name && String(name).trim()) || email, hashPassword(String(password))]);
+      userId = u.rows[0].id; isNew = true;
+    }
+    await query(`INSERT INTO tenant_users (tenant_id, user_id, tenant_role, invited_by) VALUES ($1, $2, 'member', $3)
+                 ON CONFLICT (tenant_id, user_id) DO UPDATE SET active = true`, [iv.tenant_id, userId, iv.invited_by]);
+    const _grants = (Array.isArray(iv.modules_json) && iv.modules_json.length) ? iv.modules_json : (iv.module_id ? [{ module_id: iv.module_id, module_role: iv.module_role, permissions_json: iv.permissions_json }] : []); /* MULTI_MODULE_INVITE_V1 */
+    for (const _g of _grants) { if (!_g || !_g.module_id) continue;
+      await query(`INSERT INTO tenant_user_modules (tenant_id, user_id, module_id, module_role, permissions_json, active, granted_by)
+                   VALUES ($1, $2, $3, $4, $5, true, $6)
+                   ON CONFLICT (tenant_id, user_id, module_id) DO UPDATE SET module_role = $4, permissions_json = $5, active = true, updated_at = now()`,
+        [iv.tenant_id, userId, _g.module_id, _g.module_role || "viewer", _g.permissions_json || {}, iv.invited_by]);
+    }
+    await query("UPDATE user_invitations SET status = 'accepted', accepted_by_user_id = $1 WHERE id = $2", [userId, iv.id]);
+    const _ip = (request.headers['x-forwarded-for'] ? String(request.headers['x-forwarded-for']).split(',')[0] : (request.socket?.remoteAddress || 'unknown')).trim();
+    const _ua = String(request.headers['user-agent'] || '').slice(0, 300);
+    await _yetkiLog(iv.tenant_id, userId, "davet_kabul", { target: userId, detay: { email, module_id: iv.module_id, role: iv.module_role || "viewer", yeni_hesap: isNew, ip: _ip, ua: _ua, invited_by: iv.invited_by } });
+    let sessionToken = null;
+    if (isNew) { sessionToken = await createSession(userId, { userAgent: _ua || "invite-accept", ip: _ip }); await query("UPDATE users SET last_login_at = now() WHERE id = $1", [userId]); }
+    sendJson(response, 200, { ok: true, sessionToken, alreadyHadAccount: !isNew }, sessionToken ? { "Set-Cookie": sessionCookie(sessionToken) } : {});
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// GET /api/tenant/invitations — bekleyen davetler  /* INVITE_LIST_V1 */
+if (request.method === "GET" && url.pathname === "/api/tenant/invitations") {
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const result = await query(
+      `SELECT id, invited_email, module_id, module_role, status, created_at, expires_at
+         FROM user_invitations
+        WHERE tenant_id = $1 AND status = 'pending' AND expires_at > now()
+        ORDER BY created_at DESC`, [session.tenantId]);
+    sendJson(response, 200, result.rows);
+  } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
+  return;
+}
+
+// DELETE /api/tenant/invitations/:id — daveti iptal et  /* INVITE_LIST_V1 */
+const _invCancel = url.pathname.match(/^\/api\/tenant\/invitations\/([^/]+)$/);
+if (request.method === "DELETE" && _invCancel) {
+  try {
+    const session = await requireTenantAdmin(request);
+    if (!session.tenantId) { sendJson(response, 403, { error: "Tenant context required." }); return; }
+    const r = await query(
+      `UPDATE user_invitations SET status = 'cancelled'
+        WHERE id = $1 AND tenant_id = $2 AND status = 'pending' RETURNING id`,
+      [_invCancel[1], session.tenantId]);
+    if (!r.rowCount) throw Object.assign(new Error("Invitation not found."), { statusCode: 404 });
+    sendJson(response, 200, { message: "Invitation cancelled." });
   } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
   return;
 }
@@ -22129,7 +23115,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/sales/kpis") {
       SELECT marka, SUM(miktar) AS adet, SUM(satir_tutar) AS tutar
       FROM bi_satis_faturalari
       WHERE tenant_id = $1 AND fatura_tarihi >= now() - interval '30 days'
-        AND grup_adi LIKE 'LASTIK%'   -- LASTIK_FILTRE_V1
+        AND grup_adi LIKE evren_desen(tenant_id)   -- LASTIK_FILTRE_V1
       GROUP BY marka ORDER BY tutar DESC LIMIT 10`, [session.tenantId]);
 
     sendJson(response, 200, {
@@ -23020,7 +24006,7 @@ if (request.method === 'GET' && url.pathname === '/api/bi/orders/brand-mix') {
         WHERE sf.tenant_id = $1::text
           AND sf.fatura_tarihi >= now() - interval '365 days'
           AND sf.marka IS NOT NULL AND sf.marka <> ''
-          AND sf.grup_adi LIKE 'LASTIK%'   -- LASTIK_FILTRE_V1
+          AND sf.grup_adi LIKE evren_desen(sf.tenant_id)   -- LASTIK_FILTRE_V1
           AND ($2 = 'all' OR
                ($2 = 'tuketici' AND sf.kategori IN ('YAZ','KIS','4 MEVSIM')) OR
                ($2 = 'ticari'   AND sf.kategori IN ('TBR','LSR','IND','OTR','AG')) OR
@@ -23198,6 +24184,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/orders/size-opportunit
           WHERE tenant_id = $1::text
         ) sf_map ON sf_map.kalem_kodu = sd.kalem_kodu
         WHERE sd.tenant_id = $1::uuid
+          AND sd.grup_adi ILIKE evren_desen(sd.tenant_id)
           AND sd.export_date = (SELECT MAX(export_date) FROM bi_stok_durumu WHERE tenant_id = $1::uuid)
         GROUP BY 1
       ),
@@ -23540,18 +24527,13 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
     if (!date) { sendJson(response, 200, { no_data: true }); return; }
 
     const result = await query(`
-      SELECT
-        COUNT(DISTINCT kalem_kodu)                                          AS sku_sayisi,
-        SUM(toplam_deger)                                                   AS stok_degeri,
-        COUNT(*) FILTER (WHERE eldeki_miktar <= min_stok AND min_stok > 0) AS kritik_stok_sayisi,
-        COUNT(*) FILTER (WHERE eldeki_miktar = 0)                          AS sifir_stok_sayisi
-      FROM bi_stok_durumu
-      WHERE tenant_id = $1 AND export_date = $2`, [session.tenantId, date]);
+      SELECT sku_sayisi, stok_deger AS stok_degeri, kritik_stok AS kritik_stok_sayisi, sifir_stok AS sifir_stok_sayisi
+      FROM v_stok_deger_kanon WHERE tenant_id::text = $1`, [session.tenantId]); /* STOK_KANON: lastik-kapsamli */
 
     const dead_stock = await query(`
       SELECT bsd.kalem_kodu, bsd.kalem_tanimi, bsd.marka, bsd.eldeki_miktar, bsd.toplam_deger
       FROM bi_stok_durumu bsd
-      WHERE bsd.tenant_id = $1 AND bsd.export_date = $2 AND bsd.eldeki_miktar > 0
+      WHERE bsd.tenant_id = $1 AND bsd.export_date = $2 AND bsd.grup_adi ILIKE evren_desen(bsd.tenant_id) AND bsd.eldeki_miktar > 0
         AND NOT EXISTS (
           SELECT 1 FROM bi_stok_hareketleri bsh
           WHERE bsh.tenant_id = $1 AND bsh.kalem_kodu = bsd.kalem_kodu
@@ -23688,6 +24670,27 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
             tazelenen.push("marj atomu (" + (_a.rows[0]?.n ?? 0) + " satır)");
           } catch (e) { console.error("[yukle] marj_atom:", e && e.message); tazelenen.push("⚠ MARJ ATOM HATASI: " + String(e && e.message).slice(0,120)); }
         }
+        // STOK_HIZ_YENILE_V1 — velocity/olu snapshot arka planda tazele (bloklamaz)
+        if (sonuc.ok && ["satis_faturalari","stok_hareket","stok_durumu","stok_anlik"].includes(sonuc.tip)) {
+          query("SELECT stok_hiz_yenile($1::uuid)", [session.tenantId]).then(function(){}).catch(function(e){ console.error("[yukle] stok_hiz:", e && e.message); });
+          query("SELECT finans_sermaye_yenile($1::uuid)", [session.tenantId]).then(function(){}).catch(function(e){ console.error("[yukle] finans_sermaye:", e && e.message); }); /* FINANS_SERMAYE_HOOK_V1 */
+          tazelenen.push("stok hız snapshot (arka planda)");
+        }
+        // TURET_UYARI_V1 — turetme (marj kubu/sinyal) sonucu GORUNSUN (basari + hata)
+        if (sonuc.ok && sonuc.turetme) {
+          if (Array.isArray(sonuc.turetme.turetilen) && sonuc.turetme.turetilen.length) tazelenen.push("türetildi: " + sonuc.turetme.turetilen.join(", "));
+          if (Array.isArray(sonuc.turetme.uyari) && sonuc.turetme.uyari.length) { for (const _u of sonuc.turetme.uyari) tazelenen.push("⚠ TÜRETME: " + String(_u).slice(0, 180)); }
+        }
+        // CACHE_BUST_V1 — gunluk onbellekleri temizle (yoksa kokpit bu sabahki sayilari gosterir)
+        if (sonuc.ok) {
+          try {
+            await query("DELETE FROM bi_finansal_icgoru WHERE tenant_id::text=$1 AND gun=CURRENT_DATE", [session.tenantId]);
+            await query("DELETE FROM bi_morning_briefings WHERE tenant_id = $1 AND briefing_date = CURRENT_DATE", [session.tenantId]);
+            await query("DELETE FROM agent_greeting_cache WHERE tenant_id = $1 AND greet_date = CURRENT_DATE", [session.tenantId]);
+            try{ if(globalThis.__odaCache) globalThis.__odaCache.clear(); }catch(e){}  /* FINANS_ODA_CACHE_BUST_V1 */
+            tazelenen.push("önbellek temizlendi (içgörü/brief/selam + finans oda)");
+          } catch (e) { console.error("[yukle] cache-bust:", e && e.message); tazelenen.push("⚠ ÖNBELLEK HATASI: " + String(e && e.message).slice(0, 120)); }
+        }
         sendJson(response, sonuc.ok ? 200 : 422, { dosya: dosyaAdi, boyut, ...sonuc, tazelenen, saglik });
     } catch (e) { sendJson(response, 500, { error: e.message }); }
   }
@@ -23723,9 +24726,9 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
             alacak AS (
             -- ⚠ hesap_bakiyesi. toplam_risk DEGIL.
             SELECT COALESCE(sum(hesap_bakiyesi),0) AS bakiye,
-                   COALESCE(sum(vadesi_gecmis),0)  AS gecikmis,
+                   (SELECT COALESCE(sum(net_gecikmis),0) FROM v_net_gecikmis_musteri WHERE tenant_id=$1::uuid) AS gecikmis,  /* NET_GECIKMIS_FINANS_V1 brut->net */
                    COALESCE(sum(toplam_risk),0)    AS toplam_risk,
-                   count(*) FILTER (WHERE vadesi_gecmis>0) AS gecikmis_musteri
+                   (SELECT count(*) FROM v_net_gecikmis_musteri WHERE tenant_id=$1::uuid AND net_gecikmis>0) AS gecikmis_musteri  /* NET_GECIKMIS_FINANS_V1 */
               FROM bi_musteri_risk WHERE tenant_id=$1::uuid AND musteri_mi),
           borc AS (
             SELECT COALESCE(abs(sum(tedarikci_bakiye) FILTER (WHERE tedarikci_bakiye<0)),0) AS tutar,
@@ -23790,6 +24793,29 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
   // Hangi dosyalar bekleniyor + hangisi ne zaman geldi
   // ⚠ Sistem hangi dosyayi bekledigini BILMELI. 'account balance' AYLARDIR
   //   gelmiyordu ve bunu TESADUFEN bulduk.
+      if (request.method === 'GET' && url.pathname === '/api/bi/birim-kirilim') { /* BIRIM_KIRILIM_V1 */
+        try {
+          const session = await requireModuleAccess(request, "intelligence");
+          const T = session.tenantId;
+          const sp = url.searchParams;
+          const BOYUT = { segment: 'grup_adi', kategori: 'kategori', marka: 'marka', jant: 'jant_capi', sku: 'kalem_tanimi' };
+          const boyut = BOYUT[sp.get('boyut')] ? sp.get('boyut') : 'segment';
+          const col = BOYUT[boyut];
+          const wh = ["tenant_id::text=$1", "grup_adi = ANY(evren_gruplar(tenant_id))"];
+          const binds = [T];
+          const addFilt = (param, dbcol) => { const v = sp.get(param); if (v) { binds.push(v); wh.push(dbcol + " = $" + binds.length); } };
+          addFilt('segment', 'grup_adi'); addFilt('kategori', 'kategori'); addFilt('marka', 'marka'); addFilt('jant', 'jant_capi');
+          const from = sp.get('from'), to = sp.get('to');
+          if (from && to) { binds.push(from, to); wh.push("fatura_tarihi BETWEEN $" + (binds.length - 1) + " AND $" + binds.length); }
+          else if (from) { binds.push(from); wh.push("fatura_tarihi >= $" + binds.length); }
+          const W = wh.join(' AND ');
+          const r = await query("SELECT COALESCE(NULLIF(TRIM(" + col + "),''),'(bos)') deger, SUM(miktar)::numeric adet, SUM(satir_tutar)::numeric ciro, COUNT(DISTINCT fatura_no)::int fatura FROM bi_satis_faturalari WHERE " + W + " GROUP BY 1 HAVING SUM(miktar) > 0 ORDER BY adet DESC LIMIT 200", binds);
+          const tot = (await query("SELECT COALESCE(SUM(miktar),0)::numeric adet, COALESCE(SUM(satir_tutar),0)::numeric ciro FROM bi_satis_faturalari WHERE " + W, binds)).rows[0];
+          const satirlar = r.rows.map(x => ({ deger: x.deger, adet: Number(x.adet || 0), ciro: Number(x.ciro || 0), fatura: Number(x.fatura || 0) }));
+          sendJson(response, 200, { boyut, toplam_adet: Number(tot.adet || 0), toplam_ciro: Number(tot.ciro || 0), satirlar });
+        } catch (e) { console.error('[birim-kirilim]', e && e.message); sendJson(response, 500, { error: e.message }); }
+        return;
+      }
       if (request.method === 'GET' && url.pathname === '/api/bi/finans-trend') {
       try {
         const session = await requireModuleAccess(request, "intelligence");
@@ -23832,6 +24858,158 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
       } catch (e) { sendJson(response, 500, { error: e.message }); }
     }
 
+    // ODEME_VADELERI_V1 — Tedarikçi vade vs Müşteri vade (finansman farkı). Desktop + mobil.
+    // TAHSILAT_OZET_V1 — portföy ölçülen tahsilat davranışı (bi_tahsilat). Read-only. Çift erişim.
+    if (request.method === 'GET' && url.pathname === '/api/bi/tahsilat-ozet') {
+      try {
+        let session = await requireModuleAccess(request, "intelligence").catch(() => null);
+        if (!session) {
+          const _ss = await requireSahaAccess(request).catch(() => null);
+          if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss;
+        }
+        if (!session) { sendJson(response, 403, { error: "yetki yok" }); return; }
+        const T = String(session.tenantId);
+        const r = await query(
+          "SELECT " +
+          "  round(SUM(ort_tahsilat_suresi * toplam_tahsilat) / NULLIF(SUM(toplam_tahsilat),0), 1) AS ort_gun, " +
+          "  round(SUM(gec_odeme_orani     * toplam_tahsilat) / NULLIF(SUM(toplam_tahsilat),0), 1) AS gec_oran, " +
+          "  round(SUM(son12_suresi        * son12_tutar)     / NULLIF(SUM(son12_tutar),0), 1)     AS son12_gun, " +
+          "  round(SUM(son12_gec_orani     * son12_tutar)     / NULLIF(SUM(son12_tutar),0), 1)     AS son12_gec, " +
+          "  SUM(tahsilat_adedi)::bigint AS tahsilat_adedi, " +
+          "  round(SUM(toplam_tahsilat))::bigint AS toplam_tahsilat, " +
+          "  count(*)::bigint AS musteri_sayisi, " +
+          "  max(son_tahsilat_tarihi) AS son_tarih " +
+          "FROM bi_tahsilat " +
+          "WHERE tenant_id=$1::uuid AND musteri_mi IS DISTINCT FROM false AND toplam_tahsilat > 0", [T]);
+        const x = r.rows[0] || {};
+        const num = (v) => v == null ? null : Number(v);
+        sendJson(response, 200, {
+          ort_gun: num(x.ort_gun),
+          gec_oran: num(x.gec_oran),
+          son12_gun: num(x.son12_gun),
+          son12_gec: num(x.son12_gec),
+          tahsilat_adedi: num(x.tahsilat_adedi),
+          toplam_tahsilat: num(x.toplam_tahsilat),
+          musteri_sayisi: num(x.musteri_sayisi),
+          son_tarih: x.son_tarih || null
+        });
+      } catch (e) { sendJson(response, 500, { error: e.message }); }
+    }
+
+    // BOLUM_ICGORU_V1 — her kirilim bolumune AI icgoru + odak trend. Read-only (yalniz cache yazar). Cift erisim.
+    if (request.method === 'GET' && url.pathname === '/api/bi/bolum-icgoru') {
+      try {
+        let session = await requireModuleAccess(request, "intelligence").catch(() => null);
+        if (!session) {
+          const _ss = await requireSahaAccess(request).catch(() => null);
+          if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss;
+        }
+        if (!session) { sendJson(response, 403, { error: "yetki yok" }); return; }
+        const zorla = url.searchParams.get("yenile") === "1";
+        const out = await _bolumIcgoruGunluk(String(session.tenantId), zorla);
+        sendJson(response, 200, out);
+      } catch (e) { console.error("[bolum-icgoru]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+    }
+
+    // MARKA_KIRILIM_V1 — secili doneme gore marka kirilimi (ciro/adet/marj). Read-only. Cift erisim.
+    if (request.method === 'GET' && url.pathname === '/api/bi/marka-kirilim') {
+      try {
+        let session = await requireModuleAccess(request, "intelligence").catch(() => null);
+        if (!session) {
+          const _ss = await requireSahaAccess(request).catch(() => null);
+          if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss;
+        }
+        if (!session) { sendJson(response, 403, { error: "yetki yok" }); return; }
+        const T = String(session.tenantId);
+        const fromRaw = url.searchParams.get("from") || "";
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(fromRaw)) { sendJson(response, 400, { error: "from gerekli (YYYY-MM-DD)" }); return; }
+        const r = await query(
+          "SELECT marka m, round(sum(ciro)/1e6,2)::float8 c, sum(adet)::int adet, " +
+          "round((sum(brut_kar)/nullif(sum(ciro),0)*100)::numeric,1)::float8 mj " +
+          "FROM bi_marj_atom WHERE tenant_id::text=$1 AND ay >= $2::date " +
+          "GROUP BY marka HAVING sum(ciro)>0 ORDER BY sum(ciro) DESC LIMIT 40", [T, fromRaw]);
+        sendJson(response, 200, { from: fromRaw, marka: r.rows });
+      } catch (e) { console.error("[marka-kirilim]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+    }
+
+    // SAHA_SESI_V1 — sahanin sesi + emergent rakip. Read-only (yalniz cache yazar). Cift erisim.
+    if (request.method === 'GET' && url.pathname === '/api/bi/saha-sesi') {
+      try {
+        let session = await requireModuleAccess(request, "intelligence").catch(() => null);
+        if (!session) {
+          const _ss = await requireSahaAccess(request).catch(() => null);
+          if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss;
+        }
+        if (!session) { sendJson(response, 403, { error: "yetki yok" }); return; }
+        const zorla = url.searchParams.get("yenile") === "1";
+        const out = await _sahaSesiGunluk(String(session.tenantId), zorla);
+        sendJson(response, 200, out);
+      } catch (e) { console.error("[saha-sesi]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+    }
+
+    if (request.method === 'GET' && url.pathname === '/api/bi/odeme-vadeleri') {
+      try {
+        let session = await requireModuleAccess(request, "intelligence").catch(() => null);
+        if (!session) {
+          const _ss = await requireSahaAccess(request).catch(() => null);
+          if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss;
+        }
+        if (!session) { sendJson(response, 403, { error: "yetki yok" }); return; }
+        const T = String(session.tenantId);
+        const _mus = await query(
+          "SELECT COALESCE(NULLIF(TRIM(odeme_kosulu),''),'—') AS kosul, SUM(satir_tutar) AS tut " +
+          "FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND satir_tutar>0 " +
+          "AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') GROUP BY 1", [T]);
+        const _ted = await query(
+          "SELECT COALESCE(NULLIF(TRIM(vade_turu),''),'—') AS kosul, SUM(satir_kdv_haric) AS tut " +
+          "FROM bi_tedarikci_faturalari WHERE tenant_id::text=$1 AND satir_kdv_haric>0 " +
+          "AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') GROUP BY 1", [T]);
+        const gun = (l) => {
+          const x = String(l || "").toLocaleLowerCase("tr");
+          if (/(peşin|pesin|nakit|havale|kredi kart|çek|cek|senet)/.test(x)) return 0;
+          const m = x.match(/(\d+)\s*g[üu]n/);
+          return m ? parseInt(m[1], 10) : null;
+        };
+        const kova = (d) => d == null ? null : (d <= 0 ? "Peşin" : d <= 30 ? "30 gün" : d <= 60 ? "60 gün" : d <= 90 ? "90 gün" : "120+ gün");
+        const KOVALAR = ["Peşin", "30 gün", "60 gün", "90 gün", "120+ gün"];
+        const isle = (rows) => {
+          const dag = {}; let toplam = 0, agirGun = 0, agirTut = 0;
+          for (const r of rows) {
+            const t = Number(r.tut) || 0; if (t <= 0) continue;
+            const d = gun(r.kosul); const k = kova(d);
+            toplam += t;
+            if (k) dag[k] = (dag[k] || 0) + t;
+            if (d != null) { agirGun += d * t; agirTut += t; }
+          }
+          const dagilim = KOVALAR.map(k => ({
+            kova: k, tutar: Math.round(dag[k] || 0),
+            pct: toplam > 0 ? Math.round((dag[k] || 0) / toplam * 1000) / 10 : 0
+          }));
+          return { ort_gun: agirTut > 0 ? Math.round(agirGun / agirTut * 10) / 10 : 0, toplam: Math.round(toplam), dagilim };
+        };
+        const musteri = isle(_mus.rows), tedarikci = isle(_ted.rows);
+        sendJson(response, 200, {
+          kovalar: KOVALAR, musteri, tedarikci,
+          fark_gun: Math.round((musteri.ort_gun - tedarikci.ort_gun) * 10) / 10
+        });
+      } catch (e) { sendJson(response, 500, { error: e.message }); }
+    }
+
+    // FINANSAL_ICGORU_V1 — AI finansal içgörü (trend + ₺ etki). Günlük cache. Desktop + mobil. Çift erişim.
+    if (request.method === 'GET' && url.pathname === '/api/bi/finansal-icgoru') {
+      try {
+        let session = await requireModuleAccess(request, "intelligence").catch(() => null);
+        if (!session) {
+          const _ss = await requireSahaAccess(request).catch(() => null);
+          if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss;
+        }
+        if (!session) { sendJson(response, 403, { error: "yetki yok" }); return; }
+        const zorla = url.searchParams.get("yenile") === "1";
+        const out = await _finIcgoruGunluk(String(session.tenantId), zorla);
+        sendJson(response, 200, out);
+      } catch (e) { sendJson(response, 500, { error: e.message }); }
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/bi/finans-marka-detay') {
       try {
         const session = await requireModuleAccess(request, "intelligence");
@@ -23842,20 +25020,33 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
         // KANONİK ATOM (omurga_40): gerçek dönem-eşleşmeli marj — eski tüm-geçmiş maliyet DEĞİL
         const [cur, prev] = await Promise.all([
           query(`
-            SELECT to_char(ay,'YYYY-MM') AS donem, round(sum(ciro)) AS ciro, sum(adet)::bigint AS adet,
-                   round(sum(brut_kar)) AS marj,
-                   round(100.0*count(*) FILTER (WHERE maliyet_kaynak='donem')/nullif(count(*),0)) AS marj_kapsam
-              FROM bi_marj_atom
-             WHERE tenant_id=$1::uuid AND upper(marka)=upper($2)
-               AND ay >= (date_trunc('month',CURRENT_DATE) - make_interval(months=>$3::int))
-               AND ay < date_trunc('month',CURRENT_DATE)
-             GROUP BY ay ORDER BY ay`, [T, marka, ay]),
+            WITH sale AS (SELECT date_trunc('month',fatura_tarihi)::date ay, sum(satir_tutar) ciro, sum(miktar) adet
+                            FROM bi_satis_faturalari
+                           WHERE tenant_id::text=$1 AND upper(marka)=upper($2) AND grup_adi LIKE evren_desen(tenant_id) AND satir_tutar>0
+                             AND fatura_tarihi >= (date_trunc('month',CURRENT_DATE) - make_interval(months=>$3::int))
+                             AND fatura_tarihi <  date_trunc('month',CURRENT_DATE)
+                           GROUP BY 1),
+                 mm AS (SELECT ay, sum(brut_kar) marj,
+                               round(100.0*count(*) FILTER (WHERE maliyet_kaynak='donem')/nullif(count(*),0)) marj_kapsam
+                          FROM bi_marj_atom
+                         WHERE tenant_id::text=$1 AND upper(marka)=upper($2)
+                           AND ay >= (date_trunc('month',CURRENT_DATE) - make_interval(months=>$3::int))
+                           AND ay <  date_trunc('month',CURRENT_DATE)
+                         GROUP BY ay)
+            SELECT to_char(sale.ay,'YYYY-MM') AS donem, round(sale.ciro) AS ciro, sale.adet::bigint AS adet,
+                   round(mm.marj) AS marj, mm.marj_kapsam AS marj_kapsam  /* CIRO_KANON_MARKADETAY_V1 */
+              FROM sale LEFT JOIN mm ON mm.ay=sale.ay ORDER BY sale.ay`, [String(T), marka, ay]),
           query(`
-            SELECT round(sum(ciro)) AS ciro, sum(adet)::bigint AS adet, round(sum(brut_kar)) AS marj
-              FROM bi_marj_atom
-             WHERE tenant_id=$1::uuid AND upper(marka)=upper($2)
-               AND ay >= (date_trunc('month',CURRENT_DATE) - make_interval(months=>$3::int+12))
-               AND ay < (date_trunc('month',CURRENT_DATE) - make_interval(months=>12))`, [T, marka, ay])
+            WITH sale AS (SELECT sum(satir_tutar) ciro, sum(miktar) adet FROM bi_satis_faturalari
+                           WHERE tenant_id::text=$1 AND upper(marka)=upper($2) AND grup_adi LIKE evren_desen(tenant_id) AND satir_tutar>0
+                             AND fatura_tarihi >= (date_trunc('month',CURRENT_DATE) - make_interval(months=>$3::int+12))
+                             AND fatura_tarihi <  (date_trunc('month',CURRENT_DATE) - make_interval(months=>12))),
+                 mm AS (SELECT sum(brut_kar) marj FROM bi_marj_atom
+                         WHERE tenant_id::text=$1 AND upper(marka)=upper($2)
+                           AND ay >= (date_trunc('month',CURRENT_DATE) - make_interval(months=>$3::int+12))
+                           AND ay <  (date_trunc('month',CURRENT_DATE) - make_interval(months=>12)))
+            SELECT round(sale.ciro) AS ciro, sale.adet::bigint AS adet, round(mm.marj) AS marj  /* CIRO_KANON_MARKADETAY_V1 */
+              FROM sale, mm`, [String(T), marka, ay])
         ]);
         const noktalar = cur.rows.map(x => ({ donem:x.donem, ciro:Number(x.ciro),
           adet:Number(x.adet), marj:x.marj==null?null:Number(x.marj),
@@ -23965,7 +25156,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/warehouse/kpis") {
         const rows = (await query(`SELECT id, kanit->>'marka' AS marka FROM bi_icgoru
           WHERE tenant_id=$1::uuid AND bolum='marka-marj' AND durum='yeni' AND anlati IS NULL
           ORDER BY surpriz_skoru DESC`, [T])).rows;
-        const SYS = `Sen KRB adlı lastik toptancısının finans analistisin. İşletme sahibine bir markanın kâr marjı analizini anlatıyorsun.
+        const _ev25 = await _evTanim(T); const SYS = `Sen bu ${_ev25} firmanın finans analistisin. İşletme sahibine bir markanın kâr marjı analizini anlatıyorsun.
 Sana JSON verilecek. İçindeki "bulgular" listesi markaya ait DOĞRU ve KANITLI tespit cümleleridir.
 Görevin: bunları doğal, akıcı Türkçe ile KISA (3-5 cümle) tek paragraf olarak, analist ağzıyla YENİDEN anlatmak.
 KATI KURALLAR:
@@ -24176,8 +25367,8 @@ KATI KURALLAR:
             --   ⚠ BEKLEYEN SIPARIS HENUZ PARA DEGIL — isletme sermayesinde YERI YOK.
             --   Ayni uygulamada iki sayi olamaz. Kaynak: bi_musteri_risk.hesap_bakiyesi.
             SELECT COALESCE(sum(hesap_bakiyesi),0) AS risk,
-                   COALESCE(sum(vadesi_gecmis),0)  AS gecikmis,
-                   count(*) FILTER (WHERE vadesi_gecmis>0)  AS gecikmis_musteri,
+                   (SELECT COALESCE(SUM(net_gecikmis),0) FROM v_net_gecikmis_musteri WHERE tenant_id=$2::uuid)  AS gecikmis,  /* NET_GECIKMIS_ANA_V1 brut->net */
+                   (SELECT COUNT(*) FROM v_net_gecikmis_musteri WHERE tenant_id=$2::uuid AND net_gecikmis>0)  AS gecikmis_musteri,
                    count(*) FILTER (WHERE limit_asimi>0)    AS limit_asan
               FROM bi_musteri_risk
              WHERE tenant_id=$2::uuid AND COALESCE(musteri_mi,true)),
@@ -24194,9 +25385,9 @@ KATI KURALLAR:
                  (s.deger + a.risk)                                  AS bagli_sermaye,
                  -- ⚠ CIRO bazliydi (yaklasik). Artik SMM var ama endpoint'te ayri sorgu;
                  --   ciro bazli deger BURADA kaliyor, SMM bazli ON YUZDE hesaplanıyor.
-                 ROUND(s.deger  / NULLIF(c.gunluk,0))                AS stok_gun,
-                 -- ⚠ GERCEK DSO: tahsil EDILMEYENI de icerir. Tablo 26,9 diyordu; yalan.
-                 ROUND(a.risk   / NULLIF(c.gunluk,0))                AS dso_gun,
+                 (SELECT round(dio) FROM v_finans_ticari_sermaye WHERE tenant_id=$2::uuid)  AS stok_gun,  /* DONGU_KANON_ANA_V1 */
+                 -- DONGU_KANON_ANA_V1: dso_gun/stok_gun -> v_finans_ticari_sermaye (bilanco-tabanli kanon; DSO 100 / DIO 146). Eski risk/gunluk-ciro proxy kaldirildi. Olculen tahsilat hizi AYRI lens (bi_metrik_gecmis 'dso').
+                 (SELECT round(dso) FROM v_finans_ticari_sermaye WHERE tenant_id=$2::uuid)  AS dso_gun,
                  -- ⚠ SIFIR_SABIT_V1 — %40 VARSAYIM, ayardan gelir.
                  ROUND((s.deger + a.risk - b.tutar)
                        * (SELECT COALESCE(max(sermaye_maliyeti_pct),40) FROM bi_ayar WHERE tenant_id=$2::uuid) / 100)
@@ -24252,28 +25443,29 @@ KATI KURALLAR:
         //   ⚠ SADECE LASTIK TICARETI. Kaplama+servis HARIC (maliyet yapisi farkli).
         //   ⚠ ALT SINIR: ERP maliyeti = FATURA maliyeti = PRIM ONCESI.
         query(`
-          WITH mus AS (SELECT DISTINCT musteri_kodu FROM bi_satis_faturalari
-                        WHERE tenant_id=$1::text AND fatura_tarihi >= CURRENT_DATE-365),
-          smm AS (SELECT sum(h.cikis) AS adet, sum(h.cikis_tutari) AS maliyet
-                    FROM bi_stok_hareket h JOIN mus m ON m.musteri_kodu = h.muhatap_kodu
-                   WHERE h.tenant_id=$2::uuid AND h.belge_tarihi >= CURRENT_DATE-365
-                     AND h.hareket_sinifi IN ('SATIS_SEVK','SATIS_FATURA')
-                     AND h.grup_adi IN ('LASTIK TICARI','LASTIK TUKETICI') AND h.cikis > 0),
-          ciro AS (SELECT sum(satir_tutar) AS c, sum(miktar) AS adet FROM bi_satis_faturalari
-                    WHERE tenant_id=$1::text AND miktar>0 AND fatura_tarihi >= CURRENT_DATE-365
-                      AND grup_adi IN ('LASTIK TICARI','LASTIK TUKETICI')),
+          /* MARJ_KANON_ANA_V1 — Bugun odasi marj'i KANONA baglandi: ciro=bi_satis LASTIK% (retread DAHIL),
+             marj%=bi_marj_atom akis maliyeti (Finans/Kokpit ile ayni). Eski ERP-cikis_tutari + retread-haric
+             motor kaldirildi (marj %14,8 -> kanon %11,5). */
+          WITH ciro AS (SELECT sum(satir_tutar) AS c, sum(miktar) AS adet FROM bi_satis_faturalari
+                         WHERE tenant_id::text=$1 AND satir_tutar>0 AND fatura_tarihi >= CURRENT_DATE-365
+                           AND grup_adi LIKE evren_desen(tenant_id)),
+          atom AS (SELECT sum(brut_kar) AS bk, sum(ciro) AS ac,
+                          ROUND(100.0*count(*) FILTER (WHERE maliyet_kaynak='donem')/NULLIF(count(*),0)) AS kapsam
+                     FROM bi_marj_atom
+                    WHERE tenant_id::text=$1 AND ay >= date_trunc('month',CURRENT_DATE) - INTERVAL '12 months'),
           hiz AS (SELECT COALESCE(sum(satir_tutar),0) AS c FROM bi_satis_faturalari
-                   WHERE tenant_id=$1::text AND miktar>0 AND fatura_tarihi >= CURRENT_DATE-365
+                   WHERE tenant_id::text=$1 AND miktar>0 AND fatura_tarihi >= CURRENT_DATE-365
                      AND grup_adi IN ('VERILEN SERVIS HIZMET','LASTIK YENILEME')),
           prim AS (SELECT COALESCE(sum(satir_tutar),0) AS p FROM bi_satis_faturalari
-                    WHERE tenant_id=$1::text AND fatura_tarihi >= CURRENT_DATE-365
+                    WHERE tenant_id::text=$1 AND fatura_tarihi >= CURRENT_DATE-365
                       AND kategori IN ('DESTEK BEDELİ','TÜKETİCİ PRİM'))
-          SELECT s.maliyet AS smm, c.c AS ciro, s.adet AS smm_adet, c.adet AS satis_adet,
-                 ROUND(100.0*(1 - s.maliyet/NULLIF(c.c,0)), 1)      AS marj_pct,
-                 ROUND(100.0*s.adet/NULLIF(c.adet,0))               AS mutabakat_pct,
-                 p.p AS prim, h.c AS hizmet_ciro,
-                 ROUND(s.maliyet/365.0)                             AS gunluk_smm
-            FROM smm s, ciro c, prim p, hiz h`, [T, T]),
+          SELECT ROUND(ciro.c*(1 - atom.bk/NULLIF(atom.ac,0)))        AS smm,
+                 ciro.c AS ciro, ciro.adet AS satis_adet,
+                 ROUND(100.0*atom.bk/NULLIF(atom.ac,0), 1)            AS marj_pct,
+                 atom.kapsam                                          AS mutabakat_pct,
+                 prim.p AS prim, hiz.c AS hizmet_ciro,
+                 ROUND(ciro.c*(1 - atom.bk/NULLIF(atom.ac,0))/365.0)  AS gunluk_smm
+            FROM ciro, atom, prim, hiz`, [T]),
 
         // 7) NET_UI_V1 — ⚠ RISK BRUT ALACAGA DEGIL, NET POZISYONA gore.
         //   MUTAFLAR brut 47,6M ama NET 1,0M (limit 1,0M): YONETILEN MAHSUPLASMA.
@@ -24375,10 +25567,10 @@ KATI KURALLAR:
             mutabakat_pct: Number(m.mutabakat_pct||0),
             gunluk_smm : Number(m.gunluk_smm||0),
             hizmet_ciro: Number(m.hizmet_ciro||0),
-            kaynak: 'ERP maliyet kaydı (bi_stok_hareket.birim_maliyet) — modellenmiş değil',
-            sinir : 'ALT SINIR: fatura maliyeti = prim öncesi brüt',
-            kapsam: 'Sadece lastik ticareti. Kaplama ve servis hariç — maliyet yapısı farklı.',
-            mutabakat: 'Adet oranı %' + Number(m.mutabakat_pct||0) + ' — maliyet ve ciro aynı malı ölçüyor.'
+            kaynak: 'Kanon akış maliyeti (bi_marj_atom) — Finans ve Kokpit ile aynı', /* MARJ_KANON_ANA_V1 */
+            sinir : 'Prim (teşvik) öncesi brüt marj',
+            kapsam: 'Tüm lastik, retread dahil (grup_adi LIKE LASTIK%); jant/akü/servis hariç.',
+            mutabakat: 'Maliyet kapsamı %' + Number(m.mutabakat_pct||0) + ' — dönem-maliyeti eşleşen kalem oranı.'
           };
         })(),
         karlilik: {
@@ -24431,12 +25623,12 @@ if (request.method === "GET" && url.pathname === "/api/bi/pricing/ccc") {
         ), stok AS (
           SELECT COALESCE(SUM(s.adet * son.maliyet), 0) AS deger
             FROM bi_stok_anlik s JOIN son ON son.kalem_kodu = s.kalem_kodu
-           WHERE s.tenant_id = $1::uuid
+           WHERE s.tenant_id = $1::uuid AND s.grup_adi = ANY(evren_gruplar(s.tenant_id::text)) /*DIO_LASTIK_V1*/
              AND s.export_date = (SELECT MAX(export_date) FROM bi_stok_anlik WHERE tenant_id = $1::uuid)
         ), smm AS (
           SELECT COALESCE(SUM(f.miktar * son.maliyet), 0) / 365.0 AS gunluk
             FROM bi_satis_faturalari f JOIN son ON son.kalem_kodu = f.kalem_kodu
-           WHERE f.tenant_id = $1::text AND f.grup_adi LIKE 'LASTIK%' AND f.miktar > 0
+           WHERE f.tenant_id = $1::text AND f.grup_adi = ANY(evren_gruplar(f.tenant_id)) AND f.miktar > 0
              AND f.fatura_tarihi >= CURRENT_DATE - 365
         )
         SELECT COALESCE(stok.deger / NULLIF(smm.gunluk, 0), 0) AS dis,
@@ -24483,7 +25675,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/pricing/ccc") {
       //   ⚠ miktar > 0: iade faturalari (negatif miktar) vadeyi TERS agirliklandirir.
       query(`
         SELECT COALESCE(
-                 SUM(satir_kdv_haric * vade_gun) / NULLIF(SUM(satir_kdv_haric), 0), 0
+                 SUM(satir_kdv_haric * vade_gun) FILTER (WHERE vade_gun IS NOT NULL) / NULLIF(SUM(satir_kdv_haric) FILTER (WHERE vade_gun IS NOT NULL), 0), 0
                ) AS dpo
         FROM bi_tedarikci_faturalari
         WHERE tenant_id = $1::uuid
@@ -24629,7 +25821,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/sezon/durum") {
         SELECT upper(marka) AS marka, regexp_replace(upper(ebat),'\\s+','','g') AS ebat,
                SUM(miktar) AS gecen_sezon
           FROM bi_satis_faturalari
-         WHERE tenant_id = $1::text AND grup_adi LIKE 'LASTIK%' AND miktar > 0
+         WHERE tenant_id = $1::text AND grup_adi LIKE evren_desen(tenant_id) AND miktar > 0
            AND kategori ILIKE '%' || $2 || '%' AND ebat <> ''
            AND fatura_tarihi >= DATE '2025-10-01' AND fatura_tarihi < DATE '2026-02-01'
          GROUP BY 1,2
@@ -24663,7 +25855,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/sezon/durum") {
       eb AS (
         SELECT regexp_replace(upper(f.ebat),'\\s+','','g') AS ebat, AVG(son.m) AS maliyet
           FROM bi_satis_faturalari f JOIN son ON son.kalem_kodu = f.kalem_kodu
-         WHERE f.tenant_id = $1::text AND f.grup_adi LIKE 'LASTIK%' AND f.ebat <> ''
+         WHERE f.tenant_id = $1::text AND f.grup_adi LIKE evren_desen(f.tenant_id) AND f.ebat <> ''
          GROUP BY 1
       )
       SELECT o.tedarikci, o.donem,
@@ -24723,8 +25915,8 @@ if (request.method === "GET" && url.pathname === "/api/bi/sezon/durum") {
       kredi_cakismasi: kredi.rows,
       kalemler: kalem.rows,
       uyarilar: [
-        "⚠ Müşteri ön satışı (Mutaflar/Yedi Oto/Bar Oto) KRB'nin STOK riski DEĞİL, " +
-        "KREDİ riskidir. İkisini karıştırmak 72.170 adedi 'KRB fazla stok bağladı' diye okumaktır.",
+        "⚠ Müşteri ön satışı (Mutaflar/Yedi Oto/Bar Oto) firmanın STOK riski DEĞİL, " +
+        "KREDİ riskidir. İkisini karıştırmak 72.170 adedi 'firma fazla stok bağladı' diye okumaktır.",
         "⚠ Sevk gerçekleşmesi ebatlar arasında TABAN TABANA ZIT: bazı ebatlar %74, bazıları %0. " +
         "Bu, sipariş Excel'de sevk SAP'te olduğu için bugüne kadar görülemiyordu.",
         "⚠ Talep tahmini bi_satis_faturalari'ndan gelir. bi_stok_hareket TALEP için kullanılmaz."
@@ -24779,7 +25971,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/sezon/onsiparis") {
       bayili AS (
         SELECT ebat, SUM(miktar) / 2.0 AS sezon_ort
           FROM bi_satis_faturalari
-         WHERE tenant_id = $1::text AND grup_adi LIKE 'LASTIK%' AND miktar > 0
+         WHERE tenant_id = $1::text AND grup_adi LIKE evren_desen(tenant_id) AND miktar > 0
            AND kategori ILIKE $2 AND ebat <> ''
            AND ((fatura_tarihi >= DATE '2021-10-01' AND fatura_tarihi < DATE '2022-02-01')
              OR (fatura_tarihi >= DATE '2022-10-01' AND fatura_tarihi < DATE '2023-02-01'))
@@ -24789,7 +25981,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/sezon/onsiparis") {
       guncel AS (
         SELECT ebat, SUM(miktar) AS sezon_adet
           FROM bi_satis_faturalari
-         WHERE tenant_id = $1::text AND grup_adi LIKE 'LASTIK%' AND miktar > 0
+         WHERE tenant_id = $1::text AND grup_adi LIKE evren_desen(tenant_id) AND miktar > 0
            AND kategori ILIKE $2 AND ebat <> ''
            AND fatura_tarihi >= DATE '2025-10-01' AND fatura_tarihi < DATE '2026-02-01'
          GROUP BY 1
@@ -24848,7 +26040,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/sezon/onsiparis") {
       ebat_maliyet AS (
         SELECT sf.ebat, AVG(m.maliyet) AS maliyet
           FROM bi_satis_faturalari sf JOIN son_maliyet m ON m.kalem_kodu = sf.kalem_kodu
-         WHERE sf.tenant_id = $1::text AND sf.grup_adi LIKE 'LASTIK%'
+         WHERE sf.tenant_id = $1::text AND sf.grup_adi LIKE evren_desen(sf.tenant_id)
            AND sf.kategori ILIKE $2 AND sf.ebat <> ''
            AND sf.fatura_tarihi >= CURRENT_DATE - 730
          GROUP BY 1
@@ -25073,7 +26265,7 @@ if (request.method === "GET" && url.pathname === "/api/bi/pricing/brand-incentiv
           EXTRACT(YEAR FROM fatura_tarihi)::int               AS yil
         FROM bi_satis_faturalari
         WHERE tenant_id = $1
-          AND grup_adi LIKE 'LASTIK%'
+          AND grup_adi LIKE evren_desen(tenant_id)
           AND TRIM(COALESCE(ebat,''))  != ''
           AND TRIM(COALESCE(marka,'')) != ''
           AND kategori IN ('KIS','YAZ','4 MEVSIM')
@@ -25285,7 +26477,7 @@ const IT_AGENT_TOOLS = [
     name: "execute_query",
     description:
       "Execute a SELECT SQL query against the BI database to answer any data question or generate a report. " +
-      "Always filter by tenant: WHERE tenant_id = 'f8a5d20f-ecf8-4ce2-a492-69268fbb03fa'. " +
+      "Always filter EVERY table by the session tenant using the $1 placeholder: WHERE tenant_id = $1 (bi_satis_faturalari has TEXT tenant_id: WHERE tenant_id::text = $1). NEVER write a literal tenant UUID; $1 is auto-replaced with the caller's tenant. " +  /* AI_TENANT_KANON_V1 */
       "BI tables: bi_satis_faturalari (TEXT tenant_id), bi_stok_hareketleri, bi_stok_durumu, " +
       "bi_musteri_bakiye, bi_tedarikci_faturalari, bi_tedarikci_tesvik (all UUID tenant_id), " +
       "bi_ingestion_log. No DML or DDL allowed.",
@@ -25294,7 +26486,7 @@ const IT_AGENT_TOOLS = [
       properties: {
         sql: {
           type: "string",
-          description: "SELECT SQL query using literal tenant UUID in WHERE clauses. $1 placeholder is auto-replaced with tenant UUID."
+          description: "SELECT SQL query. Filter EVERY table by the session tenant with the $1 placeholder (WHERE tenant_id = $1); $1 is auto-replaced with the caller's tenant UUID. Never embed a literal tenant UUID."  /* AI_TENANT_KANON_V1 */
         },
         description: {
           type: "string",
@@ -25460,6 +26652,1145 @@ if (request.method === "GET" && url.pathname === "/ops") {
   return;
 }
 
+    if (request.method === "GET" && url.pathname === "/api/bi/ebat-ara") {
+      // EBAT_ARA_V2 — canli arama, tam urun adi, SKU (kalem_kodu) bazli.
+      let s = await requireModuleAccess(request, "intelligence").catch(() => null);
+      let ss = s ? null : await requireSahaAccess(request).catch(() => null);
+      const sess = s || ss;
+      if (!sess) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      let ok = s ? true : (ss && _sahaCapRole(ss, "ebatkart", []));  /* SERVER_CAP_V1 — ebat-ara: dogru 'ebatkart' capi (onceki 'musterikart' yanlisti); admin varsayilan, grant bi_arac_yetki'den de gelir */
+      if (!ok && ss) { try { const g = await query("SELECT 1 FROM bi_arac_yetki WHERE tenant_id::text=$1 AND user_id=$2 AND arac_kod='ebat_kart' AND aktif=true LIMIT 1", [ss.tenantId, ss.userId]); ok = g.rowCount > 0; } catch (e) {} }
+      if (!ok) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = sess.tenantId;
+      const q = (url.searchParams.get("q") || "").replace(/[^0-9]/g, "");
+      if (q.length < 2) { sendJson(response, 200, { sonuclar: [] }); return; }
+      try {
+        const rows = (await query("SELECT a.kalem_kodu, (SELECT sf.kalem_tanimi FROM bi_satis_faturalari sf WHERE sf.tenant_id::text=$1 AND sf.kalem_kodu=a.kalem_kodu AND sf.kalem_tanimi IS NOT NULL ORDER BY sf.fatura_tarihi DESC LIMIT 1) ad, max(a.marka) marka, max(a.ebat) ebat, sum(a.adet) adet FROM bi_marj_atom a WHERE a.tenant_id::text=$1 AND a.kalem_kodu IS NOT NULL AND regexp_replace(coalesce(a.ebat,''), '[^0-9]', '', 'g') LIKE $2 || '%' GROUP BY a.kalem_kodu HAVING sum(a.adet) > 0 ORDER BY sum(a.ciro) DESC NULLS LAST LIMIT 40", [T, q])).rows;
+        sendJson(response, 200, { sonuclar: rows.map(r => { const _ad = r.ad || ""; const _mk = r.marka || ""; let disp = _ad; if (_ad && _mk && _ad.toLowerCase().indexOf(_mk.toLowerCase()) === -1) disp = _mk + " " + _ad; if (!disp) disp = [_mk, r.ebat].filter(Boolean).join(" ") || r.kalem_kodu; return { kalem_kodu: r.kalem_kodu, ad: disp, adet: r.adet != null ? Number(r.adet) : null }; }) });
+      } catch (e) { sendJson(response, 500, { error: "arama hatasi" }); }
+      return;
+    }
+    if (request.method === "GET" && url.pathname === "/api/bi/ebat-kart") {
+      let s = await requireModuleAccess(request, "intelligence").catch(() => null);
+      let ss = s ? null : await requireSahaAccess(request).catch(() => null);
+      const sess = s || ss;
+      if (!sess) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      let ok = s ? true : (ss && _sahaCapRole(ss, "ebatkart", []));  /* SERVER_CAP_V1 — matris 'ebatkart' capi; admin varsayilan, grant bi_arac_yetki'den de gelir */
+      if (!ok && ss) { try { const g = await query("SELECT 1 FROM bi_arac_yetki WHERE tenant_id::text=$1 AND user_id=$2 AND arac_kod='ebat_kart' AND aktif=true LIMIT 1", [ss.tenantId, ss.userId]); ok = g.rowCount > 0; } catch (e) {} }
+      if (!ok) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = sess.tenantId;
+      const kalem = (url.searchParams.get("kalem") || "").trim();
+      const ay = Math.min(24, Math.max(1, parseInt(url.searchParams.get("ay") || "12", 10)));
+      if (!kalem) { sendJson(response, 400, { error: "kalem zorunlu" }); return; }
+            /* VADE_NULL_FIX_V1 */ const out = { satis_adet: null, alis_adet: null, ag_satis_fiyat: null, ag_maliyet: null, marj_tl: null, marj_pct: null, min_fiyat: null, med_fiyat: null, max_fiyat: null, alis_vade: null, satis_vade: null, alicilar: [] }; /* EBAT_KART_PAR_V1 */
+      const _q = (sql, p) => query(sql, p).then(r => r.rows).catch(() => null);
+      const [mjR, stR, alR, puR, srR, trR, emR] = await Promise.all([
+        _q("SELECT sum(adet) adet, sum(ciro) ciro, sum(brut_kar) kar FROM bi_marj_atom WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND ay >= (CURRENT_DATE - ($3::int * INTERVAL '1 month'))", [T, kalem, ay]),
+        _q("SELECT min(birim_fiyat) mn, max(birim_fiyat) mx, percentile_cont(0.5) WITHIN GROUP (ORDER BY birim_fiyat) med, sum((vade_tarihi - fatura_tarihi)::numeric * satir_tutar) FILTER (WHERE vade_tarihi IS NOT NULL)/nullif(sum(satir_tutar) FILTER (WHERE vade_tarihi IS NOT NULL),0) vade_w FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND fatura_tarihi >= (CURRENT_DATE - ($3::int * INTERVAL '1 month')) AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))", [T, kalem, ay]),
+        _q("SELECT * FROM (SELECT DISTINCT ON (musteri_kodu) musteri_kodu, musteri_adi, birim_fiyat, (vade_tarihi - fatura_tarihi) vade_gun, odeme_kosulu, miktar, fatura_tarihi FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND fatura_tarihi >= (CURRENT_DATE - ($3::int * INTERVAL '1 month')) ORDER BY musteri_kodu, fatura_tarihi DESC) x ORDER BY fatura_tarihi DESC LIMIT 10", [T, kalem, ay]),
+        _q("SELECT sum(miktar) adet, sum(vade_gun::numeric * satir_kdv_haric) FILTER (WHERE vade_gun IS NOT NULL)/nullif(sum(satir_kdv_haric) FILTER (WHERE vade_gun IS NOT NULL),0) vade_w FROM bi_tedarikci_faturalari WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND fatura_tarihi >= (CURRENT_DATE - ($3::int * INTERVAL '1 month'))", [T, kalem, ay]),
+        _q("SELECT round(adet) adet, round(stok_deger) deger, round(dio) dio, round(devir,2) devir, etiket, round(ref_dio) ref_dio FROM bi_stok_hiz WHERE tenant_id=$1::uuid AND kalem_kodu=$2 LIMIT 1", [T, kalem]),
+        _q("SELECT to_char(ay,'YYYY-MM') ay, sum(adet) adet, sum(ciro) ciro, sum(brut_kar) kar FROM bi_marj_atom WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND ay >= (CURRENT_DATE - INTERVAL '12 months') GROUP BY ay ORDER BY ay", [T, kalem]),
+        _q("SELECT ebat, marka FROM bi_marj_atom WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND ebat IS NOT NULL AND ebat<>'' ORDER BY ay DESC LIMIT 1", [T, kalem])
+      ]);
+      const mj = mjR && mjR[0];
+      if (mj && mj.adet) {
+        out.satis_adet = Number(mj.adet);
+        out.marj_tl = mj.kar != null ? Number(mj.kar) : null;
+        out.ag_satis_fiyat = (mj.ciro != null && Number(mj.adet)) ? Number(mj.ciro) / Number(mj.adet) : null;
+        out.ag_maliyet = (mj.ciro != null && mj.kar != null && Number(mj.adet)) ? (Number(mj.ciro) - Number(mj.kar)) / Number(mj.adet) : null;
+        out.marj_pct = (mj.kar != null && Number(mj.ciro)) ? Number(mj.kar) / Number(mj.ciro) * 100 : null;
+      }
+      const stx = stR && stR[0];
+      if (stx) { out.min_fiyat = stx.mn != null ? Number(stx.mn) : null; out.med_fiyat = stx.med != null ? Number(stx.med) : null; out.max_fiyat = stx.mx != null ? Number(stx.mx) : null; out.satis_vade = stx.vade_w != null ? Number(stx.vade_w) : null; }
+      out.alicilar = (alR || []).map(r => ({ musteri: r.musteri_adi, fiyat: r.birim_fiyat != null ? Number(r.birim_fiyat) : null, vade: r.vade_gun != null ? Number(r.vade_gun) : null, odeme: r.odeme_kosulu || null, adet: r.miktar != null ? Number(r.miktar) : null }));
+      const pu = puR && puR[0];
+      if (pu) { out.alis_adet = pu.adet != null ? Number(pu.adet) : null; out.alis_vade = pu.vade_w != null ? Number(pu.vade_w) : null; }
+      const sr = srR && srR[0];
+      if (sr) out.stok = { adet: sr.adet != null ? Number(sr.adet) : null, deger: sr.deger != null ? Number(sr.deger) : null, dio: sr.dio != null ? Number(sr.dio) : null, devir: sr.devir != null ? Number(sr.devir) : null, etiket: sr.etiket || null, ref_dio: sr.ref_dio != null ? Number(sr.ref_dio) : null };
+      out.trend = (trR || []).map(r => ({ ay: r.ay, adet: r.adet != null ? Number(r.adet) : 0, marj_pct: (r.kar != null && Number(r.ciro)) ? Math.round(Number(r.kar) / Number(r.ciro) * 1000) / 10 : null }));
+      let _ebat = null, _marka = null;
+      const em = emR && emR[0];
+      if (em) { _ebat = em.ebat; _marka = em.marka || null; out.ebat = _ebat; out.marka = _marka; }
+      if (_ebat) {
+        const [rpR, rpmR, shR, mskR, wbR] = await Promise.all([
+          _q("SELECT min(fiyat) mn, max(fiyat) mx, count(*)::int n FROM bi_rakip_fiyat_son WHERE ebat=$1", [_ebat]),
+          _marka ? _q("SELECT min(fiyat) mn, max(fiyat) mx, count(*)::int n FROM bi_rakip_fiyat_son WHERE ebat=$1 AND lower(marka)=lower($2)", [_ebat, _marka]) : Promise.resolve(null),
+          _q("SELECT min(rakip_fiyat) mn, max(rakip_fiyat) mx, round(avg(rakip_fiyat)) av, count(*)::int n, max(teklif_tarihi) son FROM saha_rakip_teklif WHERE tenant_id=$1 AND ebat=$2", [T, _ebat]),
+          _q("SELECT marka, kalem_kodu, (SELECT sf.kalem_tanimi FROM bi_satis_faturalari sf WHERE sf.tenant_id::text=$1 AND sf.kalem_kodu=a.kalem_kodu AND sf.kalem_tanimi IS NOT NULL ORDER BY sf.fatura_tarihi DESC LIMIT 1) ad, sum(adet) adet, sum(ciro) ciro, sum(brut_kar) kar FROM bi_marj_atom a WHERE tenant_id::text=$1 AND ebat=$2 AND ay >= (CURRENT_DATE - ($3::int * INTERVAL '1 month')) GROUP BY marka, kalem_kodu", [T, _ebat, ay]),
+          _q("SELECT musteri_adi, to_char(max(fatura_tarihi),'YYYY-MM-DD') son, sum(miktar) adet FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND ebat=$2 AND miktar>0 GROUP BY musteri_kodu, musteri_adi HAVING max(fatura_tarihi) < (CURRENT_DATE - INTERVAL '6 months') ORDER BY sum(miktar) DESC LIMIT 10", [T, _ebat])
+        ]);
+        const rp = rpR && rpR[0], rpm = rpmR && rpmR[0], sh = shR && shR[0];
+        out.rakip = {
+          piyasa: (rp && Number(rp.n)) ? { mn: Number(rp.mn), mx: Number(rp.mx), n: Number(rp.n) } : null,
+          piyasa_marka: (rpm && Number(rpm.n)) ? { mn: Number(rpm.mn), mx: Number(rpm.mx), n: Number(rpm.n) } : null,
+          saha: (sh && Number(sh.n)) ? { mn: Number(sh.mn), mx: Number(sh.mx), av: sh.av != null ? Number(sh.av) : null, n: Number(sh.n), son: sh.son } : null
+        };
+        const _msk = mskR || [];
+        const _bym = {};
+        for (const r of _msk) {
+          const mk = r.marka || "—";
+          if (!_bym[mk]) _bym[mk] = { marka: mk, adet: 0, ciro: 0, kar: 0, current: (_marka && mk.toLowerCase() === String(_marka).toLowerCase()), skus: [] };
+          const _ad = r.adet != null ? Number(r.adet) : 0, _ci = r.ciro != null ? Number(r.ciro) : 0, _ka = r.kar != null ? Number(r.kar) : 0;
+          _bym[mk].adet += _ad; _bym[mk].ciro += _ci; _bym[mk].kar += _ka;
+          _bym[mk].skus.push({ kalem: r.kalem_kodu, ad: r.ad || r.kalem_kodu, adet: _ad, ciro: _ci, marj_pct: _ci ? Math.round(_ka / _ci * 1000) / 10 : null, current: (r.kalem_kodu === kalem) });
+        }
+        const _arr = Object.keys(_bym).map(k => { const b = _bym[k]; b.skus.sort((x, y) => y.ciro - x.ciro); return { marka: b.marka, adet: b.adet, ciro: b.ciro, marj_pct: b.ciro ? Math.round(b.kar / b.ciro * 1000) / 10 : null, current: b.current, skus: b.skus }; });
+        _arr.sort((a, b) => b.ciro - a.ciro);
+        out.marka_alt = _arr.slice(0, 14);
+        out.firsat = (wbR || []).map(r => ({ musteri: r.musteri_adi, son: r.son, adet: r.adet != null ? Number(r.adet) : 0 }));
+      }
+      sendJson(response, 200, out);
+      return;
+    }
+        if (request.method === "GET" && url.pathname === "/api/bi/musteri-kart") { /* MUSTERI_KART_ENDPOINT_V4 — cross-sell musterinin grup kapsamina cekildi */
+      let s = await requireModuleAccess(request, "intelligence").catch(() => null);
+      let ss = s ? null : await requireSahaAccess(request).catch(() => null);
+      const sess = s || ss;
+      if (!sess) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      let ok = s ? true : (ss && _sahaCapRole(ss, "musterikart", []));
+      if (!ok && ss) { try { const g = await query("SELECT 1 FROM bi_arac_yetki WHERE tenant_id::text=$1 AND user_id=$2 AND arac_kod='musteri_kart' AND aktif=true LIMIT 1", [ss.tenantId, ss.userId]); ok = g.rowCount > 0; } catch (e) {} }
+      if (!ok) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = sess.tenantId;
+      const kod = (url.searchParams.get("musteri") || "").trim();
+      const sid = (url.searchParams.get("id") || "").trim();
+      if (!kod) { sendJson(response, 400, { error: "musteri zorunlu" }); return; }
+      const _q = (sql, p) => query(sql, p).then(r => r.rows).catch(() => null);
+      const _tasks = [
+        _q("SELECT toplam_ciro, son_bakiye, vadesi_gecmis, kredi_limiti, net_pozisyon, bizim_borcumuz, odeme_kosulu, fatura_sayisi, ilk_fatura, son_fatura, satis_kanali FROM master_musteri WHERE tenant_id::text=$1 AND musteri_kodu=$2 LIMIT 1", [T, kod]),
+        _q("SELECT to_char(date_trunc('month', fatura_tarihi),'YYYY-MM') ay, SUM(satir_tutar) ciro FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND musteri_kodu=$2 AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') GROUP BY 1 ORDER BY 1", [T, kod]),
+        _q("SELECT fatura_tarihi, kalem_kodu, marka, ebat, miktar, birim_fiyat FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND musteri_kodu=$2 ORDER BY fatura_tarihi DESC NULLS LAST LIMIT 6", [T, kod]),
+        _q("SELECT marka, ebat, SUM(miktar) adet, SUM(satir_tutar) ciro FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND musteri_kodu=$2 AND miktar>0 AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') AND grup_adi LIKE evren_desen($1::uuid) AND ebat IS NOT NULL AND ebat<>'' GROUP BY marka, ebat ORDER BY ciro DESC NULLS LAST LIMIT 12", [T, kod]),
+        _q("SELECT marka, SUM(miktar) adet, SUM(satir_tutar) ciro FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND musteri_kodu=$2 AND miktar>0 AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') AND grup_adi LIKE evren_desen($1::uuid) GROUP BY marka ORDER BY ciro DESC NULLS LAST LIMIT 10", [T, kod]),
+        _q("WITH mine AS (SELECT DISTINCT ebat FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND musteri_kodu=$2 AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') AND ebat IS NOT NULL AND ebat<>''), mgrup AS (SELECT DISTINCT grup_adi FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND musteri_kodu=$2 AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') AND grup_adi LIKE evren_desen($1::uuid)) SELECT ebat, count(DISTINCT musteri_kodu)::int alici, SUM(miktar) adet FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND miktar>0 AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') AND grup_adi IN (SELECT grup_adi FROM mgrup) AND ebat IS NOT NULL AND ebat<>'' AND ebat NOT IN (SELECT ebat FROM mine) GROUP BY ebat HAVING count(DISTINCT musteri_kodu) >= 3 ORDER BY alici DESC, adet DESC LIMIT 8", [T, kod]),
+        _q("SELECT SUM(satir_tutar) FILTER (WHERE fatura_tarihi >= CURRENT_DATE - INTERVAL '12 months') ciro12, SUM(satir_tutar) FILTER (WHERE fatura_tarihi < CURRENT_DATE - INTERVAL '12 months') ciroprev, SUM(miktar) FILTER (WHERE fatura_tarihi >= CURRENT_DATE - INTERVAL '12 months') adet12, COUNT(DISTINCT marka) FILTER (WHERE fatura_tarihi >= CURRENT_DATE - INTERVAL '12 months') marka_say, COUNT(DISTINCT ebat) FILTER (WHERE fatura_tarihi >= CURRENT_DATE - INTERVAL '12 months') ebat_say, MAX(fatura_tarihi) son_alim FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND musteri_kodu=$2 AND miktar>0 AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '24 months') AND grup_adi LIKE evren_desen($1::uuid)", [T, kod]),
+        sid ? _q("SELECT id, marka, ebat, adet, toplam_tutar, durum, created_at FROM saha_teklif WHERE tenant_id=$1 AND musteri_id=$2 AND durum IN ('TASLAK','ONAY_BEKLIYOR','ONAYLANDI','SUNULDU') ORDER BY created_at DESC LIMIT 12", [T, sid]) : Promise.resolve([]),
+        _q("WITH mine AS (SELECT ebat, SUM(birim_fiyat*miktar)/NULLIF(SUM(miktar),0) my_fiyat, SUM(miktar) adet FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND musteri_kodu=$2 AND miktar>0 AND birim_fiyat>0 AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') AND grup_adi LIKE evren_desen($1::uuid) AND ebat IS NOT NULL AND ebat<>'' AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL')) GROUP BY ebat), piyasa AS (SELECT ebat, percentile_cont(0.5) WITHIN GROUP (ORDER BY birim_fiyat) med FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND miktar>0 AND birim_fiyat>0 AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') AND grup_adi LIKE evren_desen($1::uuid) AND ebat IN (SELECT ebat FROM mine) AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL')) GROUP BY ebat) SELECT m.ebat, round(m.my_fiyat) my_fiyat, round(p.med) med, m.adet::int adet, round(((m.my_fiyat - p.med)/NULLIF(p.med,0)*100)::numeric,1) diff_pct FROM mine m JOIN piyasa p ON p.ebat=m.ebat WHERE p.med>0 AND m.adet>=2 ORDER BY (m.my_fiyat - p.med)/NULLIF(p.med,0) ASC LIMIT 10", [T, kod]),
+        _q("WITH d AS (SELECT DISTINCT fatura_tarihi::date dt FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND musteri_kodu=$2 AND miktar>0 AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '18 months') AND grup_adi LIKE evren_desen($1::uuid)), g AS (SELECT dt, dt - LAG(dt) OVER (ORDER BY dt) gap FROM d) SELECT round(AVG(gap))::int ort_gap, COUNT(*) FILTER (WHERE gap IS NOT NULL)::int alim_say, (CURRENT_DATE - MAX(dt))::int son_gap FROM g", [T, kod]),
+        _q("SELECT SUM((vade_tarihi - fatura_tarihi)::numeric * satir_tutar)/NULLIF(SUM(satir_tutar),0) vade_w FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND musteri_kodu=$2 AND satir_tutar>0 AND vade_tarihi IS NOT NULL AND fatura_tarihi IS NOT NULL AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') AND grup_adi LIKE evren_desen($1::uuid)", [T, kod])
+      ];
+      const [finR, trR, alR, naR, nmR, csR, ozR, tkR, feR, riR, vdR] = await Promise.all(_tasks);
+      const fin = finR && finR[0] ? finR[0] : null;
+      const ciro_trend = (trR || []).map(r => ({ ay: r.ay, ciro: r.ciro != null ? Number(r.ciro) : 0 }));
+      const son_alimlar = (alR || []).map(r => ({ fatura_tarihi: r.fatura_tarihi, kalem_kodu: r.kalem_kodu, marka: r.marka, ebat: r.ebat, miktar: r.miktar != null ? Number(r.miktar) : null, birim_fiyat: r.birim_fiyat != null ? Number(r.birim_fiyat) : null }));
+      const ne_aliyor = (naR || []).map(r => ({ marka: r.marka, ebat: r.ebat, adet: r.adet != null ? Number(r.adet) : 0, ciro: r.ciro != null ? Number(r.ciro) : 0 }));
+      const ne_aliyor_marka = (nmR || []).map(r => ({ marka: r.marka, adet: r.adet != null ? Number(r.adet) : 0, ciro: r.ciro != null ? Number(r.ciro) : 0 }));
+      const cross_sell = (csR || []).map(r => ({ ebat: r.ebat, alici: r.alici != null ? Number(r.alici) : 0, adet: r.adet != null ? Number(r.adet) : 0 }));
+      const acik_teklifler = (tkR || []).map(r => ({ id: r.id, marka: r.marka, ebat: r.ebat, adet: r.adet != null ? Number(r.adet) : null, toplam_tutar: r.toplam_tutar != null ? Number(r.toplam_tutar) : null, durum: r.durum }));
+      const fiyat_erozyon = (feR || []).map(r => ({ ebat: r.ebat, my_fiyat: r.my_fiyat != null ? Number(r.my_fiyat) : null, med: r.med != null ? Number(r.med) : null, adet: r.adet != null ? Number(r.adet) : 0, diff_pct: r.diff_pct != null ? Number(r.diff_pct) : null }));
+      const _ri = riR && riR[0] ? riR[0] : {};
+      const ritim = { ort_gap: _ri.ort_gap != null ? Number(_ri.ort_gap) : null, alim_say: _ri.alim_say != null ? Number(_ri.alim_say) : 0, son_gap: _ri.son_gap != null ? Number(_ri.son_gap) : null };
+      const vade_gun = (vdR && vdR[0] && vdR[0].vade_w != null) ? Math.round(Number(vdR[0].vade_w)) : null;
+      const oz = ozR && ozR[0] ? ozR[0] : {};
+      const ciro12 = oz.ciro12 != null ? Number(oz.ciro12) : 0, ciroprev = oz.ciroprev != null ? Number(oz.ciroprev) : 0;
+      const ozet = { ciro12: ciro12, ciroprev: ciroprev, trend_pct: ciroprev > 0 ? Math.round((ciro12 - ciroprev) / ciroprev * 1000) / 10 : null, adet12: oz.adet12 != null ? Number(oz.adet12) : 0, marka_say: oz.marka_say != null ? Number(oz.marka_say) : 0, ebat_say: oz.ebat_say != null ? Number(oz.ebat_say) : 0, son_alim: oz.son_alim || null };
+      sendJson(response, 200, { finansal: fin, ciro_trend: ciro_trend, son_alimlar: son_alimlar, ne_aliyor: ne_aliyor, ne_aliyor_marka: ne_aliyor_marka, cross_sell: cross_sell, acik_teklifler: acik_teklifler, fiyat_erozyon: fiyat_erozyon, ritim: ritim, vade_gun: vade_gun, ozet: ozet });
+      return;
+    }
+
+    // ===== SMARTPRICE_V1 — Akilli Fiyatlandirma motoru =====
+    if (request.method === "GET" && url.pathname === "/api/bi/marj-alarm") {
+      let _s = await requireModuleAccess(request, "intelligence").catch(() => null);
+      let _ss = _s ? null : await requireSahaAccess(request).catch(() => null);
+      const _sess = _s || _ss;
+      if (!_sess) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      if (!_s && !(_ss && ["manager", "admin"].includes(_ss.sahaRole))) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = _sess.tenantId;
+      const hedef = Math.min(0.5, Math.max(0, parseFloat(url.searchParams.get("hedef") || "0.12")));
+      const ay = Math.min(24, Math.max(1, parseInt(url.searchParams.get("ay") || "12", 10)));
+      const minAdet = Math.max(1, parseInt(url.searchParams.get("min_adet") || "50", 10));
+      try {
+        const rows = (await query(
+          `WITH sku AS (
+             SELECT marka, ebat, SUM(adet) adet, SUM(ciro) ciro, SUM(brut_kar) kar
+             FROM bi_marj_atom WHERE tenant_id::text=$1 AND ay >= (CURRENT_DATE - ($2::int * INTERVAL '1 month'))
+               AND ebat IS NOT NULL AND ebat<>'' GROUP BY marka, ebat),
+           brandtgt AS (
+             SELECT marka, GREATEST($3::numeric, LEAST(0.30, percentile_cont(0.6) WITHIN GROUP (ORDER BY m))) hedef
+             FROM (SELECT marka, SUM(brut_kar)/NULLIF(SUM(ciro),0) m FROM bi_marj_atom
+                   WHERE tenant_id::text=$1 AND ay >= (CURRENT_DATE - ($2::int * INTERVAL '1 month'))
+                     AND ebat IS NOT NULL AND ebat<>'' GROUP BY marka, kalem_kodu
+                   HAVING SUM(adet)>=20 AND SUM(ciro)>0) bs GROUP BY marka),
+           kmap AS (
+             SELECT DISTINCT marka, ebat, kalem_kodu FROM bi_satis_faturalari
+             WHERE tenant_id::text=$1 AND ebat IS NOT NULL AND ebat<>'' AND grup_adi LIKE evren_desen(tenant_id)),
+           repl AS (
+             SELECT k.marka, k.ebat, SUM(t.satir_kdv_haric)/NULLIF(SUM(t.miktar),0) repl_cost
+             FROM kmap k JOIN bi_tedarikci_faturalari t ON t.tenant_id::text=$1 AND t.kalem_kodu=k.kalem_kodu
+             WHERE t.fatura_tarihi >= (CURRENT_DATE - INTERVAL '90 days')
+             GROUP BY k.marka, k.ebat)
+           SELECT s.marka, s.ebat, s.adet::int adet,
+             round(s.ciro)::float8 ciro,
+             round(s.kar/NULLIF(s.ciro,0)*100, 1)::float8 marj_pct,
+             round(s.ciro/NULLIF(s.adet,0))::float8 avg_satis,
+             round((s.ciro-s.kar)/NULLIF(s.adet,0))::float8 avg_maliyet,
+             round(r.repl_cost)::float8 repl_cost,
+             COALESCE(bt.hedef,$3::numeric)::float8 hedef,
+             round((COALESCE(bt.hedef,$3::numeric)*100)::numeric,1)::float8 hedef_pct,
+             round(COALESCE(bt.hedef,$3::numeric)*s.ciro - s.kar)::float8 leak
+           FROM sku s LEFT JOIN brandtgt bt ON bt.marka=s.marka LEFT JOIN repl r ON r.marka=s.marka AND r.ebat=s.ebat
+           WHERE s.ciro>0 AND s.kar/NULLIF(s.ciro,0) < COALESCE(bt.hedef,$3::numeric) AND s.adet >= $4
+           ORDER BY (COALESCE(bt.hedef,$3::numeric)*s.ciro - s.kar) DESC LIMIT 300`,
+          [T, ay, hedef, minAdet])).rows;
+        const toplam = rows.reduce((a, r) => a + (Number(r.leak) || 0), 0);
+        const skular = rows.map(r => {
+          const taban = (Number(r.repl_cost) || Number(r.avg_maliyet) || 0);
+          const rh = Number(r.hedef) || hedef;
+          const floor = taban > 0 ? taban / (1 - rh) : null;
+          return {
+            marka: r.marka, ebat: r.ebat, adet: Number(r.adet),
+            ciro: Number(r.ciro), marj_pct: Number(r.marj_pct),
+            avg_satis: Number(r.avg_satis), avg_maliyet: Number(r.avg_maliyet),
+            repl_cost: r.repl_cost != null ? Number(r.repl_cost) : null,
+            hedef_pct: Number(r.hedef_pct),
+            onerilen_taban: floor != null ? Math.round(floor / 250) * 250 : null,
+            leak: Math.round(Number(r.leak) || 0),
+            maliyet_alti: taban > 0 && Number(r.avg_satis) < taban
+          };
+        });
+        sendJson(response, 200, { hedef, ay, marka_ozel: true /* MARKATIER_V1 */, toplam_sizinti: Math.round(toplam), sku_sayisi: skular.length, skular });
+      } catch (e) { console.error("[marj-alarm]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/bi/musteri-fiyat") {
+      let _s = await requireModuleAccess(request, "intelligence").catch(() => null);
+      let _ss = _s ? null : await requireSahaAccess(request).catch(() => null);
+      const _sess = _s || _ss;
+      if (!_sess) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      if (!_s && !(_ss && ["manager", "admin"].includes(_ss.sahaRole))) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = _sess.tenantId;
+      const musteri = (url.searchParams.get("musteri") || "").trim();
+      const kalem = (url.searchParams.get("kalem") || "").trim();
+      if (!musteri || !kalem) { sendJson(response, 400, { error: "musteri+kalem zorunlu" }); return; }
+      const out = { skor: null, bilesenler: null, sku: null, musteri_gercek: null, oneri: null, durum: null, marj_oneri: null };
+      let _vol = null, _risk = null;
+      try {
+        const sc = (await query(
+          `WITH cust AS (
+             SELECT musteri_kodu,
+               SUM(satir_tutar) ciro, SUM(miktar) adet,
+               SUM(miktar*(vade_tarihi-fatura_tarihi)::numeric)/NULLIF(SUM(miktar),0) vade,
+               COUNT(DISTINCT date_trunc('month',fatura_tarihi)) ay_sayisi,
+               COUNT(DISTINCT ebat) ebat_n
+             FROM bi_satis_faturalari
+             WHERE tenant_id::text=$1 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+               AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months')
+               AND musteri_kodu NOT IN (SELECT f2.musteri_kodu FROM bi_satis_faturalari f2 WHERE f2.tenant_id::text=$1 AND f2.grup_adi LIKE evren_desen(f2.tenant_id) AND f2.fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') AND f2.musteri_kodu IN (SELECT muhatap_kodu FROM bi_musteri_risk WHERE tenant_id::text=$1 AND grup ILIKE '%TEDAR%') GROUP BY f2.musteri_kodu HAVING SUM(f2.satir_tutar) > 5000000) /* TEDARFILT_V1 */
+             GROUP BY musteri_kodu),
+           risk AS (
+             SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, hesap_bakiyesi, vadesi_gecmis, kredi_limiti
+             FROM bi_musteri_risk WHERE tenant_id::text=$1 AND musteri_mi
+             ORDER BY muhatap_kodu, export_date DESC),
+           net AS (SELECT musteri_kodu, net_pozisyon FROM bi_cari_bakiye WHERE tenant_id::text=$1),
+           tah AS (SELECT muhatap_kodu, gec_odeme_orani, ort_gecikme_gun, son12_adedi, son12_gec_orani, son12_gecikme_gun FROM bi_tahsilat WHERE tenant_id::text=$1),
+           base AS (
+             SELECT c.*, COALESCE(r.vadesi_gecmis,0) overdue, COALESCE(r.hesap_bakiyesi,0) bakiye,
+               COALESCE(r.kredi_limiti,0) kredi, COALESCE(n.net_pozisyon, r.hesap_bakiyesi, 0) net_poz,
+               (t.muhatap_kodu IS NOT NULL) has_tah,
+               CASE WHEN COALESCE(t.son12_adedi,0)>0 THEN t.son12_gec_orani ELSE t.gec_odeme_orani END eff_gec,
+               CASE WHEN COALESCE(t.son12_adedi,0)>0 THEN t.son12_gecikme_gun ELSE t.ort_gecikme_gun END eff_gun
+             FROM cust c LEFT JOIN risk r ON r.muhatap_kodu=c.musteri_kodu LEFT JOIN net n ON n.musteri_kodu=c.musteri_kodu LEFT JOIN tah t ON t.muhatap_kodu=c.musteri_kodu),
+           scored AS (
+             SELECT b.*, percent_rank() OVER (ORDER BY ciro) s_vol,
+               (CASE WHEN has_tah THEN 0.6*(1-LEAST(GREATEST(COALESCE(eff_gec,0),0),100)/100.0)+0.4*(1-LEAST(GREATEST(COALESCE(eff_gun,0),0),60)/60.0) ELSE 0.6*(1-LEAST(COALESCE(vade,0),120)/120.0)+0.4*(CASE WHEN overdue<=0 THEN 1.0 WHEN bakiye<=0 THEN 0.3 ELSE GREATEST(0,1-overdue/bakiye) END) END) s_pay,
+               (0.6*LEAST(ay_sayisi,12)/12.0 + 0.4*LEAST(ebat_n,10)/10.0) s_loyal,
+               (CASE WHEN kredi>0 THEN GREATEST(0,1-GREATEST(net_poz,0)/kredi) WHEN net_poz<=0 THEN 1.0 ELSE 0.5 END) s_risk
+             FROM base b)
+           SELECT round(100*(0.35*s_pay+0.25*s_vol+0.20*s_loyal+0.20*s_risk))::int skor,
+             round(s_pay*100)::int odeme, round(s_vol*100)::int hacim,
+             round(s_loyal*100)::int sadakat, round(s_risk*100)::int risk,
+             s_vol::float8 vol_raw, s_risk::float8 risk_raw
+           FROM scored WHERE musteri_kodu=$2`,
+          [T, musteri])).rows[0];
+        if (sc) {
+          out.skor = Number(sc.skor);
+          out.bilesenler = { odeme: Number(sc.odeme), hacim: Number(sc.hacim), sadakat: Number(sc.sadakat), risk: Number(sc.risk) };
+          _vol = Number(sc.vol_raw); _risk = Number(sc.risk_raw);
+        }
+      } catch (e) { console.error("[musteri-fiyat skor]", e && e.message); }
+      try {
+        const p = (await query(
+          `SELECT
+             (SELECT (SUM(ciro)-SUM(brut_kar))/NULLIF(SUM(adet),0) FROM bi_marj_atom
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND ay>=(CURRENT_DATE-INTERVAL '12 months')) cost,
+             (SELECT SUM(satir_kdv_haric)/NULLIF(SUM(miktar),0) FROM bi_tedarikci_faturalari
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '90 days')) repl_cost,
+             (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY birim_fiyat) FROM bi_satis_faturalari
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+                  AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '12 months') AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))) lo,
+             (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY birim_fiyat) FROM bi_satis_faturalari
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+                  AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '12 months') AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))) med,
+             (SELECT percentile_cont(0.9) WITHIN GROUP (ORDER BY birim_fiyat) FROM bi_satis_faturalari
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+                  AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '12 months') AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))) hi,
+             (SELECT MAX(birim_fiyat) FROM bi_satis_faturalari
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+                  AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '12 months') AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))) mx,
+             (SELECT kalem_tanimi FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND kalem_tanimi IS NOT NULL ORDER BY fatura_tarihi DESC LIMIT 1) ad,
+             (SELECT max(marka) FROM bi_marj_atom WHERE tenant_id::text=$1 AND kalem_kodu=$2) marka,
+             (SELECT max(ebat) FROM bi_marj_atom WHERE tenant_id::text=$1 AND kalem_kodu=$2) ebat,
+             (SELECT GREATEST(0.12, LEAST(0.30, percentile_cont(0.6) WITHIN GROUP (ORDER BY m))) FROM (SELECT SUM(brut_kar)/NULLIF(SUM(ciro),0) m FROM bi_marj_atom WHERE tenant_id::text=$1 AND marka=(SELECT max(marka) FROM bi_marj_atom WHERE tenant_id::text=$1 AND kalem_kodu=$2) AND ebat IS NOT NULL AND ebat<>'' AND ay>=(CURRENT_DATE-INTERVAL '12 months') GROUP BY kalem_kodu HAVING SUM(adet)>=20 AND SUM(ciro)>0) x) brand_hedef /* MARKATIER_PRICE_V1 */`,
+          [T, kalem])).rows[0];
+        if (p) out.sku = {
+          ad: p.ad || null, marka: p.marka || null, ebat: p.ebat || null,
+          maliyet: p.cost != null ? Math.round(Number(p.cost)) : null,
+          repl_cost: p.repl_cost != null ? Math.round(Number(p.repl_cost)) : null,
+          lo: p.lo != null ? Math.round(Number(p.lo)) : null,
+          med: p.med != null ? Math.round(Number(p.med)) : null,
+          hi: p.hi != null ? Math.round(Number(p.hi)) : null,
+          mx: p.mx != null ? Math.round(Number(p.mx)) : null
+        };
+      } catch (e) { console.error("[musteri-fiyat sku]", e && e.message); }
+      try {
+        const g = (await query(
+          `SELECT SUM(miktar*birim_fiyat)/NULLIF(SUM(miktar),0) fiyat,
+                  SUM(miktar*(vade_tarihi-fatura_tarihi)::numeric)/NULLIF(SUM(miktar),0) vade,
+                  SUM(miktar)::int adet, to_char(MAX(fatura_tarihi),'YYYY-MM-DD') son
+           FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND musteri_kodu=$2 AND kalem_kodu=$3
+             AND miktar>0 AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '18 months')
+             AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))`,
+          [T, musteri, kalem])).rows[0];
+        if (g && g.fiyat != null) out.musteri_gercek = { fiyat: Math.round(Number(g.fiyat)), vade: g.vade != null ? Math.round(Number(g.vade)) : null, adet: Number(g.adet), son: g.son };
+      } catch (e) { console.error("[musteri-fiyat gercek]", e && e.message); }
+      try {
+        const sku = out.sku;
+        if (sku && sku.lo != null && sku.hi != null) {
+          const vol = _vol != null ? _vol : 0.5;
+          const risk = _risk != null ? _risk : 0.5;
+          const vade = (out.musteri_gercek && out.musteri_gercek.vade != null) ? out.musteri_gercek.vade : 45;
+          let placement = 0.45 * (1 - vol) + 0.35 * Math.min(Math.max(vade, 0), 120) / 120 + 0.20 * (1 - risk);
+          placement = Math.max(0, Math.min(1, placement));
+          const floorCost = (sku.repl_cost != null ? sku.repl_cost : sku.maliyet) || 0;
+          let fair = sku.lo + placement * (sku.hi - sku.lo);
+          if (floorCost > 0) fair = Math.max(fair, floorCost / 0.88);
+          if (sku.mx != null) fair = Math.min(fair, Math.max(sku.mx, floorCost / 0.88));
+          fair = Math.round(fair / 250) * 250;
+          out.oneri = fair;
+          const gercek = out.musteri_gercek ? out.musteri_gercek.fiyat : null;
+          if (gercek == null) out.durum = "YENI";
+          else if (fair > gercek * 1.03) out.durum = "LIFT";
+          else if (gercek > fair * 1.12) out.durum = "WATCH";
+          else out.durum = "UYGUN";
+          out.marj_oneri = (floorCost > 0 && fair > 0) ? Math.round((fair - floorCost) / fair * 1000) / 10 : null;
+        }
+      } catch (e) { console.error("[musteri-fiyat hesap]", e && e.message); }
+      sendJson(response, 200, out);
+      return;
+    }
+
+    // SMARTPRICE_V2 — sadece musteri skoru (kart ustu skor karti)
+    if (request.method === "GET" && url.pathname === "/api/bi/musteri-skor") {
+      let _s = await requireModuleAccess(request, "intelligence").catch(() => null);
+      let _ss = _s ? null : await requireSahaAccess(request).catch(() => null);
+      const _sess = _s || _ss;
+      if (!_sess) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      if (!_s && !(_ss && _sahaCap(_ss, "musterikart"))) { sendJson(response, 403, { error: "yetki yok" }); return; }  /* YETKI_FAZ1 */
+      const T = _sess.tenantId;
+      const musteri = (url.searchParams.get("musteri") || "").trim();
+      if (!musteri) { sendJson(response, 400, { error: "musteri zorunlu" }); return; }
+      const out = { skor: null, bilesenler: null, vade_oneri: null };
+      try {
+        const sc = (await query(`WITH cust AS (
+             SELECT musteri_kodu,
+               SUM(satir_tutar) ciro, SUM(miktar) adet,
+               SUM(miktar*(vade_tarihi-fatura_tarihi)::numeric)/NULLIF(SUM(miktar),0) vade,
+               COUNT(DISTINCT date_trunc('month',fatura_tarihi)) ay_sayisi,
+               COUNT(DISTINCT ebat) ebat_n
+             FROM bi_satis_faturalari
+             WHERE tenant_id::text=$1 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+               AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months')
+               AND musteri_kodu NOT IN (SELECT f2.musteri_kodu FROM bi_satis_faturalari f2 WHERE f2.tenant_id::text=$1 AND f2.grup_adi LIKE evren_desen(f2.tenant_id) AND f2.fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') AND f2.musteri_kodu IN (SELECT muhatap_kodu FROM bi_musteri_risk WHERE tenant_id::text=$1 AND grup ILIKE '%TEDAR%') GROUP BY f2.musteri_kodu HAVING SUM(f2.satir_tutar) > 5000000) /* TEDARFILT_V1 */
+             GROUP BY musteri_kodu),
+           risk AS (
+             SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, hesap_bakiyesi, vadesi_gecmis, kredi_limiti
+             FROM bi_musteri_risk WHERE tenant_id::text=$1 AND musteri_mi
+             ORDER BY muhatap_kodu, export_date DESC),
+           net AS (SELECT musteri_kodu, net_pozisyon FROM bi_cari_bakiye WHERE tenant_id::text=$1),
+           tah AS (SELECT muhatap_kodu, gec_odeme_orani, ort_gecikme_gun, son12_adedi, son12_gec_orani, son12_gecikme_gun FROM bi_tahsilat WHERE tenant_id::text=$1),
+           base AS (
+             SELECT c.*, COALESCE(r.vadesi_gecmis,0) overdue, COALESCE(r.hesap_bakiyesi,0) bakiye,
+               COALESCE(r.kredi_limiti,0) kredi, COALESCE(n.net_pozisyon, r.hesap_bakiyesi, 0) net_poz,
+               (t.muhatap_kodu IS NOT NULL) has_tah,
+               CASE WHEN COALESCE(t.son12_adedi,0)>0 THEN t.son12_gec_orani ELSE t.gec_odeme_orani END eff_gec,
+               CASE WHEN COALESCE(t.son12_adedi,0)>0 THEN t.son12_gecikme_gun ELSE t.ort_gecikme_gun END eff_gun
+             FROM cust c LEFT JOIN risk r ON r.muhatap_kodu=c.musteri_kodu LEFT JOIN net n ON n.musteri_kodu=c.musteri_kodu LEFT JOIN tah t ON t.muhatap_kodu=c.musteri_kodu),
+           scored AS (
+             SELECT b.*, percent_rank() OVER (ORDER BY ciro) s_vol,
+               (CASE WHEN has_tah THEN 0.6*(1-LEAST(GREATEST(COALESCE(eff_gec,0),0),100)/100.0)+0.4*(1-LEAST(GREATEST(COALESCE(eff_gun,0),0),60)/60.0) ELSE 0.6*(1-LEAST(COALESCE(vade,0),120)/120.0)+0.4*(CASE WHEN overdue<=0 THEN 1.0 WHEN bakiye<=0 THEN 0.3 ELSE GREATEST(0,1-overdue/bakiye) END) END) s_pay,
+               (0.6*LEAST(ay_sayisi,12)/12.0 + 0.4*LEAST(ebat_n,10)/10.0) s_loyal,
+               (CASE WHEN kredi>0 THEN GREATEST(0,1-GREATEST(net_poz,0)/kredi) WHEN net_poz<=0 THEN 1.0 ELSE 0.5 END) s_risk
+             FROM base b)
+           SELECT round(100*(0.35*s_pay+0.25*s_vol+0.20*s_loyal+0.20*s_risk))::int skor,
+             round(s_pay*100)::int odeme, round(s_vol*100)::int hacim,
+             round(s_loyal*100)::int sadakat, round(s_risk*100)::int risk,
+             s_vol::float8 vol_raw, s_risk::float8 risk_raw
+           FROM scored WHERE musteri_kodu=$2`, [T, musteri])).rows[0];
+        if (sc) {
+          out.skor = Number(sc.skor);
+          out.bilesenler = { odeme: Number(sc.odeme), hacim: Number(sc.hacim), sadakat: Number(sc.sadakat), risk: Number(sc.risk) };
+          const _comb = (Number(sc.odeme) + Number(sc.risk)) / 2;
+          out.vade_oneri = _comb < 40 ? "Peşin / azami 30 gün — riskli profil" : (_comb < 65 ? "azami 60 gün" : "90 güne kadar esnek — iyi ödeyici");
+        }
+      } catch (e) { console.error("[musteri-skor]", e && e.message); }
+      sendJson(response, 200, out);
+      return;
+    }
+
+    // SMARTPRICE_V2 — toplu musteri-fiyat (son alimlar satir-ici oneri)
+    if (request.method === "GET" && url.pathname === "/api/bi/musteri-fiyat-liste") {
+      let _s = await requireModuleAccess(request, "intelligence").catch(() => null);
+      let _ss = _s ? null : await requireSahaAccess(request).catch(() => null);
+      const _sess = _s || _ss;
+      if (!_sess) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      if (!_s && !(_ss && _sahaCap(_ss, "musterikart"))) { sendJson(response, 403, { error: "yetki yok" }); return; }  /* YETKI_FAZ1 */
+      const T = _sess.tenantId;
+      const musteri = (url.searchParams.get("musteri") || "").trim();
+      const kalemlerRaw = (url.searchParams.get("kalemler") || "").trim();
+      const kalems = kalemlerRaw ? Array.from(new Set(kalemlerRaw.split(",").map(x => x.trim()).filter(Boolean))).slice(0, 20) : [];
+      if (!musteri || !kalems.length) { sendJson(response, 400, { error: "musteri+kalemler zorunlu" }); return; }
+      const out = { skor: null, bilesenler: null, kalemler: {} };
+      let _vol = null, _risk = null;
+      try {
+        const sc = (await query(`WITH cust AS (
+             SELECT musteri_kodu,
+               SUM(satir_tutar) ciro, SUM(miktar) adet,
+               SUM(miktar*(vade_tarihi-fatura_tarihi)::numeric)/NULLIF(SUM(miktar),0) vade,
+               COUNT(DISTINCT date_trunc('month',fatura_tarihi)) ay_sayisi,
+               COUNT(DISTINCT ebat) ebat_n
+             FROM bi_satis_faturalari
+             WHERE tenant_id::text=$1 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+               AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months')
+               AND musteri_kodu NOT IN (SELECT f2.musteri_kodu FROM bi_satis_faturalari f2 WHERE f2.tenant_id::text=$1 AND f2.grup_adi LIKE evren_desen(f2.tenant_id) AND f2.fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') AND f2.musteri_kodu IN (SELECT muhatap_kodu FROM bi_musteri_risk WHERE tenant_id::text=$1 AND grup ILIKE '%TEDAR%') GROUP BY f2.musteri_kodu HAVING SUM(f2.satir_tutar) > 5000000) /* TEDARFILT_V1 */
+             GROUP BY musteri_kodu),
+           risk AS (
+             SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, hesap_bakiyesi, vadesi_gecmis, kredi_limiti
+             FROM bi_musteri_risk WHERE tenant_id::text=$1 AND musteri_mi
+             ORDER BY muhatap_kodu, export_date DESC),
+           net AS (SELECT musteri_kodu, net_pozisyon FROM bi_cari_bakiye WHERE tenant_id::text=$1),
+           tah AS (SELECT muhatap_kodu, gec_odeme_orani, ort_gecikme_gun, son12_adedi, son12_gec_orani, son12_gecikme_gun FROM bi_tahsilat WHERE tenant_id::text=$1),
+           base AS (
+             SELECT c.*, COALESCE(r.vadesi_gecmis,0) overdue, COALESCE(r.hesap_bakiyesi,0) bakiye,
+               COALESCE(r.kredi_limiti,0) kredi, COALESCE(n.net_pozisyon, r.hesap_bakiyesi, 0) net_poz,
+               (t.muhatap_kodu IS NOT NULL) has_tah,
+               CASE WHEN COALESCE(t.son12_adedi,0)>0 THEN t.son12_gec_orani ELSE t.gec_odeme_orani END eff_gec,
+               CASE WHEN COALESCE(t.son12_adedi,0)>0 THEN t.son12_gecikme_gun ELSE t.ort_gecikme_gun END eff_gun
+             FROM cust c LEFT JOIN risk r ON r.muhatap_kodu=c.musteri_kodu LEFT JOIN net n ON n.musteri_kodu=c.musteri_kodu LEFT JOIN tah t ON t.muhatap_kodu=c.musteri_kodu),
+           scored AS (
+             SELECT b.*, percent_rank() OVER (ORDER BY ciro) s_vol,
+               (CASE WHEN has_tah THEN 0.6*(1-LEAST(GREATEST(COALESCE(eff_gec,0),0),100)/100.0)+0.4*(1-LEAST(GREATEST(COALESCE(eff_gun,0),0),60)/60.0) ELSE 0.6*(1-LEAST(COALESCE(vade,0),120)/120.0)+0.4*(CASE WHEN overdue<=0 THEN 1.0 WHEN bakiye<=0 THEN 0.3 ELSE GREATEST(0,1-overdue/bakiye) END) END) s_pay,
+               (0.6*LEAST(ay_sayisi,12)/12.0 + 0.4*LEAST(ebat_n,10)/10.0) s_loyal,
+               (CASE WHEN kredi>0 THEN GREATEST(0,1-GREATEST(net_poz,0)/kredi) WHEN net_poz<=0 THEN 1.0 ELSE 0.5 END) s_risk
+             FROM base b)
+           SELECT round(100*(0.35*s_pay+0.25*s_vol+0.20*s_loyal+0.20*s_risk))::int skor,
+             round(s_pay*100)::int odeme, round(s_vol*100)::int hacim,
+             round(s_loyal*100)::int sadakat, round(s_risk*100)::int risk,
+             s_vol::float8 vol_raw, s_risk::float8 risk_raw
+           FROM scored WHERE musteri_kodu=$2`, [T, musteri])).rows[0];
+        if (sc) {
+          out.skor = Number(sc.skor);
+          out.bilesenler = { odeme: Number(sc.odeme), hacim: Number(sc.hacim), sadakat: Number(sc.sadakat), risk: Number(sc.risk) };
+          _vol = Number(sc.vol_raw); _risk = Number(sc.risk_raw);
+          const _comb = (Number(sc.odeme) + Number(sc.risk)) / 2;
+          out.vade_oneri = _comb < 40 ? "Peşin / azami 30 gün — riskli profil" : (_comb < 65 ? "azami 60 gün" : "90 güne kadar esnek — iyi ödeyici");
+        }
+      } catch (e) { console.error("[mfl skor]", e && e.message); }
+      const perKalem = async (kalem) => {
+        const r = { oneri: null, durum: null, gercek: null, marj_oneri: null, ad: null, marka: null, ebat: null, lo: null, med: null, hi: null, maliyet: null, repl_cost: null, vade_menu: null };
+        try {
+          const p = (await query(`SELECT
+             (SELECT (SUM(ciro)-SUM(brut_kar))/NULLIF(SUM(adet),0) FROM bi_marj_atom
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND ay>=(CURRENT_DATE-INTERVAL '12 months')) cost,
+             (SELECT SUM(satir_kdv_haric)/NULLIF(SUM(miktar),0) FROM bi_tedarikci_faturalari
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '90 days')) repl_cost,
+             (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY birim_fiyat) FROM bi_satis_faturalari
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+                  AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '12 months') AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))) lo,
+             (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY birim_fiyat) FROM bi_satis_faturalari
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+                  AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '12 months') AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))) med,
+             (SELECT percentile_cont(0.9) WITHIN GROUP (ORDER BY birim_fiyat) FROM bi_satis_faturalari
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+                  AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '12 months') AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))) hi,
+             (SELECT MAX(birim_fiyat) FROM bi_satis_faturalari
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+                  AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '12 months') AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))) mx,
+             (SELECT kalem_tanimi FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND kalem_tanimi IS NOT NULL ORDER BY fatura_tarihi DESC LIMIT 1) ad,
+             (SELECT max(marka) FROM bi_marj_atom WHERE tenant_id::text=$1 AND kalem_kodu=$2) marka,
+             (SELECT max(ebat) FROM bi_marj_atom WHERE tenant_id::text=$1 AND kalem_kodu=$2) ebat,
+             (SELECT GREATEST(0.12, LEAST(0.30, percentile_cont(0.6) WITHIN GROUP (ORDER BY m))) FROM (SELECT SUM(brut_kar)/NULLIF(SUM(ciro),0) m FROM bi_marj_atom WHERE tenant_id::text=$1 AND marka=(SELECT max(marka) FROM bi_marj_atom WHERE tenant_id::text=$1 AND kalem_kodu=$2) AND ebat IS NOT NULL AND ebat<>'' AND ay>=(CURRENT_DATE-INTERVAL '12 months') GROUP BY kalem_kodu HAVING SUM(adet)>=20 AND SUM(ciro)>0) x) brand_hedef /* MARKATIER_PRICE_V1 */`, [T, kalem])).rows[0];
+          if (p) {
+            const lo = p.lo != null ? Math.round(Number(p.lo)) : null, hi = p.hi != null ? Math.round(Number(p.hi)) : null;
+            const cost = p.cost != null ? Math.round(Number(p.cost)) : null, repl = p.repl_cost != null ? Math.round(Number(p.repl_cost)) : null;
+            const mx = p.mx != null ? Math.round(Number(p.mx)) : null;
+            r.ad = p.ad || null; r.marka = p.marka || null; r.ebat = p.ebat || null;
+            r.med = p.med != null ? Math.round(Number(p.med)) : null;
+            r.lo = lo; r.hi = hi; r.maliyet = cost; r.repl_cost = repl;
+            let gercek = null, gvade = null;
+            const g = (await query(`SELECT SUM(miktar*birim_fiyat)/NULLIF(SUM(miktar),0) fiyat,
+                  SUM(miktar*(vade_tarihi-fatura_tarihi)::numeric)/NULLIF(SUM(miktar),0) vade
+           FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND musteri_kodu=$2 AND kalem_kodu=$3
+             AND miktar>0 AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '18 months')
+             AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))`, [T, musteri, kalem])).rows[0];
+            if (g && g.fiyat != null) { gercek = Math.round(Number(g.fiyat)); gvade = g.vade != null ? Math.round(Number(g.vade)) : null; }
+            r.gercek = gercek;
+            if (lo != null && hi != null) {
+              const vol = _vol != null ? _vol : 0.5, risk = _risk != null ? _risk : 0.5;
+              const floorCost = (repl != null ? repl : cost) || 0;
+              // SMARTPRICE_V3 — placement (banda konum) = hacim+risk; vade ACIK finansman olarak eklenir
+              const RATE = 0.42; // yillik para maliyeti (vade primi icin)
+              const plBase = Math.max(0, Math.min(1, 0.62 * (1 - vol) + 0.38 * (1 - risk)));
+              const bandBase = lo + plBase * (hi - lo);
+              const brandH = (p.brand_hedef != null) ? Math.max(0.12, Math.min(0.30, Number(p.brand_hedef))) : 0.12; /* MARKATIER_PRICE_V1 */
+              const pesin = Math.max(bandBase, floorCost > 0 ? floorCost / (1 - brandH) : bandBase);
+              const fairAt = (vd) => {
+                const fin = (floorCost > 0 ? floorCost : lo) * (RATE / 365) * Math.min(Math.max(vd, 0), 120);
+                let f = pesin + fin;
+                if (mx != null) f = Math.min(f, Math.max(mx, pesin));
+                return Math.round(f / 250) * 250;
+              };
+              const fair = fairAt(gvade != null ? gvade : 45);
+              r.oneri = fair;
+              r.vade_menu = [0, 30, 60, 90].map(v => ({ vade: v, fiyat: fairAt(v) }));
+              if (gercek == null) r.durum = "YENI";
+              else if (fair > gercek * 1.03) r.durum = "LIFT";
+              else if (gercek > fair * 1.12) r.durum = "WATCH";
+              else r.durum = "UYGUN";
+              r.marj_oneri = (floorCost > 0 && fair > 0) ? Math.round((fair - floorCost) / fair * 1000) / 10 : null;
+              try { /* RAKIPWATCH_V1 */
+                if (r.ebat) {
+                  const cmp = (await query(`SELECT st.rakip_marka, st.rakip_fiyat, st.kayip_nedeni, to_char(st.created_at,'YYYY-MM-DD') tarih FROM saha_teklif st JOIN saha_musteri sm ON sm.id=st.musteri_id WHERE st.tenant_id=$1::uuid AND sm.musteri_kodu=$2 AND st.rakip_fiyat IS NOT NULL AND st.ebat=$3 AND st.created_at >= now() - INTERVAL '9 months' ORDER BY st.created_at DESC LIMIT 1`, [T, musteri, r.ebat])).rows[0];
+                  if (cmp && cmp.rakip_fiyat != null) {
+                    const rf = Math.round(Number(cmp.rakip_fiyat));
+                    r.rakip = { marka: cmp.rakip_marka || null, fiyat: rf, neden: cmp.kayip_nedeni || null, tarih: cmp.tarih || null };
+                    const minFloor = floorCost > 0 ? floorCost / 0.88 : 0;
+                    if (rf < fair) {
+                      r.oneri = Math.round(Math.max(rf, minFloor) / 250) * 250;
+                      r.durum = (rf >= minFloor) ? 'RAKIP' : 'RAKIP_MALIYET';
+                      r.marj_oneri = (floorCost > 0 && r.oneri > 0) ? Math.round((r.oneri - floorCost) / r.oneri * 1000) / 10 : null;
+                    }
+                  }
+                }
+              } catch (e) { console.error('[rakipwatch]', e && e.message); }
+            }
+          }
+        } catch (e) { console.error("[mfl kalem]", e && e.message); }
+        return [kalem, r];
+      };
+      try {
+        const res = await Promise.all(kalems.map(perKalem));
+        res.forEach(([k, r]) => { out.kalemler[k] = r; });
+      } catch (e) { console.error("[mfl]", e && e.message); }
+      sendJson(response, 200, out);
+      return;
+    }
+
+        // ── Teklif formu karar yardimcisi: kalem basi akilli fiyat + saglik esikleri — TEKLIF_ONERI_V1 ──
+    if (request.method === "GET" && url.pathname === "/api/bi/teklif-oneri") {
+      const session = await requireSahaAccess(request, ["manager", "admin"]);  /* TEKLIF_ONERI_V2 */
+      const T = session.tenantId;
+      let kalem = (url.searchParams.get("kalem") || "").trim();
+      const markaQ = (url.searchParams.get("marka") || "").trim();
+      const ebatQ = (url.searchParams.get("ebat") || "").trim();
+      const fiyatQ = Number(url.searchParams.get("fiyat"));
+      const musteriId = (url.searchParams.get("musteri_id") || "").trim();
+      if (!kalem && markaQ && ebatQ) {  /* TEKLIF_ONERI_V2 — teklif satiri marka+ebat verir, kalem_kodu'na coz */
+        try {
+          const kr = await query("SELECT kalem_kodu FROM bi_marj_atom WHERE tenant_id::text=$1 AND upper(marka)=upper($2) AND ebat=$3 AND ay>=(CURRENT_DATE-INTERVAL '18 months') GROUP BY kalem_kodu ORDER BY SUM(adet) DESC LIMIT 1", [T, markaQ, ebatQ]);
+          if (kr.rows[0]) kalem = kr.rows[0].kalem_kodu;
+        } catch (e) {}
+      }
+      if (!kalem) { sendJson(response, 200, { veri: false, mesaj: "Bu kalem icin eslesen SKU bulunamadi.", marka: markaQ || null, ebat: ebatQ || null }); return; }
+      let musteriKodu = null;
+      if (musteriId) {
+        try {
+          const mr = await query("SELECT musteri_kodu FROM saha_musteri WHERE id=$1 AND tenant_id=$2::uuid", [musteriId, T]);
+          musteriKodu = mr.rows[0] ? (mr.rows[0].musteri_kodu || null) : null;
+        } catch (e) {}
+      }
+      const isRep = session.sahaRole === "rep";
+      let skor = null, bilesenler = null, vade_oneri = null, vol = null, risk = null;
+      if (musteriKodu) {
+        const sc = await _smartSkorRaw(T, musteriKodu);
+        if (sc) { skor = sc.skor; bilesenler = sc.bilesenler; vade_oneri = sc.vade_oneri; vol = sc.vol; risk = sc.risk; }
+      }
+      const r = await _smartKalemFiyat(T, musteriKodu, kalem, vol, risk);
+      if (!r || r.oneri == null) {
+        sendJson(response, 200, { veri: false, mesaj: "Bu ebatta yeterli veri yok — öneri veremiyorum.", ad: r ? r.ad : null, marka: r ? r.marka : null, ebat: r ? r.ebat : null, erp_bagli: !!musteriKodu });
+        return;
+      }
+      let saglik = null, rep_marj = null;  /* TEKLIF_ONERI_V2 — rep fiyatinin maliyet-bazli sagligi */
+      if (isFinite(fiyatQ) && fiyatQ > 0 && r.floorCost > 0) {
+        rep_marj = Math.round((fiyatQ - r.floorCost) / fiyatQ * 1000) / 10;
+        saglik = fiyatQ < r.floorCost ? "kirmizi" : (fiyatQ < r.floorCost / 0.88 ? "amber" : "yesil");
+      }
+      const base = { veri: true, ad: r.ad, marka: r.marka, ebat: r.ebat, oneri: r.oneri, durum: r.durum, vade_menu: r.vade_menu, hedef_taban: r.hedef_taban, piyasa: { lo: r.lo, med: r.med, hi: r.hi }, rakip: r.rakip || null, saglik: saglik, rep_marj: rep_marj, erp_bagli: !!musteriKodu };
+      if (isRep) { sendJson(response, 200, base); return; }
+      sendJson(response, 200, Object.assign({}, base, { maliyet: r.maliyet, repl_cost: r.repl_cost, marj_oneri: r.marj_oneri, taban_kritik: r.floorCost || null, brand_hedef: r.brand_hedef, gercek: r.gercek, skor: skor, bilesenler: bilesenler, vade_oneri: vade_oneri }));
+      return;
+    }
+
+    // ===== SMARTKIYAS_V1 — Musteri vs KRB kiyas =====
+    if (request.method === "GET" && url.pathname === "/api/bi/musteri-kiyas") {
+      let _s = await requireModuleAccess(request, "intelligence").catch(() => null);
+      let _ss = _s ? null : await requireSahaAccess(request).catch(() => null);
+      const _sess = _s || _ss;
+      if (!_sess) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      if (!_s && !(_ss && _sahaCap(_ss, "musterikart"))) { sendJson(response, 403, { error: "yetki yok" }); return; }  /* YETKI_FAZ1 */
+      const T = _sess.tenantId;
+      const musteri = (url.searchParams.get("musteri") || "").trim();
+      if (!musteri) { sendJson(response, 400, { error: "musteri zorunlu" }); return; }
+      try {
+        const x = (await query(`WITH cust AS (
+        SELECT f.musteri_kodu, max(f.musteri_adi) musteri_adi,
+          SUM(f.satir_tutar) ciro, SUM(f.miktar) adet,
+          SUM(f.miktar*(f.vade_tarihi-f.fatura_tarihi)::numeric)/NULLIF(SUM(f.miktar),0) vade,
+          SUM(f.miktar*a.birim_maliyet) maliyet,
+          SUM(f.satir_tutar) FILTER (WHERE f.fatura_tarihi >= CURRENT_DATE - INTERVAL '3 months') son3,
+          SUM(f.satir_tutar) FILTER (WHERE f.fatura_tarihi >= CURRENT_DATE - INTERVAL '6 months' AND f.fatura_tarihi < CURRENT_DATE - INTERVAL '3 months') onceki3
+        FROM bi_satis_faturalari f
+        LEFT JOIN bi_marj_atom a ON a.tenant_id::text=f.tenant_id::text AND a.kalem_kodu=f.kalem_kodu AND a.ay=date_trunc('month',f.fatura_tarihi)::date
+        WHERE f.tenant_id::text=$1 AND f.grup_adi LIKE evren_desen(f.tenant_id) AND f.miktar>0
+          AND f.fatura_tarihi>=CURRENT_DATE-INTERVAL '12 months'
+          AND f.musteri_kodu NOT IN (SELECT f2.musteri_kodu FROM bi_satis_faturalari f2 WHERE f2.tenant_id::text=$1 AND f2.grup_adi LIKE evren_desen(f2.tenant_id) AND f2.fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') AND f2.musteri_kodu IN (SELECT muhatap_kodu FROM bi_musteri_risk WHERE tenant_id::text=$1 AND grup ILIKE '%TEDAR%') GROUP BY f2.musteri_kodu HAVING SUM(f2.satir_tutar) > 5000000) /* TEDARFILT_V1 */
+        GROUP BY f.musteri_kodu),
+      risk AS (
+        SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, COALESCE(vadesi_gecmis,0) overdue, COALESCE(hesap_bakiyesi,0) bakiye
+        FROM bi_musteri_risk WHERE tenant_id::text=$1 AND musteri_mi ORDER BY muhatap_kodu, export_date DESC),
+      kb AS (SELECT SUM(vade*adet)/NULLIF(SUM(adet),0) krb_vade,
+        (SUM(ciro)-SUM(maliyet))/NULLIF(SUM(ciro),0)*100 krb_marj FROM cust),
+      kro AS (SELECT SUM(overdue)/NULLIF(SUM(bakiye),0) krb_od FROM risk),
+      tah AS (SELECT muhatap_kodu, CASE WHEN COALESCE(son12_adedi,0)>0 THEN son12_suresi ELSE ort_tahsilat_suresi END dso, CASE WHEN COALESCE(son12_adedi,0)>0 THEN son12_gec_orani ELSE gec_odeme_orani END gecp, CASE WHEN COALESCE(son12_adedi,0)>0 THEN son12_gecikme_gun ELSE ort_gecikme_gun END gun FROM bi_tahsilat WHERE tenant_id::text=$1),
+      kt AS (SELECT AVG(t.dso) krb_dso, AVG(t.gecp) krb_gecp FROM tah t JOIN cust c ON c.musteri_kodu=t.muhatap_kodu)
+      SELECT c.musteri_kodu, c.musteri_adi, round(c.ciro)::float8 ciro,
+        round(c.vade)::float8 vade, round(kb.krb_vade)::float8 krb_vade,
+        round((c.ciro-c.maliyet)/NULLIF(c.ciro,0)*100,1)::float8 marj, round(kb.krb_marj,1)::float8 krb_marj,
+        round(COALESCE(r.overdue,0))::float8 overdue,
+        round(CASE WHEN COALESCE(r.bakiye,0)>0 THEN r.overdue/r.bakiye*100 ELSE 0 END,1)::float8 od_pct,
+        round(kro.krb_od*100,1)::float8 krb_od_pct,
+        round((c.son3-c.onceki3)/NULLIF(c.onceki3,0)*100)::float8 buyume,
+        round(GREATEST(0, kb.krb_marj/100.0 - (c.ciro-c.maliyet)/NULLIF(c.ciro,0)) * c.ciro)::float8 marj_drag,
+        round(t2.dso)::float8 dso, round(kt.krb_dso)::float8 krb_dso, round(t2.gecp,1)::float8 gecp, round(t2.gun)::float8 gecikme_gun, round(kt.krb_gecp,1)::float8 krb_gecp, (t2.muhatap_kodu IS NOT NULL) has_tah
+      FROM cust c LEFT JOIN risk r ON r.muhatap_kodu=c.musteri_kodu LEFT JOIN tah t2 ON t2.muhatap_kodu=c.musteri_kodu CROSS JOIN kb CROSS JOIN kro CROSS JOIN kt` + ` WHERE c.musteri_kodu=$2`, [T, musteri])).rows[0];
+        if (!x) { sendJson(response, 200, { musteri, yok: true }); return; }
+        const n = v => v == null ? null : Number(v);
+        const vade = n(x.vade), krbVade = n(x.krb_vade), marj = n(x.marj), krbMarj = n(x.krb_marj);
+        const overdue = n(x.overdue), odPct = n(x.od_pct), krbOd = n(x.krb_od_pct), buyume = n(x.buyume);
+        const dso = n(x.dso), krbDso = n(x.krb_dso), gecp = n(x.gecp), gecikmeGun = n(x.gecikme_gun), krbGecp = n(x.krb_gecp), hasTah = x.has_tah === true; /* TAHSILAT_KIYAS_V1 */
+        const M = [];
+        // tahsilat -> GERCEK DSO (olculen tahsilat suresi) TAHSILAT_KIYAS_V1
+        { const useDso = hasTah && dso != null; const val = useDso ? dso : vade, krbVal = useDso ? krbDso : krbVade;
+          const kotu = val != null && krbVal != null && val > krbVal * 1.15;
+          M.push({ anahtar: "tahsilat", ad: useDso ? "Tahsilat (DSO)" : "Tahsilat", deger: val != null ? Math.round(val) + " gün" : "—", krb: krbVal != null ? Math.round(krbVal) + " gün" : "—",
+            durum: kotu ? "kotu" : "iyi", aksiyon: kotu ? "Vadeyi kısalt / peşin teşvik et" : null }); }
+        // marj (yuksek=iyi)
+        { const kotu = marj != null && krbMarj != null && marj < krbMarj - 3;
+          M.push({ anahtar: "marj", ad: "Marj", deger: marj != null ? "%" + marj : "—", krb: krbMarj != null ? "%" + krbMarj : "—",
+            durum: kotu ? "kotu" : "iyi", aksiyon: kotu ? "Fiyatı yükselt (Akıllı Fiyat önerisine bak)" : null }); }
+        // gecikme -> OLCULEN odeme davranisi (%gec + ort gun) TAHSILAT_KIYAS_V1
+        { if (hasTah && gecp != null) {
+            const kotu = gecp > 55 || (gecikmeGun != null && gecikmeGun > 15);
+            M.push({ anahtar: "gecikme", ad: "Ödeme davranışı", deger: "%" + Math.round(gecp) + " geç" + (gecikmeGun != null ? " · ort " + Math.round(gecikmeGun) + " gün" : ""),
+              krb: "KRB %" + (krbGecp != null ? Math.round(krbGecp) : "—") + " geç", durum: kotu ? "kotu" : "iyi", aksiyon: kotu ? "Tahsilat planı / peşin teşvik / limit gözden geçir" : null });
+          } else {
+            const _ciro = n(x.ciro) || 0; const odCiro = (_ciro > 0 && overdue != null) ? overdue / _ciro * 100 : null;
+            const kotu = overdue != null && _ciro > 0 && overdue > _ciro * 0.10 && overdue > 50000;
+            M.push({ anahtar: "gecikme", ad: "Gecikme", deger: overdue != null ? Math.round(overdue).toLocaleString("tr-TR") + " ₺" + (odCiro != null ? " · cironun %" + Math.round(odCiro) + "'i" : "") : "—",
+              krb: "sağlıklı < %10", durum: kotu ? "kotu" : "iyi", aksiyon: kotu ? "Tahsilat planı / kredi limitini gözden geçir" : null }); } }
+        // buyume (>0=iyi)
+        { const kotu = buyume != null && buyume < -5; /* SMARTKIYAS_V2 */
+          const bStr = buyume == null ? "—" : (buyume > 300 ? ">%300" : (buyume < -95 ? "<-%95" : "%" + buyume));
+          M.push({ anahtar: "buyume", ad: "Büyüme", deger: bStr, krb: "0 (düz)",
+            durum: kotu ? "kotu" : (buyume != null && buyume > 5 ? "iyi" : "notr"), aksiyon: kotu ? "Kampanya / ziyaret sıklığını artır" : null }); }
+        const drag = M.filter(x2 => x2.durum === "kotu").length;
+        const headline = drag === 0 ? "firma ortalamasının üzerinde ✓" : ("firma ortalamasını " + drag + " metrikte düşürüyor");
+        sendJson(response, 200, { musteri, musteri_adi: x.musteri_adi, ciro: n(x.ciro), drag_sayisi: drag, headline, metrikler: M });
+      } catch (e) { console.error("[musteri-kiyas]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/bi/iyilestirme-hedefleri") {
+      let _s = await requireModuleAccess(request, "intelligence").catch(() => null);
+      let _ss = _s ? null : await requireSahaAccess(request).catch(() => null);
+      const _sess = _s || _ss;
+      if (!_sess) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      if (!_s && !(_ss && ["manager", "admin"].includes(_ss.sahaRole))) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = _sess.tenantId;
+      const minCiro = Math.max(0, parseInt(url.searchParams.get("min_ciro") || "200000", 10));
+        const ay = Math.min(24, Math.max(1, parseInt(url.searchParams.get("ay") || "12", 10))); /* KIRILIM_TF_V1 */
+      try {
+        const rows = (await query(`WITH cust AS (
+        SELECT f.musteri_kodu, max(f.musteri_adi) musteri_adi,
+          SUM(f.satir_tutar) ciro, SUM(f.miktar) adet,
+          SUM(f.miktar*(f.vade_tarihi-f.fatura_tarihi)::numeric)/NULLIF(SUM(f.miktar),0) vade,
+          SUM(f.miktar*a.birim_maliyet) maliyet,
+          SUM(f.satir_tutar) FILTER (WHERE f.fatura_tarihi >= CURRENT_DATE - INTERVAL '3 months') son3,
+          SUM(f.satir_tutar) FILTER (WHERE f.fatura_tarihi >= CURRENT_DATE - INTERVAL '6 months' AND f.fatura_tarihi < CURRENT_DATE - INTERVAL '3 months') onceki3
+        FROM bi_satis_faturalari f
+        LEFT JOIN bi_marj_atom a ON a.tenant_id::text=f.tenant_id::text AND a.kalem_kodu=f.kalem_kodu AND a.ay=date_trunc('month',f.fatura_tarihi)::date
+        WHERE f.tenant_id::text=$1 AND f.grup_adi LIKE evren_desen(f.tenant_id) AND f.miktar>0
+          AND f.fatura_tarihi>=CURRENT_DATE-($3::int * INTERVAL '1 month')
+          AND f.musteri_kodu NOT IN (SELECT f2.musteri_kodu FROM bi_satis_faturalari f2 WHERE f2.tenant_id::text=$1 AND f2.grup_adi LIKE evren_desen(f2.tenant_id) AND f2.fatura_tarihi >= (CURRENT_DATE - ($3::int * INTERVAL '1 month')) AND f2.musteri_kodu IN (SELECT muhatap_kodu FROM bi_musteri_risk WHERE tenant_id::text=$1 AND grup ILIKE '%TEDAR%') GROUP BY f2.musteri_kodu HAVING SUM(f2.satir_tutar) > 5000000) /* TEDARFILT_V1 */
+        GROUP BY f.musteri_kodu),
+      risk AS (
+        SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, COALESCE(vadesi_gecmis,0) overdue, COALESCE(hesap_bakiyesi,0) bakiye
+        FROM bi_musteri_risk WHERE tenant_id::text=$1 AND musteri_mi ORDER BY muhatap_kodu, export_date DESC),
+      kb AS (SELECT SUM(vade*adet)/NULLIF(SUM(adet),0) krb_vade,
+        (SUM(ciro)-SUM(maliyet))/NULLIF(SUM(ciro),0)*100 krb_marj FROM cust),
+      kro AS (SELECT SUM(overdue)/NULLIF(SUM(bakiye),0) krb_od FROM risk),
+      tah AS (SELECT muhatap_kodu, CASE WHEN COALESCE(son12_adedi,0)>0 THEN son12_suresi ELSE ort_tahsilat_suresi END dso, CASE WHEN COALESCE(son12_adedi,0)>0 THEN son12_gec_orani ELSE gec_odeme_orani END gecp, CASE WHEN COALESCE(son12_adedi,0)>0 THEN son12_gecikme_gun ELSE ort_gecikme_gun END gun FROM bi_tahsilat WHERE tenant_id::text=$1),
+      kt AS (SELECT AVG(t.dso) krb_dso, AVG(t.gecp) krb_gecp FROM tah t JOIN cust c ON c.musteri_kodu=t.muhatap_kodu)
+      SELECT c.musteri_kodu, c.musteri_adi, round(c.ciro)::float8 ciro,
+        round(c.vade)::float8 vade, round(kb.krb_vade)::float8 krb_vade,
+        round((c.ciro-c.maliyet)/NULLIF(c.ciro,0)*100,1)::float8 marj, round(kb.krb_marj,1)::float8 krb_marj,
+        round(COALESCE(r.overdue,0))::float8 overdue,
+        round(CASE WHEN COALESCE(r.bakiye,0)>0 THEN r.overdue/r.bakiye*100 ELSE 0 END,1)::float8 od_pct,
+        round(kro.krb_od*100,1)::float8 krb_od_pct,
+        round((c.son3-c.onceki3)/NULLIF(c.onceki3,0)*100)::float8 buyume,
+        round(GREATEST(0, kb.krb_marj/100.0 - (c.ciro-c.maliyet)/NULLIF(c.ciro,0)) * c.ciro)::float8 marj_drag,
+        round(t2.dso)::float8 dso, round(kt.krb_dso)::float8 krb_dso, round(t2.gecp,1)::float8 gecp, round(t2.gun)::float8 gecikme_gun, round(kt.krb_gecp,1)::float8 krb_gecp, (t2.muhatap_kodu IS NOT NULL) has_tah
+      FROM cust c LEFT JOIN risk r ON r.muhatap_kodu=c.musteri_kodu LEFT JOIN tah t2 ON t2.muhatap_kodu=c.musteri_kodu CROSS JOIN kb CROSS JOIN kro CROSS JOIN kt` + ` WHERE c.ciro > $2 ORDER BY marj_drag DESC NULLS LAST LIMIT 60`, [T, minCiro, ay])).rows;
+        const n = v => v == null ? null : Number(v);
+        const out = rows.map(x => {
+          const marj = n(x.marj), krbMarj = n(x.krb_marj), vade = n(x.vade), krbVade = n(x.krb_vade);
+          const odPct = n(x.od_pct), krbOd = n(x.krb_od_pct), buyume = n(x.buyume), overdue = n(x.overdue);
+          const dso = n(x.dso), krbDso = n(x.krb_dso), gecp = n(x.gecp), gecikmeGun = n(x.gecikme_gun), hasTah = x.has_tah === true; /* TAHSILAT_IYILESTIRME_V1 */
+          const bayrak = [];
+          if (marj != null && krbMarj != null && marj < krbMarj - 3) bayrak.push("marj");
+          if (hasTah && dso != null && krbDso != null ? dso > krbDso * 1.15 : (vade != null && krbVade != null && vade > krbVade * 1.15)) bayrak.push("tahsilat"); /* TAHSILAT_IYILESTIRME_V1 */
+          if (hasTah && gecp != null ? (gecp > 55 || (gecikmeGun != null && gecikmeGun > 15)) : (overdue != null && n(x.ciro) > 0 && overdue > n(x.ciro) * 0.10 && overdue > 50000)) bayrak.push("gecikme"); /* TAHSILAT_IYILESTIRME_V1 */
+          if (buyume != null && buyume < -5) bayrak.push("buyume");
+          return { musteri_adi: x.musteri_adi, ciro: n(x.ciro), marj, krb_marj: krbMarj, vade, krb_vade: krbVade,
+            overdue, od_pct: odPct, krb_od_pct: krbOd, buyume, marj_drag: n(x.marj_drag), bayraklar: bayrak };
+        }).filter(r => r.bayraklar.length > 0);
+        const toplamDrag = out.reduce((a, r) => a + (r.marj_drag || 0), 0);
+        sendJson(response, 200, { toplam_marj_drag: Math.round(toplamDrag), musteri_sayisi: out.length, hedefler: out.slice(0, 40) });
+      } catch (e) { console.error("[iyilestirme-hedefleri]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+      return;
+    }
+
+    // MARJDESEN_V1 — marj alarmi desen (kalem) kirilimi
+    if (request.method === "GET" && url.pathname === "/api/bi/marj-alarm-desen") {
+      let _s = await requireModuleAccess(request, "intelligence").catch(() => null);
+      let _ss = _s ? null : await requireSahaAccess(request).catch(() => null);
+      const _sess = _s || _ss;
+      if (!_sess) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      if (!_s && !(_ss && ["manager", "admin"].includes(_ss.sahaRole))) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = _sess.tenantId;
+      const marka = (url.searchParams.get("marka") || "").trim();
+      const ebat = (url.searchParams.get("ebat") || "").trim();
+      const hedef = Math.min(0.5, Math.max(0, parseFloat(url.searchParams.get("hedef") || "0.12")));
+      const ay = Math.min(24, Math.max(1, parseInt(url.searchParams.get("ay") || "12", 10)));
+      if (!marka || !ebat) { sendJson(response, 400, { error: "marka+ebat zorunlu" }); return; }
+      try {
+        const rows = (await query(
+          `WITH sku AS (
+             SELECT kalem_kodu, SUM(adet) adet, SUM(ciro) ciro, SUM(brut_kar) kar
+             FROM bi_marj_atom WHERE tenant_id::text=$1 AND marka=$2 AND ebat=$3
+               AND ay >= (CURRENT_DATE - ($4::int * INTERVAL '1 month')) AND kalem_kodu IS NOT NULL
+             GROUP BY kalem_kodu),
+           bt AS (SELECT GREATEST($5::numeric, LEAST(0.30, percentile_cont(0.6) WITHIN GROUP (ORDER BY m))) hedef
+             FROM (SELECT SUM(brut_kar)/NULLIF(SUM(ciro),0) m FROM bi_marj_atom
+                   WHERE tenant_id::text=$1 AND marka=$2 AND ebat IS NOT NULL AND ebat<>''
+                     AND ay >= (CURRENT_DATE - ($4::int * INTERVAL '1 month')) GROUP BY kalem_kodu
+                   HAVING SUM(adet)>=20 AND SUM(ciro)>0) x),
+           ad AS (SELECT DISTINCT ON (kalem_kodu) kalem_kodu, kalem_tanimi FROM bi_satis_faturalari
+             WHERE tenant_id::text=$1 AND kalem_tanimi IS NOT NULL AND kalem_kodu IN (SELECT kalem_kodu FROM sku)
+             ORDER BY kalem_kodu, fatura_tarihi DESC),
+           repl AS (SELECT kalem_kodu, SUM(satir_kdv_haric)/NULLIF(SUM(miktar),0) repl_cost
+             FROM bi_tedarikci_faturalari WHERE tenant_id::text=$1 AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '90 days')
+               AND kalem_kodu IN (SELECT kalem_kodu FROM sku) GROUP BY kalem_kodu)
+           SELECT s.kalem_kodu, ad.kalem_tanimi,
+             s.adet::int adet, round(s.ciro)::float8 ciro, round(s.kar)::float8 kar,
+             round(s.kar/NULLIF(s.ciro,0)*100,1)::float8 marj_pct,
+             round(s.ciro/NULLIF(s.adet,0))::float8 avg_satis,
+             round((s.ciro-s.kar)/NULLIF(s.adet,0))::float8 avg_maliyet,
+             round(r.repl_cost)::float8 repl_cost,
+             COALESCE(bt.hedef,$5::numeric)::float8 brand_hedef
+           FROM sku s CROSS JOIN bt LEFT JOIN ad ON ad.kalem_kodu=s.kalem_kodu LEFT JOIN repl r ON r.kalem_kodu=s.kalem_kodu
+           WHERE s.ciro > 0 ORDER BY s.ciro DESC LIMIT 60`,
+          [T, marka, ebat, ay, hedef])).rows;
+        const bh = rows.length && rows[0].brand_hedef != null ? Number(rows[0].brand_hedef) : hedef;
+        const desenler = rows.map(r => {
+          const taban = (Number(r.repl_cost) || Number(r.avg_maliyet) || 0);
+          const floor = taban > 0 ? taban / (1 - bh) : null;
+          return {
+            kalem_kodu: r.kalem_kodu, desen: r.kalem_tanimi || r.kalem_kodu,
+            adet: Number(r.adet), ciro: Number(r.ciro), marj_pct: Number(r.marj_pct),
+            avg_satis: Number(r.avg_satis), avg_maliyet: Number(r.avg_maliyet),
+            repl_cost: r.repl_cost != null ? Number(r.repl_cost) : null,
+            onerilen_taban: floor != null ? Math.round(floor / 250) * 250 : null,
+            leak: Math.round(bh * Number(r.ciro) - Number(r.kar)),
+            maliyet_alti: taban > 0 && Number(r.avg_satis) < taban
+          };
+        });
+        sendJson(response, 200, { marka, ebat, hedef: bh, hedef_pct: Math.round(bh * 1000) / 10, ay, desenler });
+      } catch (e) { console.error("[marj-alarm-desen]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+      return;
+    }
+
+  // === FINANS_ODASI_V2 — Finans odasi veri ucu + shell (COKME-GUVENLI: benzersiz yollar + headersSent guard; eski /api/bi/finans raporuna DOKUNMAZ) ===
+  if (request.method === "GET" && url.pathname === "/api/bi/finans/ticari-sermaye") {
+    if (response.headersSent) return;
+    try {
+      let session = await requireBiDept(request, "finansodasi").catch(() => null);  /* FINANS_GATE_SRV_V1 */
+      if (!session) { const _ss = await requireSahaAccess(request).catch(() => null); if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss; }
+      if (!session) { if (!response.headersSent) sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = session && session.tenantId;
+      if (!T) { if (!response.headersSent) sendJson(response, 401, { error: "oturum yok" }); return; }
+      const { rows } = await query("SELECT * FROM v_finans_ticari_sermaye WHERE tenant_id = $1::uuid", [String(T)]);
+      const r = rows[0] || {};
+      const MN = x => (x === null || x === undefined) ? null : Math.round(Number(x) / 1e5) / 10;
+      const NM = x => (x === null || x === undefined) ? null : Number(x);
+      const dio = NM(r.dio);
+      let asOf; try { asOf = new Date().toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "numeric" }); } catch (e) { asOf = null; }
+      const data = {
+        as_of: asOf, donem: "son 12 ay · Tem'25–Haz'26",
+        net_satis_lastik: MN(r.net_satis_lastik), ciro_sirket: MN(r.ciro_tum_sirket),
+        smm: MN(r.smm), brut_kar: MN(r.brut_kar), brut_marj_pct: NM(r.marj_pct),
+        ticari_alacaklar: MN(r.ar_net), net_gecikmis: MN(r.net_gecikmis), finansman_yillik: MN(r.finansman_yil),
+        stok_lastik: MN(r.stok_deger), ticari_borclar: MN(r.ap_borc),
+        dso: NM(r.dso), dio: dio, dpo: NM(r.dpo), ccc: NM(r.ccc),
+        devir: (dio && dio > 0) ? Math.round(365 / dio * 10) / 10 : null,
+        twc: MN(r.twc), bagli_sermaye_pct: NM(r.bagli_sermaye_oran)
+      };
+      if (!response.headersSent) sendJson(response, 200, { data });
+    } catch (e) { console.error("[finans-ticari-sermaye]", e && e.message); if (!response.headersSent) sendJson(response, 500, { error: String(e && e.message) }); }
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/bi/veri/ekran") {  /* VERI_EKRAN_V2 */
+    if (response.headersSent) return;
+    try {
+      let _vsess = await requireModuleAccess(request, "intelligence").catch(() => null);
+      if (!_vsess) { const _ss = await requireSahaAccess(request).catch(() => null); if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) _vsess = _ss; }
+      if (!_vsess) { if (!response.headersSent) sendJson(response, 403, { error: "yetki yok" }); return; }
+      const _h = await readFile("/app/shells/veri_yukle.html", "utf8");
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      response.end(_h);
+    } catch (e) { if (!response.headersSent) sendJson(response, 404, { error: "veri ekrani bulunamadi" }); }
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/bi/ik-odasi") { /* IK_ODASI_SHELL_V1 */
+    if (response.headersSent) return;
+    try {
+      let _isess = await requireBiDept(request, "ikodasi").catch(() => null);  /* IK_GATE_SRV_V1 */
+      if (!_isess) { if (!response.headersSent) sendJson(response, 403, { error: "yetki yok" }); return; }
+      const _h = await readFile("/app/shells/ik.html", "utf8");
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+      response.end(_h);
+    } catch (e) { if (!response.headersSent) sendJson(response, 404, { error: "ik odasi bulunamadi" }); }
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/bi/ik/oda") { /* IK_ODA_ORG_V4 */
+    if (response.headersSent) return;
+    try {
+      let _s = await requireBiDept(request, "ikodasi").catch(() => null);
+      if (!_s) { if (!response.headersSent) sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = _s && _s.tenantId; if (!T) { if (!response.headersSent) sendJson(response, 401, { error: "oturum yok" }); return; }
+      const _dept = (url.searchParams.get("dept") || "saha");
+      const gr = await query(
+        "SELECT DISTINCT ON (k.user_id) k.user_id, " +
+        "COALESCE(NULLIF(TRIM(u.name),''),NULLIF(TRIM(u.full_name),''),k.sap_temsilci) ad, k.kanal_etiket, " +
+        "to_char(g.gun,'YYYY-MM-DD') gun, g.id gelisim_id, g.portre, g.guven, g.model, g.guclu_yonler, g.gelisim_onerileri, g.bilinmeyen_bulgular " +
+        "FROM rep_kimlik_koprusu k LEFT JOIN saha_rep_gelisim g ON g.tenant_id=k.tenant_id AND g.user_id=k.user_id " +
+        "LEFT JOIN users u ON u.id=k.user_id WHERE k.tenant_id=$1::uuid AND k.durum=$2 AND COALESCE(u.role,'') NOT IN ('company_owner','platform_owner') " +
+        "ORDER BY k.user_id, g.gun DESC NULLS LAST, g.hesaplandi_at DESC NULLS LAST",
+        [String(T), _dept]);
+      const ids = gr.rows.map(r => r.user_id);
+      if (!ids.length) { if (!response.headersSent) sendJson(response, 200, { data: { as_of: null, dept: _dept, kisi_sayisi: 0, ozet: {}, kisiler: [] } }); return; }
+      let ozByUser = {};
+      try {
+        const orr = await query(
+          "SELECT user_id, alan, ozellik, deger, kapsam, metin FROM (" +
+          "SELECT DISTINCT ON (user_id, ozellik) user_id, alan, ozellik, deger::float8 deger, kapsam::float8 kapsam, metin, gun " +
+          "FROM saha_rep_ozellik WHERE tenant_id=$1::uuid AND user_id = ANY($2::uuid[]) ORDER BY user_id, ozellik, gun DESC) t",
+          [String(T), ids]);
+        for (const r of orr.rows) { (ozByUser[r.user_id] = ozByUser[r.user_id] || []).push(r); }
+      } catch (e) { try { console.error("[ik oz]", e && e.message); } catch (_) {} }
+      let ritByUser = {};
+      try {
+        const rr = await query(
+          "SELECT user_id, EXTRACT(HOUR FROM (ts AT TIME ZONE 'Europe/Istanbul'))::int hr, COUNT(*)::int n " +
+          "FROM saha_rep_aktivite WHERE tenant_id=$1::uuid AND user_id=ANY($2::uuid[]) AND ts > now()-interval '60 days' GROUP BY user_id, hr",
+          [String(T), ids]);
+        for (const r of rr.rows) { const a = (ritByUser[r.user_id] = ritByUser[r.user_id] || new Array(24).fill(0)); a[r.hr] = r.n; }
+      } catch (e) {}
+      let engByUser = {};
+      try {
+        const er = await query(
+          "SELECT k.user_id, MAX(s.last_active_at) son_aktif, " +
+          "COUNT(DISTINCT date(a.ts)) FILTER (WHERE a.ts > now()-interval '30 days') g30, " +
+          "COUNT(DISTINCT date(a.ts)) FILTER (WHERE a.ts > now()-interval '60 days' AND a.ts <= now()-interval '30 days') gprev, " +
+          "COUNT(a.id) FILTER (WHERE a.ts > now()-interval '30 days') olay30 " +
+          "FROM rep_kimlik_koprusu k LEFT JOIN user_sessions s ON s.user_id=k.user_id " +
+          "LEFT JOIN saha_rep_aktivite a ON a.user_id=k.user_id AND a.tenant_id=k.tenant_id " +
+          "WHERE k.tenant_id=$1::uuid AND k.durum=$2 GROUP BY k.user_id",
+          [String(T), _dept]);
+        for (const r of er.rows) engByUser[r.user_id] = r;
+      } catch (e) {}
+      let convByUser = {};
+      try {
+        const cr = await query("SELECT rep_id, COUNT(*)::int n FROM saha_rep_conversations WHERE tenant_id=$1::uuid AND rep_id=ANY($2::uuid[]) AND role='user' GROUP BY rep_id", [String(T), ids]);
+        for (const r of cr.rows) convByUser[r.rep_id] = r.n;
+      } catch (e) {}
+      /* IK_NOTU_READ_V1 — yönetici notu + içgörü tepkisi (drawer geçmişi + döngü) */
+      let notByUser = {};
+      try {
+        const nr = await query(
+          "SELECT rep_user_id, id, tur, metin, yazar_ad, to_char(olusturuldu_at,'YYYY-MM-DD') gun FROM (" +
+          "SELECT sr.*, row_number() OVER (PARTITION BY rep_user_id ORDER BY olusturuldu_at DESC) rn " +
+          "FROM saha_rep_yonetici_notu sr WHERE tenant_id=$1::uuid AND rep_user_id=ANY($2::uuid[]) AND aktif) t " +
+          "WHERE rn<=6 ORDER BY rep_user_id, olusturuldu_at DESC",
+          [String(T), ids]);
+        for (const r of nr.rows) (notByUser[r.rep_user_id] = notByUser[r.rep_user_id] || []).push({ id: r.id, tur: r.tur, metin: r.metin, yazar: r.yazar_ad, gun: r.gun });
+      } catch (e) {}
+      let tepkiByUser = {};
+      try {
+        const tr = await query(
+          "SELECT rep_user_id, hedef, tepki, duzeltme, hedef_ref, to_char(olusturuldu_at,'YYYY-MM-DD') gun FROM (" +
+          "SELECT st.*, row_number() OVER (PARTITION BY rep_user_id ORDER BY olusturuldu_at DESC) rn " +
+          "FROM saha_rep_icgoru_tepki st WHERE tenant_id=$1::uuid AND rep_user_id=ANY($2::uuid[])) t " +
+          "WHERE rn<=12 ORDER BY rep_user_id, olusturuldu_at DESC",
+          [String(T), ids]);
+        for (const r of tr.rows) (tepkiByUser[r.rep_user_id] = tepkiByUser[r.rep_user_id] || []).push({ hedef: r.hedef, tepki: r.tepki, duzeltme: r.duzeltme, ref: r.hedef_ref, gun: r.gun });
+      } catch (e) {}
+
+      const _arr = (x) => Array.isArray(x) ? x : (x && typeof x === "object" ? Object.values(x) : []);
+      const _daysAgo = (d) => d ? Math.floor((Date.now() - new Date(d).getTime()) / 86400000) : null;
+      let _mx = 0; Object.keys(ozByUser).forEach(u => ozByUser[u].forEach(o => { if (o.deger > _mx) _mx = o.deger; }));
+      const _scale = (_mx > 0 && _mx <= 1.5) ? 100 : (_mx > 100 ? 100 / _mx : 1);
+      const _fam = (rows) => {
+        const m = {};
+        rows.forEach(o => { if (o.deger == null) return; const k = o.alan || "—"; (m[k] = m[k] || []).push(o.deger * _scale); });
+        return Object.keys(m).map(k => ({ alan: k, deger: Math.round(m[k].reduce((a, b) => a + b, 0) / m[k].length) }));
+      };
+      let nabizSum = 0, nabizN = 0, riskN = 0, upN = 0, vyN = 0;
+      const kisiler = gr.rows.map(r => {
+        const oz = ozByUser[r.user_id] || [];
+        const eng = engByUser[r.user_id] || {};
+        const g30 = Number(eng.g30 || 0), gprev = Number(eng.gprev || 0);
+        const engMature = (g30 + gprev) >= 4;
+        const nabiz = engMature ? Math.max(0, Math.min(100, Math.round(g30 / 22 * 100))) : null;
+        const son = _daysAgo(eng.son_aktif);
+        const momentum = engMature ? (g30 > gprev + 1 ? "up" : (g30 < gprev - 1 ? "dn" : "fl")) : "fl";
+        const dataThin = (oz.length < 3) && !r.portre;
+        const risk = (!dataThin && engMature && momentum === "dn" && gprev >= 3 && g30 < gprev) ? "risk" : "ok";
+        const conf = dataThin ? "dusuk" : "ok";
+        const radar = _fam(oz);
+        const kanit = oz.filter(o => o.deger != null).sort((a, b) => b.deger - a.deger).slice(0, 5).map(o => ({ ozellik: o.ozellik, alan: o.alan, deger: Math.round(o.deger * _scale), metin: o.metin }));
+        const etiket = radar.length ? ("En güçlü: " + radar.slice().sort((a, b) => b.deger - a.deger)[0].alan) : "Profil oluşuyor";
+        if (!dataThin && nabiz != null) { nabizSum += nabiz; nabizN++; }
+        if (risk === "risk") riskN++;
+        if (momentum === "up" && !dataThin) upN++;
+        if (dataThin) vyN++;
+        let capstone = "";
+        if (r.portre) { const p = String(r.portre).trim().split(/\n\s*\n/)[0] || ""; capstone = p.length > 320 ? p.slice(0, 317) + "…" : p; }
+        return {
+          user_id: r.user_id, ad: r.ad || "—", kanal: r.kanal_etiket, gun: r.gun, model: r.model,
+          guven: r.guven || (dataThin ? "veri_yok" : "taslak"),
+          nabiz, eng_mature: engMature, momentum, risk, conf, etiket, son_gun: son, merak: convByUser[r.user_id] || 0,
+          radar, ritim: ritByUser[r.user_id] || null, kanit,
+          guclu: _arr(r.guclu_yonler), gelisim: _arr(r.gelisim_onerileri), bulgular: _arr(r.bilinmeyen_bulgular),
+          capstone, portre: r.portre || "",
+          gelisim_id: r.gelisim_id || null,
+          notlar: notByUser[r.user_id] || [], tepkiler: tepkiByUser[r.user_id] || []
+        };
+      });
+      kisiler.sort((a, b) => String(a.ad).localeCompare(String(b.ad), "tr"));
+      const asof = kisiler.reduce((m, r) => (!m || (r.gun && r.gun > m)) ? r.gun : m, null);
+      const ozet = { nabiz: nabizN ? Math.round(nabizSum / nabizN) : null, risk_n: riskN, yukselis_n: upN, veriyok_n: vyN };
+      if (!response.headersSent) sendJson(response, 200, { data: { as_of: asof, dept: _dept, kisi_sayisi: kisiler.length, ozet, kisiler } });
+    } catch (e) { try { console.error("[ik-oda-org]", e && e.message); } catch (_) {} if (!response.headersSent) sendJson(response, 500, { error: String(e && e.message) }); }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/bi/ik/not") { /* IK_NOTU_EP_V1 */
+    if (response.headersSent) return;
+    try {
+      const _s = await requireBiDept(request, "ikodasi").catch(() => null);
+      if (!_s) { if (!response.headersSent) sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = _s.tenantId; let U = _s.userId;
+      if (!U) { try { const su = await getSessionUser(request); U = su && su.userId; } catch (_) {} }
+      if (!T || !U) { if (!response.headersSent) sendJson(response, 401, { error: "oturum yok" }); return; }
+      let body = {}; try { body = await readJson(request); } catch (e) {}
+      const rep = String(body.rep_user_id || "");
+      if (!/^[0-9a-f-]{36}$/i.test(rep)) { sendJson(response, 400, { error: "rep_user_id gecersiz" }); return; }
+      const turIn = String(body.tur || "gozlem").toLowerCase();
+      const tur = ["gozlem", "kocluk", "baglam"].includes(turIn) ? turIn : "gozlem";
+      const metin = String(body.metin || "").trim().slice(0, 4000);
+      if (!metin) { sendJson(response, 400, { error: "metin bos" }); return; }
+      const ins = await pool.query(
+        "INSERT INTO saha_rep_yonetici_notu (tenant_id, rep_user_id, yazar_user_id, yazar_ad, tur, metin) " +
+        "VALUES ($1::uuid,$2::uuid,$3::uuid,(SELECT COALESCE(NULLIF(TRIM(name),''),NULLIF(TRIM(full_name),''),email) FROM users WHERE id=$3::uuid),$4,$5) " +
+        "RETURNING id, yazar_ad, to_char(olusturuldu_at,'YYYY-MM-DD') gun",
+        [String(T), rep, String(U), tur, metin]);
+      const row = ins.rows[0] || {};
+      sendJson(response, 200, { ok: true, not: { id: row.id, tur, metin, yazar: row.yazar_ad, gun: row.gun } });
+    } catch (e) { try { console.error("[ik-not]", e && e.message); } catch (_) {} if (!response.headersSent) sendJson(response, 500, { error: String(e && e.message) }); }
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/bi/ik/tepki") { /* IK_TEPKI_EP_V1 */
+    if (response.headersSent) return;
+    try {
+      const _s = await requireBiDept(request, "ikodasi").catch(() => null);
+      if (!_s) { if (!response.headersSent) sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = _s.tenantId; let U = _s.userId;
+      if (!U) { try { const su = await getSessionUser(request); U = su && su.userId; } catch (_) {} }
+      if (!T || !U) { if (!response.headersSent) sendJson(response, 401, { error: "oturum yok" }); return; }
+      let body = {}; try { body = await readJson(request); } catch (e) {}
+      const rep = String(body.rep_user_id || "");
+      if (!/^[0-9a-f-]{36}$/i.test(rep)) { sendJson(response, 400, { error: "rep_user_id gecersiz" }); return; }
+      const hedefIn = String(body.hedef || "diger").toLowerCase();
+      const hedef = ["capstone", "bulgu", "portre", "kanit", "diger"].includes(hedefIn) ? hedefIn : "diger";
+      const tepki = String(body.tepki || "").toLowerCase();
+      if (!["ok", "no", "mid"].includes(tepki)) { sendJson(response, 400, { error: "tepki gecersiz" }); return; }
+      const hedefRef = body.hedef_ref != null ? String(body.hedef_ref).slice(0, 600) : null;
+      const duzeltme = body.duzeltme != null ? String(body.duzeltme).trim().slice(0, 4000) || null : null;
+      const gid = Number.isFinite(+body.gelisim_id) ? parseInt(body.gelisim_id, 10) : null;
+      const ins = await pool.query(
+        "INSERT INTO saha_rep_icgoru_tepki (tenant_id, rep_user_id, yazar_user_id, yazar_ad, hedef, hedef_ref, gelisim_id, tepki, duzeltme) " +
+        "VALUES ($1::uuid,$2::uuid,$3::uuid,(SELECT COALESCE(NULLIF(TRIM(name),''),NULLIF(TRIM(full_name),''),email) FROM users WHERE id=$3::uuid),$4,$5,$6,$7,$8) RETURNING id",
+        [String(T), rep, String(U), hedef, hedefRef, gid, tepki, duzeltme]);
+      sendJson(response, 200, { ok: true, id: (ins.rows[0] || {}).id });
+    } catch (e) { try { console.error("[ik-tepki]", e && e.message); } catch (_) {} if (!response.headersSent) sendJson(response, 500, { error: String(e && e.message) }); }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/bi/finans-odasi") { /* FINANS_ODASI_SHELL_V2 */
+    if (response.headersSent) return;
+    try {
+      let _fsess = await requireBiDept(request, "finansodasi").catch(() => null);  /* FINANS_GATE_SRV_V1 */
+      if (!_fsess) { const _ss = await requireSahaAccess(request).catch(() => null); if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) _fsess = _ss; }
+      if (!_fsess) { if (!response.headersSent) sendJson(response, 403, { error: "yetki yok" }); return; }
+      const _h = await readFile("/app/shells/finans.html", "utf8");
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      response.end(_h);
+    } catch (e) { if (!response.headersSent) sendJson(response, 404, { error: "finans odasi bulunamadi" }); }
+    return;
+  }
+  // === FINANS_ODA_LIVE_V6 — tek kanonik uc: odanin HER sayisi canli kaynaktan; hardcoded YOK, kaynagi olmayan alan null(->"—"). V6: Bu ay marj = KANON v_marj_cari_ay (akis maliyeti, cari ay canli view — kokpit ile ayni kaynak, tesvik oncesi brut) ===
+  if (request.method === "GET" && url.pathname === "/api/bi/finans/oda") {
+    if (response.headersSent) return;
+    try {
+      let session = await requireModuleAccess(request, "intelligence").catch(() => null);
+      if (!session) { const _ss = await requireSahaAccess(request).catch(() => null); if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss; }
+      if (!session) { if (!response.headersSent) sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = session && session.tenantId; if (!T) { if (!response.headersSent) sendJson(response, 401, { error: "oturum yok" }); return; }
+      const N = x => (x === null || x === undefined) ? null : Number(x);
+      const M1 = x => (x === null || x === undefined) ? null : Math.round(Number(x) / 1e5) / 10;
+      const _win = (url.searchParams.get('win') || '12'); const _wn = { '3':3,'6':6,'12':12 }[_win] || 12;  /* FINANS_WIN_V1 */
+      const _ck = String(T)+':'+_win+(url.searchParams.get('detay')?':d':'');  /* FINANS_ODA_CACHE_V1 CACHE_TTL_BOUNDED_V2 */
+      try{ const _cc=(globalThis.__odaCache=globalThis.__odaCache||new Map()).get(_ck); if(_cc && (Date.now()-_cc.t)<3600000){ if(!response.headersSent) sendJson(response,200,{data:_cc.d,cached:true}); return; } }catch(e){}
+      const W = (_win==='buay') ? "ay >= date_trunc('month',CURRENT_DATE)" : (_win==='yb') ? "ay >= date_trunc('year',CURRENT_DATE)" : "ay > ((SELECT max(ay) FROM bi_marj_atom WHERE tenant_id::text=$1) - "+_wn+"*INTERVAL '1 month') AND ay <= (SELECT max(ay) FROM bi_marj_atom WHERE tenant_id::text=$1)";
+      const W12 = "ay > ((SELECT max(ay) FROM bi_marj_atom WHERE tenant_id::text=$1) - 12*INTERVAL '1 month') AND ay <= (SELECT max(ay) FROM bi_marj_atom WHERE tenant_id::text=$1)";
+      // CORE — v_finans_ticari_sermaye
+      const v = (await query("SELECT * FROM v_finans_ticari_sermaye WHERE tenant_id = $1::uuid", [String(T)])).rows[0] || {};
+      const dio = N(v.dio);
+      const _fl = (await query("SELECT sum(ciro) ns, sum(ciro-brut_kar) smm, sum(brut_kar) bk, round(sum(brut_kar)/nullif(sum(ciro),0)*100,1)::float8 mj FROM bi_marj_atom WHERE tenant_id::text=$1 AND " + W, [String(T)])).rows[0] || {};  /* FINANS_WIN_V1 akis */
+      const core = {
+        net_satis_lastik: M1(_fl.ns), ciro_sirket: M1(v.ciro_tum_sirket), smm: M1(_fl.smm),
+        brut_kar: M1(_fl.bk), marj_pct: N(_fl.mj), win: _win, ticari_alacaklar: M1(v.ar_net),
+        ticari_borclar: M1(v.ap_borc), finansman_yil: M1(v.finansman_yil),
+        dso: N(v.dso), dio: dio, dpo: N(v.dpo), ccc: N(v.ccc), twc: M1(v.twc),
+        bagli_sermaye_pct: N(v.bagli_sermaye_oran), devir: (dio && dio > 0) ? Math.round(365 / dio * 10) / 10 : null
+      };
+      // STOK — bi_stok_durumu LASTIK, en son export
+      const _sk = (await query("SELECT grup_adi, sum(toplam_deger) d FROM bi_stok_durumu WHERE tenant_id::text=$1 AND export_date=(SELECT max(export_date) FROM bi_stok_durumu WHERE tenant_id::text=$1) AND grup_adi ILIKE evren_desen(tenant_id) GROUP BY grup_adi ORDER BY d DESC", [String(T)])).rows;
+      const _oz = (await query("SELECT olu, sezon_disi FROM stok_hiz_ozet($1::uuid)", [String(T)])).rows[0] || {}; const _olu = { deger: Math.round(Number(_oz.olu||0)/1e5)/10, sku: Number((await query("SELECT count(*)::int n FROM stok_hiz_kalemler($1::uuid,0,100000) WHERE etiket='Ölü'", [String(T)])).rows[0].n) };  /* OLU_DIO_ANCHOR_V1 */
+      const _sezon = { deger: Math.round(Number(_oz.sezon_disi||0)/1e5)/10, sku: Number((await query("SELECT count(*)::int n FROM stok_hiz_kalemler($1::uuid,0,100000) WHERE etiket='Sezon dışı'", [String(T)])).rows[0].n) };  /* OLU_DIO_ANCHOR_V1 */
+      const _detay = ((await query("WITH k AS (SELECT urun, marka, adet, maliyet, son_satis, gun_hareketsiz, round(stok_deger/1e3)::int nakit_bin, aksiyon, stok_deger FROM stok_hiz_kalemler($1::uuid,0,100000) WHERE etiket='Ölü' ORDER BY stok_deger DESC) SELECT round(sum(stok_deger)/1e5)/10 tsd, count(*) tss, (SELECT json_agg(row_to_json(t)) FROM (SELECT marka, urun ebat, adet, maliyet, son_satis, gun_hareketsiz, nakit_bin, aksiyon FROM k LIMIT 25) t) kalemler, (SELECT json_agg(row_to_json(m)) FROM (SELECT marka, count(*) sku, round(sum(stok_deger)/1e5)/10 deger FROM k GROUP BY marka ORDER BY sum(stok_deger) DESC LIMIT 15) m) markalar FROM k", [String(T)])).rows[0] || {});  /* OLU_DIO_ANCHOR_V1 OLU_DETAY_ALWAYS_V1 */
+      const _sip = (await query("SELECT round(sum(siparis_miktar * CASE WHEN eldeki_miktar>0 THEN toplam_deger/eldeki_miktar ELSE 0 END)/1e5)/10 deger, round(sum(siparis_miktar))::int adet FROM bi_stok_durumu WHERE tenant_id::text=$1 AND export_date=(SELECT max(export_date) FROM bi_stok_durumu WHERE tenant_id::text=$1) AND grup_adi ILIKE evren_desen(tenant_id) AND siparis_miktar>0", [String(T)])).rows[0] || {};  /* FINANS_WIN_V1 siparis */
+      const stok = { toplam: Math.round(_sk.reduce((a, r) => a + Number(r.d || 0), 0) / 1e5) / 10, kirilim: _sk.map(r => ({ grup: r.grup_adi, deger: M1(r.d) })), olu: { deger: N(_olu.deger), sku: N(_olu.sku) }, sezonluk: { deger: N(_sezon.deger), sku: N(_sezon.sku) }, olu_detay: { snk: N(_detay.snk), sks: N(_detay.sks), tsd: N(_detay.tsd), tss: N(_detay.tss), kalemler: _detay.kalemler || [], markalar: _detay.markalar || [] }, siparis: { deger: N(_sip.deger), adet: N(_sip.adet) } };
+      // GECIKMIS — bi_musteri_risk + cari
+      const _g = (await query("SELECT muhatap_adi ad, net_gecikmis net, brut_gecikmis gross FROM v_net_gecikmis_musteri WHERE tenant_id::text=$1", [String(T)])).rows;
+      let gBrut = 0, gNet = 0; _g.forEach(r => { gBrut += Number(r.gross || 0); gNet += Number(r.net || 0); });
+      const top = _g.map(r => ({ ad: r.ad, net: Number(r.net || 0) })).filter(x => x.net > 0).sort((a, b) => b.net - a.net).slice(0, 6).map(x => ({ ad: x.ad, net: Math.round(x.net / 1e5) / 10 }));
+      const _ot = (await query("SELECT round(sum(son12_suresi*son12_tutar)/nullif(sum(son12_tutar),0)) gun, round(sum(son12_gec_orani*son12_tutar)/nullif(sum(son12_tutar),0)) gec FROM bi_tahsilat WHERE tenant_id::text=$1 AND musteri_mi AND son12_tutar>0", [String(T)])).rows[0] || {};  /* FINANS_WIN_V1 olculen */
+      const gecikmis = { brut: Math.round(gBrut / 1e5) / 10, net: Math.round(gNet / 1e5) / 10, top: top, olculen: { gun: N(_ot.gun), gec_orani: N(_ot.gec) } };
+      // MARKA MARJ — bi_marj_atom 12 ay
+      const marka = (await query("SELECT marka, round(sum(ciro)/1e6,1)::float8 ciro, round(sum(brut_kar)/nullif(sum(ciro),0)*100,1)::float8 marj, sum(adet)::int adet FROM bi_marj_atom WHERE tenant_id::text=$1 AND " + W + " GROUP BY marka HAVING sum(ciro)>0 ORDER BY ciro DESC LIMIT 14", [String(T)])).rows.map(r => ({ marka: r.marka, ciro: N(r.ciro), marj: N(r.marj), adet: N(r.adet) }));
+      // CATAL — tuketici(PSR)/ticari(non-PSR) ciro+marj
+      const _cat = (await query("SELECT CASE WHEN kategori_segment(kategori, tenant_id::uuid)='PSR' THEN 'TUK' ELSE 'TIC' END umb, round(sum(ciro)/1e6,1)::float8 c, round(sum(brut_kar)/nullif(sum(ciro),0)*100,1)::float8 mj FROM bi_marj_atom WHERE tenant_id::text=$1 AND " + W + " GROUP BY 1", [String(T)])).rows;
+      const _pick = u => _cat.find(r => r.umb === u) || {};
+      const catal = { tuk: { ciro: N(_pick('TUK').c), marj: N(_pick('TUK').mj) }, tic: { ciro: N(_pick('TIC').c), marj: N(_pick('TIC').mj) } };
+      // KAR HARITASI — tuketici sezon + ticari kategori-segment
+      const kar_tuk = (await query("SELECT kategori_sezon(kategori, tenant_id::uuid) s, round(sum(ciro)/1e6,1)::float8 c, round(sum(brut_kar)/nullif(sum(ciro),0)*100,1)::float8 mj FROM bi_marj_atom WHERE tenant_id::text=$1 AND " + W + " AND kategori_segment(kategori, tenant_id::uuid)='PSR' GROUP BY 1 ORDER BY 2 DESC", [String(T)])).rows.map(r => ({ ad: r.s, ciro: N(r.c), marj: N(r.mj) }));
+      const kar_tic = (await query("SELECT kategori_segment(kategori, tenant_id::uuid) s, round(sum(ciro)/1e6,1)::float8 c, round(sum(brut_kar)/nullif(sum(ciro),0)*100,1)::float8 mj FROM bi_marj_atom WHERE tenant_id::text=$1 AND " + W + " AND kategori_segment(kategori, tenant_id::uuid)<>'PSR' GROUP BY 1 ORDER BY 2 DESC", [String(T)])).rows.map(r => ({ ad: r.s, ciro: N(r.c), marj: N(r.mj) }));
+      const kar = { tuk: kar_tuk, tic: kar_tic };
+      // TREND — 12 ay aylik marj + ciro + brut kar (zaman seciciyi client tarafinda pencereler; hepsi canli tek kaynak)
+      const trend = (await query("SELECT to_char(ay,'YYYY-MM') ay, round(sum(brut_kar)/nullif(sum(ciro),0)*100,1)::float8 marj, round(sum(ciro)/1e6,2)::float8 ciro, round(sum(brut_kar)/1e6,2)::float8 bk FROM bi_marj_atom WHERE tenant_id::text=$1 AND " + W12 + " GROUP BY ay ORDER BY ay", [String(T)])).rows.map(r => ({ ay: r.ay, marj: N(r.marj), ciro: N(r.ciro), bk: N(r.bk) }));
+      const _a = (await query("SELECT to_char(max(ay),'YYYY-MM') a FROM bi_marj_atom WHERE tenant_id::text=$1", [String(T)])).rows[0];
+      // PENCERE — zaman secici KOKPITLE AYNI KAYNAK: ciro = bi_satis_faturalari (satir_tutar>0, fatura_tarihi), marj = bi_marj_atom (lastik). Takvim pencereleri.
+      const _pc = {}; /* CIRO_DONEM_FINANS_V2: tek pano cagrisi (5 seri cagri kaldirildi) */
+      { const _pano = (await query("SELECT donem, deger FROM ciro_donem_pano($1::uuid)", [String(T)])).rows;
+        const _pmap = { buay:'buay', m3:'3ay', m6:'6ay', m12:'12ay', yb:'ytd' };
+        for (const _k in _pmap) { const _row = _pano.find(x => x.donem === _pmap[_k]); _pc[_k] = _row ? Math.round(Number(_row.deger)/1e5)/10 : null; } }
+      const _pm = (await query(
+        "SELECT " +
+        "round(sum(brut_kar) FILTER (WHERE ay >= date_trunc('month',CURRENT_DATE))/nullif(sum(ciro) FILTER (WHERE ay >= date_trunc('month',CURRENT_DATE)),0)*100,1)::float8 buay, " +
+        "round(sum(brut_kar) FILTER (WHERE ay >= date_trunc('month',CURRENT_DATE)-INTERVAL '2 month')/nullif(sum(ciro) FILTER (WHERE ay >= date_trunc('month',CURRENT_DATE)-INTERVAL '2 month'),0)*100,1)::float8 m3, " +
+        "round(sum(brut_kar) FILTER (WHERE ay >= date_trunc('month',CURRENT_DATE)-INTERVAL '5 month')/nullif(sum(ciro) FILTER (WHERE ay >= date_trunc('month',CURRENT_DATE)-INTERVAL '5 month'),0)*100,1)::float8 m6, " +
+        "round(sum(brut_kar) FILTER (WHERE ay >= date_trunc('month',CURRENT_DATE)-INTERVAL '11 month')/nullif(sum(ciro) FILTER (WHERE ay >= date_trunc('month',CURRENT_DATE)-INTERVAL '11 month'),0)*100,1)::float8 m12, " +
+        "round(sum(brut_kar) FILTER (WHERE ay >= date_trunc('year',CURRENT_DATE))/nullif(sum(ciro) FILTER (WHERE ay >= date_trunc('year',CURRENT_DATE)),0)*100,1)::float8 yb " +
+        "FROM bi_marj_atom WHERE tenant_id::text=$1", [String(T)])).rows[0] || {};
+      // BU AY CANLI MARJ (V6) — KANON: v_marj_cari_ay (akis maliyeti, cari ay, canli view). Finans + kokpit AYNI kaynak.
+      // marj = cari-ay lastik ciro-agirlikli (tesvik oncesi brut). kapsam = maliyeti bilinen lastik cirosunun cari-ay toplam lastik cirosuna orani.
+      const _am = (await query(
+        "WITH cov AS (SELECT round(100*sum(brut_kar)/nullif(sum(ciro),0),1)::float8 marj, sum(ciro) ck FROM v_marj_cari_ay WHERE tenant_id::text=$1), " +
+        "tot AS (SELECT sum(satir_tutar) ct FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND ebat IS NOT NULL AND miktar>0 AND satir_tutar>0 AND fatura_tarihi>=date_trunc('month',CURRENT_DATE)) " +
+        "SELECT cov.marj, round(100*cov.ck/nullif(tot.ct,0))::float8 kapsam FROM cov, tot", [String(T)])).rows[0] || {};
+      const _buayMarj = N(_am.marj);
+      const _buayKaps = (_am.kapsam != null) ? Math.round(Number(_am.kapsam)) : null;
+      const pencere = {
+        buay: { ciro: N(_pc.buay), marj: (_buayMarj != null ? _buayMarj : N(_pm.buay)), marj_tahmin: (_buayMarj != null), kapsam: _buayKaps },
+        m3: { ciro: N(_pc.m3), marj: N(_pm.m3) },
+        m6: { ciro: N(_pc.m6), marj: N(_pm.m6) }, m12: { ciro: N(_pc.m12), marj: N(_pm.m12) },
+        yb: { ciro: N(_pc.yb), marj: N(_pm.yb) }
+      };
+      const _sz = (await query("SELECT round(sum(-brut_kar) FILTER (WHERE brut_kar<0)/1e5)/10 tutar, count(*) FILTER (WHERE brut_kar<0)::int kalem, round(100.0*count(*) FILTER (WHERE brut_kar<0)/nullif(count(*),0),1)::float8 pct FROM bi_marj_atom WHERE tenant_id::text=$1 AND " + W, [String(T)])).rows[0] || {};  /* FINANS_WIN_V1 sizinti */
+      const sizinti = { tutar: N(_sz.tutar), kalem: N(_sz.kalem), pct: N(_sz.pct) };
+      /* FINANS_TESVIK_WIN_V1 — markalardan kazanilan tesvik/prim (DESTEK BEDELI+TUKETICI PRIM), YALNIZ muhatap=TEDARIKCI; fatura_tarihi penceresi seciciye yanit verir */
+      const _wf = (_win==='buay') ? "f.fatura_tarihi >= date_trunc('month',CURRENT_DATE)" : (_win==='yb') ? "f.fatura_tarihi >= date_trunc('year',CURRENT_DATE)" : "f.fatura_tarihi >= date_trunc('month',CURRENT_DATE) - "+(_wn-1)+"*INTERVAL '1 month'";
+      const _tv = (await query("SELECT COALESCE(sum(f.satir_tutar),0)::float8 tutar, count(*)::int satir FROM bi_satis_faturalari f WHERE f.tenant_id::text=$1 AND f.kategori IN ('DESTEK BEDELİ','TÜKETİCİ PRİM') AND EXISTS (SELECT 1 FROM bi_musteri_risk r WHERE r.tenant_id::text=f.tenant_id::text AND r.muhatap_kodu=f.musteri_kodu AND r.grup ILIKE '%TEDAR%') AND " + _wf, [String(T)])).rows[0] || {};
+      const tesvik = { tutar: M1(_tv.tutar), satir: N(_tv.satir) };
+      const data = { as_of: _a ? _a.a : null, win: _win, core, stok, gecikmis, marka, catal, kar, trend, pencere, sizinti, tesvik, aging: null, motor_trend: null };
+      try{ (globalThis.__odaCache=globalThis.__odaCache||new Map()).set(_ck,{t:Date.now(),d:data}); }catch(e){}  /* FINANS_ODA_CACHE_V1 */
+      if (!response.headersSent) sendJson(response, 200, { data: data });
+    } catch (e) { console.error("[finans-oda]", e && e.message); if (!response.headersSent) sendJson(response, 500, { error: String(e && e.message) }); }
+    return;
+  }
+
+
+
+
+
+  // KOKPIT2_PREVIEW_ROUTE — yeni kokpit onizleme (canliya dokunmaz)
+  if (request.method === "GET" && url.pathname === "/api/bi/kokpit2") {
+    try {
+      const _h = await readFile("/app/shells/kokpit2.html", "utf8");
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      response.end(_h);
+    } catch (e) { sendJson(response, 404, { error: "kokpit2 bulunamadi" }); }
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/bi/mobil") { /* MOBIL_KOKPIT_ROUTE_V1 */
+    try {
+      const _h = await readFile("/app/shells/mobil_kokpit.html", "utf8");
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      response.end(_h);
+    } catch (e) { sendJson(response, 404, { error: "mobil bulunamadi" }); }
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/bi/kokpit-iki") { /* KOKPIT_IKI_ROUTE_V1 */
+    try {
+      const _h = await readFile("/app/shells/kokpit_iki.html", "utf8");
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      response.end(_h);
+    } catch (e) { sendJson(response, 404, { error: "kokpit-iki bulunamadi" }); }
+    return;
+  }
   if (request.method === "GET" && url.pathname === "/api/bi/kokpit") {
     try {
       const _h = await readFile("/app/shells/kokpit.html", "utf8");
@@ -25468,13 +27799,271 @@ if (request.method === "GET" && url.pathname === "/ops") {
     } catch (e) { sendJson(response, 404, { error: "kokpit bulunamadi" }); }
     return;
   }
+  // === KOKPIT_UMBRELLA_V1 — per-umbrella (PSR=tuketici / rest=ticari) urun-split, donem parametreli ===
+  if (request.method === "GET" && url.pathname === "/api/bi/kokpit-umbrella") {
+    try {
+      let session = await requireModuleAccess(request, "intelligence").catch(() => null);
+      if (!session) { const _ss = await requireSahaAccess(request).catch(() => null); if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss; }
+      if (!session) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = session && session.tenantId;
+      if (!T) { sendJson(response, 401, { error: "oturum yok" }); return; }
+      const ytd = url.searchParams.get("ytd") === "1";
+      let ayN = parseInt(url.searchParams.get("ay") || "12", 10); if (!(ayN >= 1 && ayN <= 24)) ayN = 12;
+      const _uk = String(T)+':umb:'+(ytd?'ytd':ayN);  try{ const _uc=(globalThis.__odaCache=globalThis.__odaCache||new Map()).get(_uk); if(_uc && (Date.now()-_uc.t)<3600000){ sendJson(response,200,_uc.d); return; } }catch(e){}  /* KOKPIT_CACHE_V1 */
+      const winSql = ytd ? "ay >= date_trunc('year', (SELECT max(ay) FROM bi_marj_atom WHERE tenant_id::text=$1))" : "ay > ((SELECT max(ay) FROM bi_marj_atom WHERE tenant_id::text=$1) - ($2 * INTERVAL '1 month'))";
+      const params = ytd ? [String(T)] : [String(T), ayN];
+      const winSqlGy = ytd ? "ay >= (date_trunc('year',(SELECT max(ay) FROM bi_marj_atom WHERE tenant_id::text=$1)) - INTERVAL '1 year') AND ay < date_trunc('year',(SELECT max(ay) FROM bi_marj_atom WHERE tenant_id::text=$1))" : "ay > ((SELECT max(ay) FROM bi_marj_atom WHERE tenant_id::text=$1) - (($2 + 12) * INTERVAL '1 month')) AND ay <= ((SELECT max(ay) FROM bi_marj_atom WHERE tenant_id::text=$1) - (12 * INTERVAL '1 month'))";
+      const UMB = "CASE WHEN kategori_segment(kategori, tenant_id::uuid)='PSR' THEN 'TUK' ELSE 'TIC' END";
+      const _fWin = ytd ? "date_trunc('month',fatura_tarihi) >= date_trunc('year',CURRENT_DATE) AND date_trunc('month',fatura_tarihi) <= date_trunc('month',CURRENT_DATE)" : "date_trunc('month',fatura_tarihi) > ((SELECT max(ay) FROM bi_marj_atom WHERE tenant_id::text=$1) - ($2 * INTERVAL '1 month')) AND date_trunc('month',fatura_tarihi) <= (SELECT max(ay) FROM bi_marj_atom WHERE tenant_id::text=$1)";
+      const _KB = "CASE WHEN grup_adi='LASTIK TUKETICI' THEN 'TUK_L' WHEN grup_adi='LASTIK TICARI' THEN 'TIC_L' WHEN grup_adi='LASTIK YENILEME' THEN 'RETREAD' WHEN grup_adi IN ('LASTIK TICARI TAMIR','VERILEN SERVIS HIZMET') THEN 'SERVIS' ELSE 'DIGER' END";
+      const _ord = { TIC_L: 1, TUK_L: 2, RETREAD: 3, SERVIS: 4, DIGER: 5 };
+      const _M = (v) => (v != null ? Math.round(Number(v)/1e5)/10 : null); /* KOKPIT_UMBRELLA_PANO_V1: ciro/adet=pano; hepsi PARALEL */
+      const [ _pano, _yr, tot, psrSezon, ticSegment, marka, _saR, _skirR, _clkR, _clb, _clmR, _gmR, _mt, _nowR ] = await Promise.all([
+        query("SELECT * FROM ciro_donem_pano($1::uuid)", [String(T)]).then(r => r.rows),
+        query("SELECT round(sum(ciro)/1e6,1)::float8 ciro, round((sum(brut_kar)/nullif(sum(ciro),0)*100)::numeric,1)::float8 marj, sum(adet)::int adet FROM bi_marj_atom WHERE tenant_id::text=$1 AND " + winSqlGy, params).then(r => r.rows[0] || null).catch(() => null),
+        query("SELECT " + UMB + " umb, round(sum(ciro)/1e6,1)::float8 c, round((sum(brut_kar)/nullif(sum(ciro),0)*100)::numeric,1)::float8 mj, sum(adet)::int adet FROM bi_marj_atom WHERE tenant_id::text=$1 AND " + winSql + " GROUP BY 1", params).then(r => r.rows),
+        query("SELECT kategori_sezon(kategori, tenant_id::uuid) s, round(sum(ciro)/1e6,1)::float8 c, round((sum(brut_kar)/nullif(sum(ciro),0)*100)::numeric,1)::float8 mj FROM bi_marj_atom WHERE tenant_id::text=$1 AND " + winSql + " AND kategori_segment(kategori, tenant_id::uuid)='PSR' GROUP BY 1 ORDER BY 2 DESC", params).then(r => r.rows),
+        query("SELECT kategori_segment(kategori, tenant_id::uuid) s, round(sum(ciro)/1e6,1)::float8 c, round((sum(brut_kar)/nullif(sum(ciro),0)*100)::numeric,1)::float8 mj FROM bi_marj_atom WHERE tenant_id::text=$1 AND " + winSql + " AND kategori_segment(kategori, tenant_id::uuid)<>'PSR' GROUP BY 1 ORDER BY 2 DESC", params).then(r => r.rows),
+        query("SELECT marka m, " + UMB + " umb, round(sum(ciro)/1e6,1)::float8 c, round((sum(brut_kar)/nullif(sum(ciro),0)*100)::numeric,1)::float8 mj, sum(adet)::int adet FROM bi_marj_atom WHERE tenant_id::text=$1 AND " + winSql + " GROUP BY 1,2 HAVING sum(ciro)>0 ORDER BY c DESC", params).then(r => r.rows),
+        query("SELECT to_char(max(ay),'YYYY-MM') s FROM bi_marj_atom WHERE tenant_id::text=$1", [String(T)]).then(r => r.rows[0]),
+        query("SELECT " + _KB + " ad, round(sum(satir_tutar)/1e6,1)::float8 c FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND " + _fWin + " GROUP BY 1", params).then(r => r.rows),
+        query("SELECT " + _KB + " ad, round(sum(satir_tutar)/1e6,1)::float8 c FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND date_trunc('month',fatura_tarihi)=date_trunc('month',CURRENT_DATE) AND satir_tutar>0 GROUP BY 1", [String(T)]).then(r => r.rows),
+        query("SELECT CASE WHEN kategori_segment(kategori, tenant_id::uuid)='PSR' THEN 'tuk' ELSE 'tic' END u, round(sum(satir_tutar)/1e6,1)::float8 ciro, sum(miktar)::int adet FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND grup_adi LIKE evren_desen(tenant_id) AND date_trunc('month',fatura_tarihi)=date_trunc('month',CURRENT_DATE) AND satir_tutar>0 GROUP BY 1", [String(T)]).then(r => r.rows),
+        query("WITH v AS (SELECT catal, ciro, brut_kar FROM v_marj_cari_ay WHERE tenant_id::text=$1), t AS (SELECT sum(satir_tutar) ct FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND grup_adi LIKE evren_desen(tenant_id) AND satir_tutar>0 AND date_trunc('month',fatura_tarihi)=date_trunc('month',CURRENT_DATE)) SELECT round(100*sum(brut_kar)/nullif(sum(ciro),0),1)::float8 marj, round(100.0*sum(ciro)/nullif((SELECT ct FROM t),0),1)::float8 kapsam, round(100*sum(brut_kar) FILTER (WHERE catal='TUK')/nullif(sum(ciro) FILTER (WHERE catal='TUK'),0),1)::float8 marj_tuk, round(100*sum(brut_kar) FILTER (WHERE catal='TIC')/nullif(sum(ciro) FILTER (WHERE catal='TIC'),0),1)::float8 marj_tic FROM v", [String(T)]).then(r => r.rows[0]),
+        query("SELECT round((sum(brut_kar)/nullif(sum(ciro),0)*100)::numeric,1)::float8 mj FROM bi_marj_atom WHERE tenant_id::text=$1 AND " + winSql + "", params).then(r => r.rows[0]),
+        query("SELECT to_char(ay,'YYYY-MM') ay, round((sum(brut_kar)/nullif(sum(ciro),0)*100)::numeric,1)::float8 marj, round((sum(brut_kar) FILTER (WHERE kategori_segment(kategori, tenant_id::uuid)='PSR'))/nullif(sum(ciro) FILTER (WHERE kategori_segment(kategori, tenant_id::uuid)='PSR'),0)*100,1)::float8 tuk, round((sum(brut_kar) FILTER (WHERE kategori_segment(kategori, tenant_id::uuid)<>'PSR'))/nullif(sum(ciro) FILTER (WHERE kategori_segment(kategori, tenant_id::uuid)<>'PSR'),0)*100,1)::float8 tic FROM bi_marj_atom WHERE tenant_id::text=$1 AND ay > ((SELECT max(ay) FROM bi_marj_atom WHERE tenant_id::text=$1) - (13 * INTERVAL '1 month')) GROUP BY ay ORDER BY ay", [String(T)]).then(r => r.rows),
+        query("SELECT to_char(date_trunc('month',CURRENT_DATE),'YYYY-MM') ay", []).then(r => r.rows[0])
+      ]);
+      const _pk = ytd ? 'ytd' : (ayN === 3 ? '3ay' : ayN === 6 ? '6ay' : ayN === 1 ? 'buay' : '12ay');
+      const _pget = (k) => _pano.find((x) => x.donem === k) || {};
+      const _pp = _pget(_pk), _pbuay = _pget('buay');
+      const son_ay = _saR ? _saR.s : null;
+      const _skir = _skirR.filter((r) => r.c > 0).sort((a, b) => (_ord[a.ad] || 9) - (_ord[b.ad] || 9));
+      const sirket = { ciro: _M(_pp.deger), kirilim: _skir, yoy_pct: _pp.yoy_pct, mom_pct: _pp.mom_pct, trend: _pp.trend, adet_yoy_pct: _pp.adet_yoy_pct, birim_fiyat_yoy: _pp.birim_fiyat_yoy_pct }; /* BIRIM_FIYAT_V1 */
+      const _yoy = _yr ? { ciro: _yr.ciro, marj: _yr.marj, adet: _yr.adet } : null;
+      const _canliGy = { ciro: _M(_pbuay.deger_gy), adet: (_pbuay.adet_gy != null ? Number(_pbuay.adet_gy) : null) };
+      const _clk = _clkR.filter((r) => r.c > 0).sort((a, b) => (_ord[a.ad] || 9) - (_ord[b.ad] || 9));
+      const _cb = (u) => { const r = _clb.find((x) => x.u === u); return r ? { ciro: r.ciro, adet: r.adet } : { ciro: 0, adet: 0 }; };
+      const _clm = _clmR;
+      const _buayCiro = _M(_pbuay.deger);
+      const canli = { ay: (_nowR ? _nowR.ay : son_ay), ciro: (_buayCiro != null ? _buayCiro : 0), adet: (_pbuay.adet != null ? Number(_pbuay.adet) : 0), kirilim: _clk, tuk: _cb('tuk'), tic: _cb('tic'), marj: _clm ? _clm.marj : null, marj_tuk: _clm ? _clm.marj_tuk : null, marj_tic: _clm ? _clm.marj_tic : null, kapsam: _clm ? _clm.kapsam : null, bosay: (!_buayCiro), yoy_pct: _pbuay.yoy_pct, mom_pct: _pbuay.mom_pct, trend: _pbuay.trend, adet_yoy_pct: _pbuay.adet_yoy_pct, birim_fiyat_yoy: _pbuay.birim_fiyat_yoy_pct }; /* BIRIM_FIYAT_V1 */
+      const pick = (u) => tot.find((r) => r.umb === u) || { c: 0, mj: null, adet: 0 };
+      const tk = pick("TUK"), tc = pick("TIC");
+      const cc = (tk.c || 0) + (tc.c || 0);
+      const wmarj = _gmR ? _gmR.mj : null;
+      const marj_trend = _mt.map((r) => ({ ay: r.ay, marj: r.marj, tuk: r.tuk, tic: r.tic }));
+      const __uout = {
+        ay: ytd ? "ytd" : ayN, son_ay: son_ay, sirket: sirket, canli: canli, marj_trend: marj_trend,
+        yoy: _yoy, canli_gy: _canliGy,
+        toplam: { ciro: +cc.toFixed(1), marj: wmarj, adet: (_pp.adet != null ? Number(_pp.adet) : 0) },
+        tuketici: { ciro: tk.c, marj: tk.mj, adet: tk.adet, sezon: psrSezon, marka: marka.filter((m) => m.umb === "TUK") },
+        ticari: { ciro: tc.c, marj: tc.mj, adet: tc.adet, segment: ticSegment, marka: marka.filter((m) => m.umb === "TIC") }
+      };
+      try{(globalThis.__odaCache=globalThis.__odaCache||new Map()).set(_uk,{t:Date.now(),d:__uout});}catch(e){}
+      sendJson(response, 200, __uout);
+    } catch (e) { console.error("[kokpit-umbrella]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/bi/dso-icgoru") { /* DSO_IKI */
+    try {
+      let session = await requireModuleAccess(request, "intelligence").catch(() => null);
+      if (!session) { const _ss = await requireSahaAccess(request).catch(() => null); if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss; }
+      if (!session) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = session && session.tenantId;
+      if (!T) { sendJson(response, 401, { error: "oturum yok" }); return; }
+      const _dsoSql = "WITH cls AS (SELECT f.musteri_kodu kod, CASE WHEN COALESCE(sum(f.satir_tutar) FILTER (WHERE kategori_segment(a.kategori)='PSR'),0) >= COALESCE(sum(f.satir_tutar) FILTER (WHERE kategori_segment(a.kategori)<>'PSR'),0) THEN 'TUK' ELSE 'TIC' END sinif FROM bi_satis_faturalari f JOIN bi_marj_atom a ON a.tenant_id::text=f.tenant_id::text AND a.kalem_kodu=f.kalem_kodu AND a.ay=date_trunc('month',f.fatura_tarihi)::date WHERE f.tenant_id::text=$1 AND f.fatura_tarihi >= CURRENT_DATE - INTERVAL '12 months' AND f.satir_tutar>0 GROUP BY 1), rev AS (SELECT COALESCE(c.sinif,'SINIFSIZ') sinif, SUM(f.satir_tutar) rev12 FROM bi_satis_faturalari f LEFT JOIN cls c ON c.kod=f.musteri_kodu WHERE f.tenant_id::text=$1 AND f.fatura_tarihi >= CURRENT_DATE - INTERVAL '12 months' AND f.satir_tutar>0 GROUP BY 1), r1 AS (SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu kod, GREATEST(hesap_bakiyesi,0) bak, GREATEST(vadesi_gecmis,0) vg, musteri_mi, COALESCE(NULLIF(TRIM(grup),''),'') grup FROM bi_musteri_risk WHERE tenant_id::text=$1 ORDER BY muhatap_kodu, export_date DESC), cb AS (SELECT musteri_kodu, MIN(LEAST(tedarikci_bakiye,0)) borc FROM bi_cari_bakiye WHERE tenant_id::text=$1 GROUP BY musteri_kodu), risk AS (SELECT COALESCE(c.sinif,'SINIFSIZ') sinif, SUM(r.bak) bakiye, SUM(GREATEST(r.vg+COALESCE(cb.borc,0),0)) gecikmis FROM r1 r LEFT JOIN cls c ON c.kod=r.kod LEFT JOIN cb ON cb.musteri_kodu=r.kod WHERE r.musteri_mi AND r.grup NOT ILIKE '%TEDAR%' GROUP BY 1), tah AS (SELECT COALESCE(c.sinif,'SINIFSIZ') sinif, sum(bt.son12_suresi*bt.son12_tutar)/nullif(sum(bt.son12_tutar),0) odeme, sum(bt.son12_gec_orani*bt.son12_tutar)/nullif(sum(bt.son12_tutar),0) gec FROM bi_tahsilat bt LEFT JOIN cls c ON c.kod=bt.muhatap_kodu WHERE bt.tenant_id::text=$1 AND bt.musteri_mi AND bt.son12_tutar>0 GROUP BY 1), spine AS (SELECT unnest(ARRAY['TUK','TIC','SINIFSIZ']) sinif) SELECT sp.sinif, COALESCE(rev.rev12,0)::float8 rev12, COALESCE(risk.bakiye,0)::float8 bakiye, COALESCE(risk.gecikmis,0)::float8 gecikmis, tah.odeme::float8 odeme, tah.gec::float8 gec FROM spine sp LEFT JOIN rev USING(sinif) LEFT JOIN risk USING(sinif) LEFT JOIN tah USING(sinif)";
+      const _dr = (await query(_dsoSql, [String(T)])).rows;
+      const _dget = (sf) => { const r = _dr.find((x) => x.sinif === sf) || {}; const gun = (r.rev12 || 0) / 365; return { odeme: r.odeme != null ? Math.round(r.odeme) : null, gec: r.gec != null ? Math.round(r.gec) : null, dso: gun > 0 ? Math.round(r.bakiye / gun) : null, bakiye: +((r.bakiye || 0) / 1e6).toFixed(1), gecikmis: +((r.gecikmis || 0) / 1e6).toFixed(1), ciro: +((r.rev12 || 0) / 1e6).toFixed(1) }; };
+      const _topSql = "WITH cls AS (SELECT f.musteri_kodu kod, CASE WHEN COALESCE(sum(f.satir_tutar) FILTER (WHERE kategori_segment(a.kategori)='PSR'),0) >= COALESCE(sum(f.satir_tutar) FILTER (WHERE kategori_segment(a.kategori)<>'PSR'),0) THEN 'TUK' ELSE 'TIC' END sinif FROM bi_satis_faturalari f JOIN bi_marj_atom a ON a.tenant_id::text=f.tenant_id::text AND a.kalem_kodu=f.kalem_kodu AND a.ay=date_trunc('month',f.fatura_tarihi)::date WHERE f.tenant_id::text=$1 AND f.fatura_tarihi >= CURRENT_DATE - INTERVAL '12 months' AND f.satir_tutar>0 GROUP BY 1), ov AS (SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu kod, COALESCE(NULLIF(TRIM(muhatap_adi),''),muhatap_kodu) ad, GREATEST(vadesi_gecmis,0) vg, musteri_mi, COALESCE(NULLIF(TRIM(grup),''),'') grup FROM bi_musteri_risk WHERE tenant_id::text=$1 ORDER BY muhatap_kodu, export_date DESC), cb AS (SELECT musteri_kodu, MIN(LEAST(tedarikci_bakiye,0)) borc FROM bi_cari_bakiye WHERE tenant_id::text=$1 GROUP BY musteri_kodu), n AS (SELECT COALESCE(c.sinif,'SINIFSIZ') sinif, o.ad, GREATEST(o.vg+COALESCE(cb.borc,0),0) net FROM ov o LEFT JOIN cls c ON c.kod=o.kod LEFT JOIN cb ON cb.musteri_kodu=o.kod WHERE o.musteri_mi AND o.grup NOT ILIKE '%TEDAR%') SELECT DISTINCT ON (sinif) sinif, ad, round((net/1e6)::numeric,1)::float8 net FROM n WHERE net>0 ORDER BY sinif, net DESC";
+      const _tr = (await query(_topSql, [String(T)])).rows;
+      const _topOf = (sf) => { const r = _tr.find((x) => x.sinif === sf); return r ? { ad: r.ad, overdue: r.net } : null; };
+      const dso = { tuketici: Object.assign(_dget("TUK"), { top: _topOf("TUK") }), ticari: Object.assign(_dget("TIC"), { top: _topOf("TIC") }), sinifsiz: Object.assign(_dget("SINIFSIZ"), { top: _topOf("SINIFSIZ") }) };
+      const _key = String(T) + "|" + JSON.stringify([dso.tuketici, dso.ticari, dso.sinifsiz]);
+      const _c = (globalThis.__dsoIc = globalThis.__dsoIc || new Map());
+      let anlati = _c.get(_key) || null;
+      if (!anlati && typeof anthropic !== "undefined" && anthropic) {
+        try {
+          const _ev27 = await _evTanim(T); const SYS = "Sen " + ((session&&session.tenantName)||"KRB") + " adli " + _ev27 + "nin finans analistisin. Isletme sahibine tahsilat/DSO durumunu anlatiyorsun.\nSana JSON verilecek: her is kolu (tuketici=binek/PSR, ticari=TBR/OTR/filo, sinifsiz=lastik-disi/dormant) icin: odeme=OLCULEN ortalama odeme suresi (gun), dso=bakiye/gunluk-satis (gun), bakiye ve gecikmis (milyon TL), gec=gec odeme orani (%), top=o isi en cok siseren hesap {ad, overdue milyon TL}.\nGorevin: bunun NE DEMEK oldugunu isletme sahibine 3-5 cumlelik TEK paragrafta sade Turkce anlatmak. Sayi degil ANLAM once.\nKATI KURALLAR:\n- SADECE JSON'daki sayilari kullan. ASLA yeni sayi/oran/tarih UYDURMA. Olmayan hesap adi yazma.\n- Odeme suresi DUSUK ama DSO YUKSEK ise TESHIS koy: 'hizli oduyorlar ama birkac eski hesap bakiyeyi sisiriyor' + top.ad'i ver.\n- Iki is kolunu KIYASLA (hangisi daha temiz/riskli). Sinifsiz'i kisaca degin (dormant/lastik-disi).\n- AKSIYON one cikar: sistemik mi (vade sikma) yoksa isimli hesap mi (su hesabi kapat).\n- Madde/baslik YOK; duz paragraf, isletme sahibi diliyle. Sayilari Turkce yaz (gun, M TL, %).";
+          const msg = await anthropic.messages.create({ model: "claude-sonnet-4-6", max_tokens: 760, messages: [{ role: "user", content: SYS + "\n\nJSON:\n" + JSON.stringify(dso) + "\n\nSadece anlati paragrafini yaz." }] });
+          anlati = ((msg.content && msg.content[0] && msg.content[0].text) || "").trim();
+          if (anlati) { if (_c.size > 40) _c.clear(); _c.set(_key, anlati); }
+        } catch (e) { console.error("[dso-icgoru-ai]", e && e.message); }
+      }
+      sendJson(response, 200, { dso: dso, anlati: anlati });
+    } catch (e) { console.error("[dso-icgoru]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+    return;
+  }
+  // === MUSTERI_EVRENI_V1 — musteri kadrani (ciro×marj×overdue+sinif) + nakit split + adil barlar ===
+  if (request.method === "GET" && url.pathname === "/api/bi/musteri-evreni") {
+    try {
+      let session = await requireModuleAccess(request, "intelligence").catch(() => null);
+      if (!session) { const _ss = await requireSahaAccess(request).catch(() => null); if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss; }
+      if (!session) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = session && session.tenantId;
+      if (!T) { sendJson(response, 401, { error: "oturum yok" }); return; }
+      const ytd = url.searchParams.get("ytd") === "1";
+      let ayN = parseInt(url.searchParams.get("ay") || "12", 10); if (!(ayN >= 1 && ayN <= 24)) ayN = 12;
+      const _mk = String(T)+':mevr:'+(ytd?'ytd':ayN);  try{ const _mc=(globalThis.__odaCache=globalThis.__odaCache||new Map()).get(_mk); if(_mc && (Date.now()-_mc.t)<3600000){ sendJson(response,200,_mc.d); return; } }catch(e){}  /* KOKPIT_CACHE_V1 */
+      const aWin = ytd ? "ay >= date_trunc('year', (SELECT max(ay) FROM bi_marj_atom WHERE tenant_id::text=$1))" : "ay > ((SELECT max(ay) FROM bi_marj_atom WHERE tenant_id::text=$1) - ($2 * INTERVAL '1 month'))";
+      const fWin = ytd ? "f.fatura_tarihi >= date_trunc('year', CURRENT_DATE)" : "f.fatura_tarihi >= (CURRENT_DATE - ($2 * INTERVAL '1 month'))";
+      const params = ytd ? [String(T)] : [String(T), ayN];
+      // adil barlar = urun-split umbrella marj (KPI ile birebir)
+      const barRows = (await query("SELECT CASE WHEN kategori_segment(kategori, tenant_id::uuid)='PSR' THEN 'TUK' ELSE 'TIC' END umb, round((sum(brut_kar)/nullif(sum(ciro),0)*100)::numeric,1)::float8 mj FROM bi_marj_atom WHERE tenant_id::text=$1 AND " + aWin + " GROUP BY 1", params)).rows;
+      const _bt = (u) => { const r = barRows.find((x) => x.umb === u); return r ? r.mj : null; };
+      const bar = { tuk: _bt("TUK"), tic: _bt("TIC") };
+      // musteri agregasyonu (donem): ciro, kar, psr_ciro -> sinif + marj
+      const cust = (await query("SELECT f.musteri_kodu kod, sum(f.satir_tutar)::float8 ciro, (sum(f.satir_tutar)-sum(f.miktar*a.birim_maliyet))::float8 kar, CASE WHEN COALESCE(sum(f.satir_tutar) FILTER (WHERE kategori_segment(a.kategori)='PSR'),0) >= COALESCE(sum(f.satir_tutar) FILTER (WHERE kategori_segment(a.kategori)<>'PSR'),0) THEN 'TUK' ELSE 'TIC' END sinif FROM bi_satis_faturalari f JOIN bi_marj_atom a ON a.tenant_id::text=f.tenant_id::text AND a.kalem_kodu=f.kalem_kodu AND a.ay=date_trunc('month',f.fatura_tarihi)::date WHERE f.tenant_id::text=$1 AND " + fWin + " AND f.satir_tutar>0 GROUP BY 1", params)).rows; /* EVRENI_SINIF_FIX */
+      // overdue (bugun, net) + isim — tum musteriler (donemden bagimsiz)
+      const ov = (await query("SELECT muhatap_kodu kod, muhatap_adi ad, net_gecikmis::float8 net FROM v_net_gecikmis_musteri WHERE tenant_id::text=$1", [String(T)])).rows;
+      const ovMap = {}; for (const o of ov) ovMap[o.kod] = o;
+      const sinifOf = {};
+      const musteriler = cust.map((c) => {
+        const sinif = c.sinif;
+        sinifOf[c.kod] = sinif;
+        const o = ovMap[c.kod];
+        return { ad: o ? o.ad : c.kod, ciro: +((c.ciro || 0) / 1e6).toFixed(2), marj: c.ciro ? +(c.kar / c.ciro * 100).toFixed(1) : null, overdue: +(((o && o.net) || 0) / 1e6).toFixed(2), sinif: sinif };
+      }).filter((m) => m.ciro > 0).sort((a, b) => b.ciro - a.ciro).slice(0, 200);
+      // nakit split (verify blok D): overdue'yu sinifa yaz; cust'ta yoksa SINIFSIZ
+      const nakit = { tuketici: 0, ticari: 0, sinifsiz: 0, toplam: 0 };
+      for (const o of ov) { const n = o.net || 0; if (n <= 0) continue; nakit.toplam += n; const sf = sinifOf[o.kod]; if (sf === "TUK") nakit.tuketici += n; else if (sf === "TIC") nakit.ticari += n; else nakit.sinifsiz += n; }
+      for (const k of Object.keys(nakit)) nakit[k] = +(nakit[k] / 1e6).toFixed(1);
+      // kim tasiyor: sinif basina en buyuk 6 gecikmis
+      const ws = ov.filter((o) => o.net > 0).map((o) => ({ ad: o.ad, overdue: +(o.net / 1e6).toFixed(2), sinif: sinifOf[o.kod] || "SINIFSIZ" }));
+      const kim = { tuketici: ws.filter((x) => x.sinif === "TUK").sort((a, b) => b.overdue - a.overdue).slice(0, 6), ticari: ws.filter((x) => x.sinif === "TIC").sort((a, b) => b.overdue - a.overdue).slice(0, 6) };
+      const __mout = { ay: ytd ? "ytd" : ayN, bar: bar, nakit: nakit, musteriler: musteriler, kim_tasiyor: kim };  try{ (globalThis.__odaCache=globalThis.__odaCache||new Map()).set(_mk,{t:Date.now(),d:__mout}); }catch(e){}  /* KOKPIT_CACHE_V1 */
+      sendJson(response, 200, __mout);
+    } catch (e) { console.error("[musteri-evreni]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+    return;
+  }
+
+  if (url.pathname === "/api/bi/takip-baslat" || url.pathname === "/api/bi/takip-durum") { /* KOKPIT_TAKIP */
+    try {
+      let session = await requireModuleAccess(request, "intelligence").catch(() => null);
+      if (!session) { const _ss = await requireSahaAccess(request).catch(() => null); if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss; }
+      if (!session) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = session && session.tenantId;
+      if (!T) { sendJson(response, 401, { error: "oturum yok" }); return; }
+      await query("CREATE TABLE IF NOT EXISTS bi_kokpit_takip (id SERIAL PRIMARY KEY, tenant_id UUID NOT NULL, tur TEXT NOT NULL, konu TEXT NOT NULL, aksiyon TEXT, baz_json JSONB DEFAULT '{}'::jsonb, durum TEXT DEFAULT 'acik', acilis_ts TIMESTAMPTZ DEFAULT now(), son_kontrol_ts TIMESTAMPTZ)", []).catch(function(){});
+      // ---- BASLAT ----
+      if (request.method === "POST" && url.pathname === "/api/bi/takip-baslat") {
+        let body = {}; try { body = await readJson(request); } catch (e) { body = {}; }
+        const tur = String(body.tur || "").slice(0, 24);
+        const aksiyon = String(body.aksiyon || "").slice(0, 48);
+        const baz = body.baz && typeof body.baz === "object" ? body.baz : {};
+        const konular = Array.isArray(body.konular) ? body.konular.slice(0, 12) : [];
+        if (!tur || !konular.length) { sendJson(response, 400, { error: "tur/konular gerekli" }); return; }
+        let n = 0;
+        for (const k0 of konular) {
+          const konu = String(k0 || "").trim().slice(0, 160); if (konu.length < 2) continue;
+          const ex = await query("SELECT 1 FROM bi_kokpit_takip WHERE tenant_id=$1 AND tur=$2 AND konu=$3 AND durum='acik' AND acilis_ts > now() - interval '30 days' LIMIT 1", [T, tur, konu]);
+          if (ex.rows.length) continue;
+          await query("INSERT INTO bi_kokpit_takip (tenant_id, tur, konu, aksiyon, baz_json) VALUES ($1,$2,$3,$4,$5)", [T, tur, konu, aksiyon, JSON.stringify(baz)]);
+          n++;
+        }
+        sendJson(response, 200, { ok: true, eklendi: n });
+        return;
+      }
+      // ---- DURUM (degerlendir) ----
+      if (request.method === "GET" && url.pathname === "/api/bi/takip-durum") {
+        const rows = (await query("SELECT id, tur, konu, aksiyon, baz_json, EXTRACT(DAY FROM now()-acilis_ts)::int gun FROM bi_kokpit_takip WHERE tenant_id=$1 AND durum='acik' ORDER BY acilis_ts DESC LIMIT 30", [T])).rows;
+        const out = [];
+        for (const r of rows) {
+          let durum = "izleniyor", sonuc = "izleniyor", iyi = null;
+          if (r.tur === "gecikme") {
+            const bazNet = r.baz_json && r.baz_json.net != null ? Number(r.baz_json.net) : null;
+            const _q = "SELECT COALESCE(SUM(net_gecikmis),0)::float8 net FROM v_net_gecikmis_musteri WHERE tenant_id::text=$1 AND muhatap_adi ILIKE $2||'%'";
+            const cr = (await query(_q, [String(T), r.konu])).rows[0];
+            const curNet = cr ? Number(cr.net) / 1e6 : null;
+            if (bazNet != null && curNet != null) {
+              if (curNet <= bazNet * 0.7) { durum = "iyilesti"; iyi = true; sonuc = "gecikmiş " + Math.round((1 - curNet / bazNet) * 100) + "% azaldı ✓"; }
+              else if (curNet >= bazNet * 1.1) { durum = "kotulesti"; iyi = false; sonuc = "gecikmiş arttı"; }
+              else { durum = "suruyor"; iyi = false; sonuc = "hâlâ açık (~" + curNet.toLocaleString("tr-TR", { maximumFractionDigits: 1 }) + "M)"; }
+            } else sonuc = "izleniyor";
+          } else {
+            const g = (await query("SELECT icerik FROM bi_tenant_hafiza WHERE tenant_id=$1 AND kaynak='gozlem' AND gecerli AND icerik ILIKE $2||'%' ORDER BY son_gorulme DESC LIMIT 1", [T, r.konu])).rows[0];
+            const ic = g ? (g.icerik || "").toLowerCase() : "";
+            const artar = ic.indexOf("artir") >= 0, azalir = ic.indexOf("azalt") >= 0;
+            if (r.tur === "kayip") {
+              if (artar) { durum = "toparladi"; iyi = true; sonuc = "alımı toparladı ✓"; }
+              else if (azalir) { durum = "suruyor"; iyi = false; sonuc = "hâlâ düşüyor"; }
+              else { durum = "notr"; iyi = null; sonuc = "artık riskte değil"; }
+            } else { // firsat
+              if (artar) { durum = "suruyor"; iyi = true; sonuc = "büyümeye devam ✓"; }
+              else if (azalir) { durum = "durdu"; iyi = false; sonuc = "ivme durdu, düşüşe geçti"; }
+              else { durum = "notr"; iyi = null; sonuc = "ivme durdu"; }
+            }
+          }
+          out.push({ id: r.id, tur: r.tur, konu: r.konu, aksiyon: r.aksiyon, gun: r.gun, durum: durum, iyi: iyi, sonuc: sonuc });
+        }
+        sendJson(response, 200, { takipler: out });
+        return;
+      }
+      sendJson(response, 405, { error: "method" });
+    } catch (e) { console.error("[kokpit-takip]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/bi/mobil-dikkat") { /* MOBIL_DIKKAT */
+    try {
+      let session = await requireModuleAccess(request, "intelligence").catch(() => null);
+      if (!session) { const _ss = await requireSahaAccess(request).catch(() => null); if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss; }
+      if (!session) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = session && session.tenantId;
+      if (!T) { sendJson(response, 401, { error: "oturum yok" }); return; }
+      /* CUZDAN_MOBIL_V1: cuzdan_kaciyor kanonik kaynak (eski gozlem/gecikme cikarildi) */
+      const _cz = (await query("SELECT ad, round(onceki3/1e6,1)::float8 onceki_m, round(son3/1e6,1)::float8 son_m, round(trend_pct)::int pct, kayip_tl FROM cuzdan_kaciyor($1::uuid)", [String(T)])).rows;
+      const _cn = _cz.length;
+      const _ctm = _cn ? +(_cz.reduce(function(a,r){return a+Number(r.kayip_tl||0);},0)/1e6).toFixed(1) : 0;
+      const _hz = (await query("SELECT band_no, band, sku, stok_deger, stok_pct, ort_dio, devir FROM stok_hiz_bantlari($1::uuid)", [String(T)])).rows; /* STOK_HIZ_MOBIL_V1 *//*DONMUS_DEVIR_V1*/
+      const _dio = Number((await query("WITH son AS (SELECT DISTINCT ON (kalem_kodu) kalem_kodu, birim_fiyat_kdv_haric maliyet FROM bi_tedarikci_faturalari WHERE tenant_id=$1::uuid AND birim_fiyat_kdv_haric>0 AND miktar>0 ORDER BY kalem_kodu, fatura_tarihi DESC), stok AS (SELECT COALESCE(SUM(s.adet*son.maliyet),0) deger FROM bi_stok_anlik s JOIN son ON son.kalem_kodu=s.kalem_kodu WHERE s.tenant_id=$1::uuid AND s.export_date=(SELECT MAX(export_date) FROM bi_stok_anlik WHERE tenant_id=$1::uuid)), smm AS (SELECT COALESCE(SUM(f.miktar*son.maliyet),0)/365.0 gunluk FROM bi_satis_faturalari f JOIN son ON son.kalem_kodu=f.kalem_kodu WHERE f.tenant_id=$1::text AND f.grup_adi = ANY(evren_gruplar(f.tenant_id)) AND f.miktar>0 AND f.fatura_tarihi>=CURRENT_DATE-365) SELECT round(COALESCE(stok.deger/NULLIF(smm.gunluk,0),0)) dio FROM stok CROSS JOIN smm", [String(T)])).rows[0].dio || 0);
+      const _don = _hz.filter(function(r){return Number(r.band_no)>=4;});
+      const _donM = _don.length ? +(_don.reduce(function(a,r){return a+Number(r.stok_deger||0);},0)/1e6).toFixed(1) : 0;
+      const _donPct = Math.round(_don.reduce(function(a,r){return a+Number(r.stok_pct||0);},0));
+      const _donSku = _don.reduce(function(a,r){return a+Number(r.sku||0);},0);
+      sendJson(response, 200, { cuzdan: { n: _cn, toplam_m: _ctm, top: _cz.map(/*CUZDAN_CLICK_V2*//*CUZDAN_CLICK_V1*/function(r){return { ad:r.ad, onceki_m:r.onceki_m, son_m:r.son_m, pct:r.pct };}) }, donmus: { deger_m: _donM, pct: _donPct, sku: _donSku, dio: _dio, bantlar: _hz.map(function(r){return { no:Number(r.band_no), ad:r.band, sku:Number(r.sku), stok_m:+(Number(r.stok_deger)/1e6).toFixed(1), pct:Number(r.stok_pct), dio:(r.ort_dio==null?null:Number(r.ort_dio)), devir:(r.devir==null?null:Number(r.devir)) };}) } });
+    } catch (e) { console.error("[mobil-dikkat]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+    return;
+  }
+  if (request.method === "GET" && url.pathname === "/api/bi/stok-hiz") { /* STOK_HIZ_ENDPOINT_V1 STOK_HIZ_ETIKET_V2 */
+      try {
+        let session = await requireModuleAccess(request, "intelligence").catch(() => null);
+        if (!session) { const _ss = await requireSahaAccess(request).catch(() => null); if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss; }
+        if (!session) { sendJson(response, 403, { error: "yetki yok" }); return; }
+        const T = session && session.tenantId;
+        if (!T) { sendJson(response, 401, { error: "oturum yok" }); return; }
+        const _lim = Math.min(200, Math.max(5, parseInt(url.searchParams.get("limit") || "40", 10) || 40));
+        const _es = (await query("SELECT etiket, count(*)::int sku, round(sum(stok_deger)) deger, round(sum(yil_smm)) smm, round(avg(dio) FILTER (WHERE dio IS NOT NULL)) ort_dio, round(max(ref_dio)) ref FROM bi_stok_hiz WHERE tenant_id=$1::uuid GROUP BY etiket", [String(T)])).rows;
+        const _map = {}; _es.forEach(function (r) { _map[r.etiket] = r; });
+        const _v = function (k) { return _map[k] ? Number(_map[k].deger || 0) : 0; };
+        const _sm = function (k) { return _map[k] ? Number(_map[k].smm || 0) : 0; };
+        const _s = function (k) { return _map[k] ? Number(_map[k].sku || 0) : 0; };
+        const _od = function (k) { return _map[k] && _map[k].ort_dio != null ? Number(_map[k].ort_dio) : null; };
+        const _dv = function (k) { return _v(k) > 0 ? +(_sm(k) / _v(k)).toFixed(2) : 0; };
+        const _tot = _es.reduce(function (a, r) { return a + Number(r.deger || 0); }, 0);
+        const _ref = _es.reduce(function (a, r) { return Math.max(a, Number(r.ref || 0)); }, 0);
+        const _fdio = Number(((await query("SELECT round(dio) d FROM v_finans_ticari_sermaye WHERE tenant_id=$1::uuid", [String(T)])).rows[0] || {}).d || _ref); /* NOFINVIEW_REVERT_V1 — view artik snapshot tablo, hizli; kanonik DIO */
+        const _atil = _v("Fazla stok") + _v("Ölü");
+        const ORDER = [["Sağlıklı", "saglikli"], ["Yavaş", "yavas"], ["Fazla stok", "fazla"], ["Sezon dışı", "sezon"], ["Ölü", "olu"]];
+        const etiketler = ORDER.map(function (p) { var ad = p[0]; return { key: p[1], ad: ad, deger_m: +(_v(ad) / 1e6).toFixed(1), pct: _tot ? +(_v(ad) / _tot * 100).toFixed(1) : 0, sku: _s(ad), ort_dio: _od(ad), devir: _dv(ad) }; });
+        const trend = (await query("SELECT to_char(gun,'YYYY-MM-DD') gun, round(atil) atil, round(olu) olu, round(toplam) toplam, round(dio) dio FROM stok_hiz_trend($1::uuid,120)", [String(T)])).rows.map(function (r) { return { gun: r.gun, atil_m: +(Number(r.atil) / 1e6).toFixed(1), olu_m: +(Number(r.olu) / 1e6).toFixed(1), toplam_m: +(Number(r.toplam) / 1e6).toFixed(1), dio: Number(r.dio) }; });
+        const _km = function (r) { return { marka: r.marka, ebat: r.urun, adet: Number(r.adet), maliyet: Number(r.maliyet), son_satis: (r.son_satis == null ? null : Number(r.son_satis)), nakit_bin: Math.round(Number(r.stok_deger) / 1000), dio: (r.dio == null ? null : Number(r.dio)), etiket: r.etiket, aksiyon: r.aksiyon }; };
+        const _kq = (await query("SELECT marka, urun, adet, maliyet, stok_deger, son_satis, dio, etiket, aksiyon FROM (SELECT *, row_number() OVER (PARTITION BY etiket ORDER BY stok_deger DESC) rn FROM bi_stok_hiz WHERE tenant_id=$1::uuid) q WHERE rn<=$2 ORDER BY stok_deger DESC", [String(T), _lim])).rows;
+        const _keyOf = { "Sağlıklı": "saglikli", "Yavaş": "yavas", "Fazla stok": "fazla", "Sezon dışı": "sezon", "Ölü": "olu" };
+        const kalemler = { saglikli: [], yavas: [], fazla: [], sezon: [], olu: [] };
+        _kq.forEach(function (r) { var k = _keyOf[r.etiket]; if (k) kalemler[k].push(_km(r)); });
+        const _atilRows = (await query("SELECT marka, urun, adet, maliyet, stok_deger, son_satis, dio, etiket, aksiyon FROM bi_stok_hiz WHERE tenant_id=$1::uuid AND etiket IN ('Fazla stok','Ölü') ORDER BY stok_deger DESC LIMIT $2", [String(T), _lim])).rows;
+        kalemler.atil = _atilRows.map(_km);
+        sendJson(response, 200, { dio: _fdio, dio_ref: _ref, toplam_m: +(_tot / 1e6).toFixed(1), atil_m: +(_atil / 1e6).toFixed(1), atil_pct: _tot ? Math.round(_atil / _tot * 100) : 0, atil_sku: _s("Fazla stok") + _s("Ölü"), etiketler: etiketler, trend: trend, kalemler: kalemler });
+      } catch (e) { console.error("[stok-hiz]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+      return;
+    }
   if (request.method === "GET" && url.pathname === "/api/bi/kokpit-data") {
     try {
-      // KOKPIT_MOBIL_V1 — intelligence yetkisi VEYA saha manager/admin (mobil Kokpit odası yönetim içindir).
+      // KOKPIT_MOBIL_V1 — intelligence yetkisi VEYA saha 'kokpit' capi (matris yonetir; manager varsayilan).
       let session = await requireModuleAccess(request, "intelligence").catch(() => null);
       if (!session) {
         const _ss = await requireSahaAccess(request).catch(() => null);
-        if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss;
+        if (_ss && _sahaCapRole(_ss, "kokpit", ["manager"])) session = _ss;  /* SERVER_CAP_V1 */
       }
       if (!session) { sendJson(response, 403, { error: "yetki yok" }); return; }
       const T = session && session.tenantId;
@@ -25491,29 +28080,34 @@ if (request.method === "GET" && url.pathname === "/ops") {
           round(p.c/1e6,1)::float8 ciro_gy, round(p.s/1e6,1)::float8 stok_gy, round(p.d)::int dso_gy
         FROM m c LEFT JOIN m p ON p.donem = (c.donem - INTERVAL '12 months')
         WHERE c.donem>=(CURRENT_DATE - INTERVAL '13 months') ORDER BY c.donem`, [T])).rows;
-      const marka = (await query(`WITH a AS (SELECT marka, sum(ciro) ciro, sum(brut_kar) kar, sum(adet) adet
-          FROM bi_marj_atom WHERE tenant_id::text=$1 AND ay>=(CURRENT_DATE - INTERVAL '12 months') GROUP BY marka),
+      const marka = (await query(`WITH sale AS (SELECT marka, sum(satir_tutar) ciro, sum(miktar) adet
+          FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND grup_adi LIKE evren_desen(tenant_id) AND satir_tutar>0 AND fatura_tarihi>=(CURRENT_DATE - INTERVAL '12 months') GROUP BY marka),  /* CIRO_KANON_KOKPIT_V1 */
+        mm AS (SELECT marka, sum(brut_kar) kar, sum(ciro) aciro FROM bi_marj_atom WHERE tenant_id::text=$1 AND ay>=(CURRENT_DATE - INTERVAL '12 months') GROUP BY marka),
         s AS (SELECT boyut_deger marka, deger stok FROM bi_metrik_gecmis
           WHERE tenant_id::text=$1 AND metrik='stok_deger' AND boyut_tipi='marka'
             AND donem=(SELECT max(donem) FROM bi_metrik_gecmis WHERE tenant_id::text=$1 AND metrik='stok_deger' AND boyut_tipi='marka'))
-        SELECT a.marka m, round(a.ciro/1e6,1)::float8 c, round((a.kar/nullif(a.ciro,0)*100)::numeric,1)::float8 mj,
-               round(coalesce(s.stok,0)/1e6,1)::float8 st, a.adet::int adet
-        FROM a LEFT JOIN s ON s.marka=a.marka WHERE a.ciro>0 ORDER BY a.ciro DESC LIMIT 18`, [T])).rows;
-      const segment = (await query(`SELECT kategori_segment(kategori) s, round(sum(ciro)/1e6,1)::float8 c,
-          round((sum(brut_kar)/nullif(sum(ciro),0)*100)::numeric,1)::float8 mj
-        FROM bi_marj_atom WHERE tenant_id::text=$1 AND ay>=(CURRENT_DATE - INTERVAL '12 months') GROUP BY 1 ORDER BY 2 DESC`, [T])).rows;
-      const sezon = (await query(`SELECT kategori_sezon(kategori) s, round(sum(ciro)/1e6,1)::float8 c,
-          round((sum(brut_kar)/nullif(sum(ciro),0)*100)::numeric,1)::float8 mj
-        FROM bi_marj_atom WHERE tenant_id::text=$1 AND ay>=(CURRENT_DATE - INTERVAL '12 months') GROUP BY 1 ORDER BY 2 DESC`, [T])).rows;
+        SELECT sale.marka m, round(sale.ciro/1e6,1)::float8 c, round((mm.kar/nullif(mm.aciro,0)*100)::numeric,1)::float8 mj,
+               round(coalesce(s.stok,0)/1e6,1)::float8 st, sale.adet::int adet
+        FROM sale LEFT JOIN mm ON mm.marka=sale.marka LEFT JOIN s ON s.marka=sale.marka WHERE sale.ciro>0 ORDER BY sale.ciro DESC LIMIT 18`, [T])).rows;
+      const segment = (await query(`WITH sale AS (SELECT kategori_segment(kategori, tenant_id::uuid) s, sum(satir_tutar) ciro FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND grup_adi LIKE evren_desen(tenant_id) AND satir_tutar>0 AND fatura_tarihi>=(CURRENT_DATE - INTERVAL '12 months') GROUP BY 1),  /* CIRO_KANON_KOKPIT_V1 */
+        mm AS (SELECT kategori_segment(kategori, tenant_id::uuid) s, sum(brut_kar) kar, sum(ciro) aciro FROM bi_marj_atom WHERE tenant_id::text=$1 AND ay>=(CURRENT_DATE - INTERVAL '12 months') GROUP BY 1)
+        SELECT sale.s s, round(sale.ciro/1e6,1)::float8 c, round((mm.kar/nullif(mm.aciro,0)*100)::numeric,1)::float8 mj
+        FROM sale LEFT JOIN mm ON mm.s=sale.s ORDER BY sale.ciro DESC`, [T])).rows;
+      const sezon = (await query(`WITH sale AS (SELECT kategori_sezon(kategori, tenant_id::uuid) s, sum(satir_tutar) ciro FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND grup_adi LIKE evren_desen(tenant_id) AND satir_tutar>0 AND fatura_tarihi>=(CURRENT_DATE - INTERVAL '12 months') GROUP BY 1),  /* CIRO_KANON_KOKPIT_V1 */
+        mm AS (SELECT kategori_sezon(kategori, tenant_id::uuid) s, sum(brut_kar) kar, sum(ciro) aciro FROM bi_marj_atom WHERE tenant_id::text=$1 AND ay>=(CURRENT_DATE - INTERVAL '12 months') GROUP BY 1)
+        SELECT sale.s s, round(sale.ciro/1e6,1)::float8 c, round((mm.kar/nullif(mm.aciro,0)*100)::numeric,1)::float8 mj
+        FROM sale LEFT JOIN mm ON mm.s=sale.s ORDER BY sale.ciro DESC`, [T])).rows;
       const kanal = (await query(`WITH cust AS (SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, grup
-          FROM bi_musteri_risk WHERE tenant_id::text=$1 ORDER BY muhatap_kodu, export_date DESC)
-        SELECT kanal_normalize(c.grup) k, round(sum(f.satir_tutar)/1e6,1)::float8 c,
-          round(((sum(f.satir_tutar)-sum(f.miktar*a.birim_maliyet))/nullif(sum(f.satir_tutar),0)*100)::numeric,1)::float8 mj
-        FROM bi_satis_faturalari f
-        JOIN bi_marj_atom a ON a.tenant_id::text=f.tenant_id::text AND a.kalem_kodu=f.kalem_kodu AND a.ay=date_trunc('month',f.fatura_tarihi)::date
-        LEFT JOIN cust c ON c.muhatap_kodu=f.musteri_kodu
-        WHERE f.tenant_id::text=$1 AND f.fatura_tarihi>=(CURRENT_DATE - INTERVAL '12 months') AND f.miktar>0
-        GROUP BY 1 ORDER BY 2 DESC`, [T])).rows;
+          FROM bi_musteri_risk WHERE tenant_id::text=$1 ORDER BY muhatap_kodu, export_date DESC),  /* CIRO_KANON_KOKPIT_V1 */
+        sale AS (SELECT kanal_normalize(c.grup) k, sum(f.satir_tutar) ciro
+          FROM bi_satis_faturalari f LEFT JOIN cust c ON c.muhatap_kodu=f.musteri_kodu
+          WHERE f.tenant_id::text=$1 AND f.grup_adi LIKE evren_desen(f.tenant_id) AND f.satir_tutar>0 AND f.fatura_tarihi>=(CURRENT_DATE - INTERVAL '12 months') GROUP BY 1),
+        mm AS (SELECT kanal_normalize(c.grup) k, sum(f.satir_tutar-f.miktar*a.birim_maliyet) kar, sum(f.satir_tutar) mciro
+          FROM bi_satis_faturalari f JOIN bi_marj_atom a ON a.tenant_id::text=f.tenant_id::text AND a.kalem_kodu=f.kalem_kodu AND a.ay=date_trunc('month',f.fatura_tarihi)::date
+          LEFT JOIN cust c ON c.muhatap_kodu=f.musteri_kodu
+          WHERE f.tenant_id::text=$1 AND f.grup_adi LIKE evren_desen(f.tenant_id) AND f.fatura_tarihi>=(CURRENT_DATE - INTERVAL '12 months') AND f.miktar>0 GROUP BY 1)
+        SELECT sale.k k, round(sale.ciro/1e6,1)::float8 c, round((mm.kar/nullif(mm.mciro,0)*100)::numeric,1)::float8 mj
+        FROM sale LEFT JOIN mm ON mm.k=sale.k ORDER BY sale.ciro DESC`, [T])).rows;
       const insights = (await query(`SELECT bolum, tip, ozet, anlati, oneri, guven FROM bi_icgoru
         WHERE tenant_id::text=$1 AND durum='yeni' ORDER BY surpriz_skoru DESC NULLS LAST, ts DESC LIMIT 30`, [T])).rows;
       let piyasa = null;
@@ -25538,8 +28132,27 @@ if (request.method === "GET" && url.pathname === "/ops") {
         dso: _lt.dso ?? null, dso_was: _lt.dso_gy ?? null,
         marj: _wm.d ? +(_wm.n / _wm.d).toFixed(1) : null
       };
-      sendJson(response, 200, { trend, marka, segment, sezon, kanal, insights, piyasa, vitals });
+      sendJson(response, 200, { trend, marka, segment, sezon, kanal, insights, piyasa, vitals, tenant: { name: session.tenantName || "", alias: (session.tenantAlias || session.tenantName || "") } }); /* TENANT_ALIAS_V1 kokpit */
     } catch (e) { console.error("[kokpit-data]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+    return;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/bi/kokpit-kirilim") { /* KIRILIM_TF_V1 — Bolum 03 pencereli kirilim */
+    try {
+      let session = await requireModuleAccess(request, "intelligence").catch(() => null);
+      if (!session) { const _ss = await requireSahaAccess(request).catch(() => null); if (_ss && ["manager","admin"].includes(_ss.sahaRole)) session = _ss; }
+      if (!session) { sendJson(response, 403, { error: "yetki yok" }); return; }
+      const T = session && session.tenantId;
+      if (!T) { sendJson(response, 401, { error: "oturum yok" }); return; }
+      const N = Math.min(24, Math.max(1, parseInt(url.searchParams.get("ay") || "12", 10)));
+      const YTD = url.searchParams.get("ytd") === "1" ? 1 : 0;
+      const W = `WITH w AS (SELECT (CASE WHEN $3::int=1 THEN date_trunc('year',mm) ELSE mm - (($2::int-1)||' months')::interval END)::date fromd FROM (SELECT COALESCE(date_trunc('month',max(ay)), date_trunc('month',CURRENT_DATE)) mm FROM bi_marj_atom WHERE tenant_id::text=$1) x)`;
+      const marka = (await query(W + `, sale AS (SELECT marka, sum(satir_tutar) ciro, sum(miktar) adet FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND grup_adi LIKE evren_desen(tenant_id) AND satir_tutar>0 AND fatura_tarihi>=(SELECT fromd FROM w) GROUP BY marka), mm AS (SELECT marka, sum(brut_kar) kar, sum(ciro) aciro FROM bi_marj_atom WHERE tenant_id::text=$1 AND ay>=(SELECT fromd FROM w) GROUP BY marka), s AS (SELECT boyut_deger marka, deger stok FROM bi_metrik_gecmis WHERE tenant_id::text=$1 AND metrik='stok_deger' AND boyut_tipi='marka' AND donem=(SELECT max(donem) FROM bi_metrik_gecmis WHERE tenant_id::text=$1 AND metrik='stok_deger' AND boyut_tipi='marka')) SELECT sale.marka m, round(sale.ciro/1e6,1)::float8 c, round((mm.kar/nullif(mm.aciro,0)*100)::numeric,1)::float8 mj, round(coalesce(s.stok,0)/1e6,1)::float8 st, sale.adet::int adet FROM sale LEFT JOIN mm ON mm.marka=sale.marka LEFT JOIN s ON s.marka=sale.marka WHERE sale.ciro>0 ORDER BY sale.ciro DESC LIMIT 18`, [T, N, YTD])).rows;  /* CIRO_KANON_KOKPIT_V1 */
+      const segment = (await query(W + `, sale AS (SELECT kategori_segment(kategori, tenant_id::uuid) s, sum(satir_tutar) ciro FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND grup_adi LIKE evren_desen(tenant_id) AND satir_tutar>0 AND fatura_tarihi>=(SELECT fromd FROM w) GROUP BY 1), mm AS (SELECT kategori_segment(kategori, tenant_id::uuid) s, sum(brut_kar) kar, sum(ciro) aciro FROM bi_marj_atom WHERE tenant_id::text=$1 AND ay>=(SELECT fromd FROM w) GROUP BY 1) SELECT sale.s s, round(sale.ciro/1e6,1)::float8 c, round((mm.kar/nullif(mm.aciro,0)*100)::numeric,1)::float8 mj FROM sale LEFT JOIN mm ON mm.s=sale.s ORDER BY sale.ciro DESC`, [T, N, YTD])).rows;  /* CIRO_KANON_KOKPIT_V1 */
+      const sezon = (await query(W + `, sale AS (SELECT kategori_sezon(kategori, tenant_id::uuid) s, sum(satir_tutar) ciro FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND grup_adi LIKE evren_desen(tenant_id) AND satir_tutar>0 AND fatura_tarihi>=(SELECT fromd FROM w) GROUP BY 1), mm AS (SELECT kategori_sezon(kategori, tenant_id::uuid) s, sum(brut_kar) kar, sum(ciro) aciro FROM bi_marj_atom WHERE tenant_id::text=$1 AND ay>=(SELECT fromd FROM w) GROUP BY 1) SELECT sale.s s, round(sale.ciro/1e6,1)::float8 c, round((mm.kar/nullif(mm.aciro,0)*100)::numeric,1)::float8 mj FROM sale LEFT JOIN mm ON mm.s=sale.s ORDER BY sale.ciro DESC`, [T, N, YTD])).rows;  /* CIRO_KANON_KOKPIT_V1 */
+      const kanal = (await query(W + `, cust AS (SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, grup FROM bi_musteri_risk WHERE tenant_id::text=$1 ORDER BY muhatap_kodu, export_date DESC), sale AS (SELECT kanal_normalize(c.grup) k, sum(f.satir_tutar) ciro FROM bi_satis_faturalari f LEFT JOIN cust c ON c.muhatap_kodu=f.musteri_kodu WHERE f.tenant_id::text=$1 AND f.grup_adi LIKE evren_desen(f.tenant_id) AND f.satir_tutar>0 AND f.fatura_tarihi>=(SELECT fromd FROM w) GROUP BY 1), mm AS (SELECT kanal_normalize(c.grup) k, sum(f.satir_tutar-f.miktar*a.birim_maliyet) kar, sum(f.satir_tutar) mciro FROM bi_satis_faturalari f JOIN bi_marj_atom a ON a.tenant_id::text=f.tenant_id::text AND a.kalem_kodu=f.kalem_kodu AND a.ay=date_trunc('month',f.fatura_tarihi)::date LEFT JOIN cust c ON c.muhatap_kodu=f.musteri_kodu WHERE f.tenant_id::text=$1 AND f.grup_adi LIKE evren_desen(f.tenant_id) AND f.fatura_tarihi>=(SELECT fromd FROM w) AND f.miktar>0 GROUP BY 1) SELECT sale.k k, round(sale.ciro/1e6,1)::float8 c, round((mm.kar/nullif(mm.mciro,0)*100)::numeric,1)::float8 mj FROM sale LEFT JOIN mm ON mm.k=sale.k ORDER BY sale.ciro DESC`, [T, N, YTD])).rows;  /* CIRO_KANON_KOKPIT_V1 */
+      sendJson(response, 200, { kanal, segment, marka, sezon });
+    } catch (e) { console.error("[kokpit-kirilim]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
     return;
   }
 
@@ -25703,6 +28316,7 @@ if (request.method === "POST" && url.pathname === "/api/bi/ingest") {
       `DELETE FROM bi_morning_briefings WHERE tenant_id = $1 AND briefing_date = CURRENT_DATE`,
       [tenantId]);
 
+    try{ if(globalThis.__odaCache) globalThis.__odaCache.clear(); }catch(e){}  /* INGEST_CACHE_BUST_V1 */
     sendJson(response, 201, { status: "ok", rows_inserted: insertedCount });
   } catch (error) { sendJson(response, error.statusCode || 500, { error: error.message }); }
   return;
@@ -25722,10 +28336,8 @@ async function gatherBiKpiSnapshot(tenantId) {
     query(`SELECT COALESCE(SUM(satir_tutar), 0) AS ciro_30d, COUNT(DISTINCT fatura_no) AS fatura_30d
            FROM bi_satis_faturalari WHERE tenant_id = $1 AND fatura_tarihi >= now() - interval '30 days'`,
            [tenantId]),
-    query(`SELECT COALESCE(SUM(toplam_deger), 0) AS stok_degeri,
-                  COUNT(*) FILTER (WHERE eldeki_miktar <= min_stok AND min_stok > 0) AS kritik_stok
-           FROM bi_stok_durumu WHERE tenant_id = $1 AND export_date = (
-             SELECT MAX(export_date) FROM bi_stok_durumu WHERE tenant_id = $1)`,
+    query(`SELECT COALESCE(stok_deger,0) AS stok_degeri, kritik_stok
+           FROM v_stok_deger_kanon WHERE tenant_id::text = $1`, /* STOK_KANON */
            [tenantId]),
     query(`SELECT query_type, MAX(export_date) AS son_tarih FROM bi_ingestion_log
            WHERE tenant_id = $1 GROUP BY query_type`, [tenantId])
@@ -25954,10 +28566,10 @@ async function getBiDeptContext(tenantId, dept) {
                    COUNT(DISTINCT fatura_no) || ' fatura, ' ||
                    COUNT(DISTINCT musteri_kodu) || ' müşteri' AS ozet
             FROM bi_satis_faturalari WHERE tenant_id = $1 AND fatura_tarihi >= now() - interval '30 days'`,
-    pricing: `SELECT 'Son 90 gün stok değeri: ' || COALESCE(SUM(toplam_deger)::text, 'Veri yok') || ' TL' AS ozet
-              FROM bi_stok_durumu WHERE tenant_id = $1 AND export_date = (SELECT MAX(export_date) FROM bi_stok_durumu WHERE tenant_id = $1)`,
-    warehouse: `SELECT 'Toplam SKU: ' || COUNT(DISTINCT kalem_kodu) || ', Stok değeri: ' || COALESCE(SUM(toplam_deger)::text, 'Veri yok') || ' TL' AS ozet
-                FROM bi_stok_durumu WHERE tenant_id = $1 AND export_date = (SELECT MAX(export_date) FROM bi_stok_durumu WHERE tenant_id = $1)`,
+    pricing: `SELECT 'Stok değeri (lastik, güncel): ' || COALESCE(stok_deger::text, 'Veri yok') || ' TL' AS ozet
+              FROM v_stok_deger_kanon WHERE tenant_id::text = $1`,
+    warehouse: `SELECT 'Toplam SKU (lastik): ' || sku_sayisi || ', Stok değeri: ' || COALESCE(stok_deger::text, 'Veri yok') || ' TL' AS ozet
+                FROM v_stok_deger_kanon WHERE tenant_id::text = $1`,
     it: ''  // [patch: it-agent-v2]
   };
   if (dept === 'it') return await getItFullContext(tenantId);
@@ -26063,7 +28675,7 @@ function buildDeptSystemPrompt(dept, context, session) {
     it:
       'KRB\'nin IT ve veri sistemleri uzmanisın.\n' +
       'Platform: PostgreSQL (assessment_platform), Node.js container (krb-assessment), SAP → Python pipeline → DB.\n' +
-      'Tenant: f8a5d20f-ecf8-4ce2-a492-69268fbb03fa\n\n' +
+      'Tenant: ' + ((session && session.tenantId) || '$1 (oturum tenant — otomatik enjekte)') + '\n\n' +  /* AI_TENANT_KANON_V1 */
       DB_SCHEMA + '\n' +
       'Sorun tespit edersen kim ne yapmalı netçe söyle.',
 
@@ -26087,7 +28699,7 @@ function buildDeptSystemPrompt(dept, context, session) {
       DB_SCHEMA + '\n\n' +
       'Hazır sorgu örnekleri:\n' +
       '  Aktif teşvikler: SELECT marka, tesvik_adi, indirim_orani, bitis_tarihi FROM bi_tedarikci_tesvik WHERE bitis_tarihi >= now() ORDER BY bitis_tarihi\n' +
-      '  Stok değer: SELECT marka, SUM(eldeki_miktar) adet, SUM(eldeki_miktar*birim_maliyet) deger FROM bi_stok_durumu WHERE tenant_id=$1 AND birim_maliyet>0 GROUP BY marka ORDER BY deger DESC\n' +
+      '  Stok değer (lastik): SELECT marka, SUM(eldeki_miktar) adet, SUM(eldeki_miktar*birim_maliyet) deger FROM bi_stok_durumu WHERE tenant_id=$1 AND grup_adi ILIKE \'LASTIK%\' AND birim_maliyet>0 GROUP BY marka ORDER BY deger DESC\n' +
       '  Para birimi bazlı satış: SELECT para_birimi, COUNT(*) fatura, SUM(satir_tutar) tutar FROM bi_satis_faturalari WHERE tenant_id=$1 GROUP BY para_birimi\n\n' +
       '=== ÜRÜN ANALİTİK YETKİNLİKLER ===\n' +
       'Bu 3 soru türünü YALNIZCA sen yanıtlarsın. execute_query aracını kullan.\n\n' +
@@ -26101,7 +28713,7 @@ function buildDeptSystemPrompt(dept, context, session) {
       '8 METRİK FORMÜLLERI (CTE sırası: satis → maliyet → stok → cikis):\n' +
       '  1 Ağırlıklı maliyet     : SUM(miktar*birim_fiyat_kdv_haric)/NULLIF(SUM(miktar),0)  [bi_tedarikci_faturalari son 180g]\n' +
       '  2 Ağırlıklı satış fiyatı: SUM(miktar*birim_fiyat)/NULLIF(SUM(miktar),0)             [bi_satis_faturalari son 90g]\n' +
-      '  3 Maliyet vadesi        : SUM(miktar*vade_gun)/NULLIF(SUM(miktar),0)                [bi_tedarikci_faturalari]\n' +
+      '  3 Maliyet vadesi        : SUM(miktar*vade_gun) FILTER (WHERE vade_gun IS NOT NULL)/NULLIF(SUM(miktar) FILTER (WHERE vade_gun IS NOT NULL),0)                [bi_tedarikci_faturalari]\n' +
       '  4 Satış vadesi          : SUM(miktar*(vade_tarihi - fatura_tarihi))/NULLIF(SUM(miktar),0)\n' +
       '  5 Karşılaştırma         : aynı ebattaki tüm marka/kalem_kodu yan yana\n' +
       '  6 Güncel stok           : SUM(eldeki_miktar) [bi_stok_durumu MAX(export_date)]\n' +
@@ -26122,7 +28734,7 @@ function buildDeptSystemPrompt(dept, context, session) {
       'maliyet AS (\n' +
       '  SELECT kalem_kodu,\n' +
       '    SUM(miktar*birim_fiyat_kdv_haric)/NULLIF(SUM(miktar),0) am,\n' +
-      '    SUM(miktar*vade_gun)/NULLIF(SUM(miktar),0) mv\n' +
+      '    SUM(miktar*vade_gun) FILTER (WHERE vade_gun IS NOT NULL)/NULLIF(SUM(miktar) FILTER (WHERE vade_gun IS NOT NULL),0) mv\n' +
       '  FROM bi_tedarikci_faturalari\n' +
       '  WHERE tenant_id=$1 AND fatura_tarihi>=now()-interval \'180 days\'\n' +
       '    AND kalem_kodu IN(SELECT DISTINCT kalem_kodu FROM bi_satis_faturalari WHERE tenant_id=$1 AND ebat=\'[EBAT]\')\n' +
@@ -26173,8 +28785,8 @@ function buildDeptSystemPrompt(dept, context, session) {
       '  Depo bazlı: SELECT depo, COUNT(DISTINCT kalem_kodu) sku, SUM(eldeki_miktar) toplam FROM bi_stok_durumu WHERE tenant_id=$1 GROUP BY depo ORDER BY toplam DESC'
   };
 
-  return (
-    KRB_COMPANY_PROFILE + '\n\n' +
+  return ((
+    (((session&&session.tenantConfig&&session.tenantConfig.company_profile)||KRB_COMPANY_PROFILE)) + '\n\n' +
     'Sen ' + (session && session.tenantName ? session.tenantName : 'KRB') + ' ' + avatar.title + ' rolündesin. Adın ' + avatar.name + '.\n' +
     'Türkçe konuş. Gerçek bir yönetici gibi — kısa, direkt, samimi cevap ver.\n' +
     'ASLA ** veya * veya markdown işareti kullanma. Madde listesi değil düz cümle kur.\n' +
@@ -26185,7 +28797,7 @@ function buildDeptSystemPrompt(dept, context, session) {
     '\n\n--- ANLIK VERİ ÖZETİ ---\n' +
     context +
     '\n--- ÖZET SONU ---'
-  );
+  ).replace(/\bKRB\b/g, (session && session.tenantName) ? session.tenantName : 'KRB'));
 }
 
 // ─── END DERIVE PLATFORM ADDITIONS ───────────────────────────────────────────
@@ -26206,7 +28818,81 @@ function buildDeptSystemPrompt(dept, context, session) {
         await query('CREATE TABLE IF NOT EXISTS brain_tasks (id SERIAL PRIMARY KEY, tenant_id UUID NOT NULL, title TEXT NOT NULL, description TEXT DEFAULT \'\', priority TEXT DEFAULT \'normal\', status TEXT DEFAULT \'open\', assigned_to TEXT, due_date DATE, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW())', []);
         await query('CREATE TABLE IF NOT EXISTS brain_preferences (tenant_id UUID PRIMARY KEY, owner_name TEXT, owner_title TEXT, company_name TEXT, location_city TEXT, location_lat DOUBLE PRECISION, location_lon DOUBLE PRECISION, timezone TEXT DEFAULT \'Europe/Istanbul\', updated_at TIMESTAMPTZ DEFAULT NOW())', []);
         await query('CREATE TABLE IF NOT EXISTS brain_notes (id SERIAL PRIMARY KEY, tenant_id UUID NOT NULL, content TEXT NOT NULL, tags TEXT[] DEFAULT \'{}\', created_at TIMESTAMPTZ DEFAULT NOW())', []);
+        try { await query("CREATE TABLE IF NOT EXISTS bi_tenant_hafiza (id SERIAL PRIMARY KEY, tenant_id UUID NOT NULL, user_id UUID, kategori TEXT NOT NULL DEFAULT 'genel', konu TEXT, icerik TEXT NOT NULL, kisi BOOLEAN DEFAULT false, guven REAL DEFAULT 0.7, kaynak TEXT DEFAULT 'damitma', ilk_gorulme TIMESTAMPTZ DEFAULT now(), son_gorulme TIMESTAMPTZ DEFAULT now(), gecerli BOOLEAN DEFAULT true)", []); } catch (e) { if (!/exist|duplicate/i.test((e && e.message) || '')) throw e; } /* HAFIZA_FULL */
+        await query("CREATE INDEX IF NOT EXISTS idx_bth_tk ON bi_tenant_hafiza(tenant_id, kategori, son_gorulme DESC)", []).catch(function(){});
+        await query("CREATE INDEX IF NOT EXISTS idx_bth_konu ON bi_tenant_hafiza(tenant_id, konu)", []).catch(function(){});
+        await query("CREATE INDEX IF NOT EXISTS idx_bth_kisi ON bi_tenant_hafiza(tenant_id, kisi, user_id)", []).catch(function(){});
         _bs.dbReady = true;
+      }
+
+      async function _distillHafiza(tenantId, userId, uMsg, aMsg) { /* HAFIZA_FULL */
+        try {
+          if (!uMsg || uMsg.length < 15) return;
+          if (typeof anthropic === "undefined" || !anthropic) return;
+          const SYS = "Sen bir hafiza damiticisisin. Asagidaki TEK konusma turundan (kullanici + asistan) uzun vadeli hatirlanmaya deger KALICI gercekleri cikar.\n" +
+            "IKI tur: (A) SIRKET/MUSTERI/KARAR/ORUNTU (or: 'X musterisi kronik gec oder', 'sahip Y markasindan cikmaya karar verdi'). (B) KISI PROFILI — konusanin oncelikleri, iletisim tarzi, beklentileri, tekrarlayan endiseleri (or: 'sabah once nakit/tahsilat sorar', 'kisa ve rakam-onceli cevap sever').\n" +
+            "KATI: SADECE KALICI olani al. OYNAK sayi/bakiye/oran/tarih/anlik durum ALMA — canli veriden gelir, hafizaya yazilirsa sonra YALAN olur. Emin degilsen ALMA.\n" +
+            "KAYNAK: 'gozlem' = veriden/davranistan gozlenen; 'beyan' = kisinin SOYLEDIGI iddia/tercih (dusuk guven). Insan kandirir; emin degilsen 'beyan'.\n" +
+            "Cikti: SADECE JSON dizi (max 3): [{\"kategori\":\"musteri|karar|oruntu|tercih|kisi_profili|oncelik|uslup\",\"konu\":\"kisa ozne\",\"icerik\":\"tek cumle kalici gercek\",\"kisi\":true/false,\"kaynak\":\"beyan|gozlem\"}]. Kalici sey yoksa []. Baska metin yazma.";
+          const msg = await anthropic.messages.create({ model: "claude-sonnet-4-6", max_tokens: 760, messages: [{ role: "user", content: SYS + "\n\nKULLANICI: " + uMsg + "\n\nASISTAN: " + aMsg + "\n\nJSON:" }] });
+          let txt = ((msg.content && msg.content[0] && msg.content[0].text) || "").trim();
+          const a = txt.indexOf("["), b = txt.lastIndexOf("]");
+          if (a < 0 || b < a) return;
+          let arr; try { arr = JSON.parse(txt.slice(a, b + 1)); } catch (e) { return; }
+          if (!Array.isArray(arr)) return;
+          for (const it of arr.slice(0, 3)) {
+            const kat = String(it.kategori || "genel").slice(0, 32);
+            const konu = it.konu ? String(it.konu).slice(0, 120) : null;
+            const ic = String(it.icerik || "").trim().slice(0, 400);
+            const kisi = !!it.kisi;
+            const kyn = 'cikarim'; /* BEYIN_GUARD_V2: distiller anlatisi gozlem degil cikarim */
+            const gvn = 0.3; /* BEYIN_GUARD_V2 */
+            if (ic.length < 6) continue;
+            const ex = await query("SELECT id FROM bi_tenant_hafiza WHERE tenant_id=$1 AND icerik=$2 LIMIT 1", [tenantId, ic]);
+            if (ex.rows.length) { await query("UPDATE bi_tenant_hafiza SET son_gorulme=now(), gecerli=true WHERE id=$1", [ex.rows[0].id]); }
+            else { await query("INSERT INTO bi_tenant_hafiza (tenant_id, user_id, kategori, konu, icerik, kisi, kaynak, guven) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", [tenantId, kisi ? (userId || null) : null, kat, konu, ic, kisi, kyn, gvn]); }
+          }
+        } catch (e) { console.error("[hafiza-distill]", e && e.message); }
+      }
+      async function _madenciUpsert(tenantId, sig, kat, ic) { /* HAFIZA_FULL */
+        try {
+          const ex = await query("SELECT id, icerik FROM bi_tenant_hafiza WHERE tenant_id=$1 AND konu=$2 AND kaynak='gozlem' AND gecerli=true LIMIT 1", [tenantId, sig]);
+          if (ex.rows.length) {
+            if (ex.rows[0].icerik === ic) { await query("UPDATE bi_tenant_hafiza SET son_gorulme=now() WHERE id=$1", [ex.rows[0].id]); return 0; }
+            await query("UPDATE bi_tenant_hafiza SET gecerli=false WHERE id=$1", [ex.rows[0].id]);
+          }
+          await query("INSERT INTO bi_tenant_hafiza (tenant_id, user_id, kategori, konu, icerik, kisi, kaynak, guven) VALUES ($1,NULL,$2,$3,$4,false,'gozlem',0.9)", [tenantId, kat, sig, ic]);
+          return 1;
+        } catch (e) { return 0; }
+      }
+      async function _madenciCalistir(tenantId) { /* HAFIZA_FULL — deterministik davranis madencisi */
+        let n = 0; const T = String(tenantId);
+        try {
+          const _odemeSql = "WITH nm AS (SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu kod, COALESCE(NULLIF(TRIM(muhatap_adi),''),muhatap_kodu) ad FROM bi_musteri_risk WHERE tenant_id::text=$1 ORDER BY muhatap_kodu, export_date DESC), ranked AS (SELECT bt.muhatap_kodu kod, bt.son12_suresi sur, bt.son12_gec_orani gec, bt.son12_tutar tut, row_number() OVER (ORDER BY bt.son12_tutar DESC) rn FROM bi_tahsilat bt WHERE bt.tenant_id::text=$1 AND bt.musteri_mi AND bt.son12_tutar>0 AND bt.son12_suresi IS NOT NULL) SELECT r.kod, COALESCE(nm.ad, r.kod) ad, r.sur, r.gec FROM ranked r LEFT JOIN nm ON nm.kod=r.kod WHERE r.rn<=40";
+          const pr = (await query(_odemeSql, [T])).rows;
+          for (const r of pr) {
+            const sur = r.sur == null ? null : Number(r.sur);
+            const gec = r.gec == null ? null : Number(r.gec);
+            if (sur == null) continue;
+            let sinif = null;
+            if (sur >= 55 || (gec != null && gec >= 0.45)) sinif = 'kronik yavas/gec odeyen';
+            else if (sur <= 18 && (gec == null || gec <= 0.12)) sinif = 'hizli ve disiplinli odeyen';
+            if (!sinif) continue;
+            n += await _madenciUpsert(tenantId, r.kod + '|odeme', 'musteri', String(r.ad) + ': odeme davranisi — ' + sinif + ' (12 ay gozlem; kesin gun/oran icin canli veriye bak)');
+          }
+          const _trendSql = "WITH m AS (SELECT musteri_kodu kod, max(musteri_adi) ad, date_trunc('month',fatura_tarihi) ay, sum(satir_tutar) tut FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND fatura_tarihi >= date_trunc('month',CURRENT_DATE) - INTERVAL '6 months' AND fatura_tarihi < date_trunc('month',CURRENT_DATE) AND satir_tutar>0 GROUP BY 1, date_trunc('month',fatura_tarihi)), agg AS (SELECT kod, max(ad) ad, COALESCE(sum(tut) FILTER (WHERE ay >= date_trunc('month',CURRENT_DATE)-INTERVAL '3 months'),0) son3, COALESCE(sum(tut) FILTER (WHERE ay < date_trunc('month',CURRENT_DATE)-INTERVAL '3 months'),0) onceki3, count(DISTINCT ay) aysayi FROM m GROUP BY kod) SELECT kod, ad, son3, onceki3 FROM agg WHERE onceki3 > 0 AND aysayi >= 4 ORDER BY (son3+onceki3) DESC LIMIT 40";
+          const tr = (await query(_trendSql, [T])).rows;
+          for (const r of tr) {
+            const son3 = Number(r.son3 || 0), on3 = Number(r.onceki3 || 0);
+            if (on3 <= 0) continue;
+            let sinif = null;
+            if (son3 < on3 * 0.6) sinif = 'alimini belirgin azaltti (kayip riski)';
+            else if (son3 > on3 * 1.5) sinif = 'alimini belirgin artirdi (buyuyen musteri)';
+            if (!sinif) continue;
+            n += await _madenciUpsert(tenantId, r.kod + '|trend', 'oruntu', String(r.ad) + ': alim trendi — ' + sinif + ' (son 3 ay vs onceki 3 ay gozlem; kesin rakam icin canli veriye bak)');
+          }
+        } catch (e) { console.error("[madenci]", e && e.message); }
+        return n;
       }
 
       async function _getBrainWeather(lat, lon) {
@@ -26246,6 +28932,19 @@ function buildDeptSystemPrompt(dept, context, session) {
             tip: { type: 'string', enum: ['takip','rakip','teklif_talep','risk','firsat'], description: 'opsiyonel sinyal tipi filtresi' },
             onem_min: { type: 'number', description: 'minimum onem 1-3 (opsiyonel)' }
           } }
+        },
+        {
+          name: 'set_reminder',
+          description: 'Kullanıcı bir hatırlatma/anımsatma isterse kullan ("bana hatırlat", "yarın X ara", "cuma toplantıyı anımsat"). Hatırlatma kullanıcının KENDİ Notlarım/Plan listesine eklenir ve o gün geldiğinde telefonuna push bildirimi gider. Tarih net değilse tek soruyla netleştir; uydurma.',
+          input_schema: { type: 'object', properties: {
+            metin: { type: 'string', description: 'Hatırlatma metni — kısa ve net (ör. "Mehmet Bey ile fiyat görüşmesi")' },
+            tarih: { type: 'string', description: 'Hatırlatma tarihi YYYY-MM-DD. Bugünün tarihi sistem bağlamında verildi; "yarın", "cuma", "3 gün sonra" gibi ifadeleri buna göre hesapla.' }
+          }, required: ['metin', 'tarih'] }
+        },
+        {
+          name: 'list_reminders',
+          description: 'Kullanıcının açık (tamamlanmamış) hatırlatmalarını tarih sırasıyla listeler. "Nelerim var", "hatırlatmalarım", "listemde ne var", "yaklaşan" gibi sorularda kullan.',
+          input_schema: { type: 'object', properties: {} }
         },
         {
           name: 'create_task',
@@ -26299,6 +28998,16 @@ function buildDeptSystemPrompt(dept, context, session) {
             },
             required: ['content']
           }
+        },
+        {
+          name: 'unut_hafiza',
+          description: 'Kalici hafizadaki bir bilgiyi GECERSIZ kil (soft-forget). Kullanici "onu unut", "o dogru degil", "beni/durumu yanlis tanidin", "artik gecerli degil" derse cagir. Eslesen kalici gercek(ler) gecerli=false olur.',
+          input_schema: { type: 'object', properties: { konu: { type: 'string', description: 'Unutulacak bilginin konusu ya da iceriginden bir ifade' } }, required: ['konu'] }
+        },
+        {
+          name: 'davranis_yenile',
+          description: 'Musteri DAVRANIS gozlemlerini (odeme suresi/gec odeme oruntusu, alim trendi) canli veriden yeniden hesaplayip hafizaya gozlem olarak yazar. "davranislari guncelle / kim yavas oduyor / alimi dusen var mi" gibi sorunca cagir. Deterministik, sayi uydurmaz.',
+          input_schema: { type: 'object', properties: {} }
         },
         {
           name: 'query_database',
@@ -26424,7 +29133,7 @@ function buildDeptSystemPrompt(dept, context, session) {
         }
       ];
 
-      async function _runBrainTool(toolName, input, tenantId) {
+      async function _runBrainTool(toolName, input, tenantId, userId) { /* SET_REMINDER_V1 */
         if (toolName === 'saha_faaliyet_ozet') {
           const gun = Math.min(90, Math.max(1, Number(input.gun) || 7));
           const S = "NOW() - INTERVAL '" + gun + " days'";
@@ -26439,6 +29148,29 @@ function buildDeptSystemPrompt(dept, context, session) {
           const dyr = await query("SELECT baslik,icerik,yazan_adi,onem,created_at FROM saha_duyuru WHERE tenant_id=$1 AND created_at>=" + S + " ORDER BY created_at DESC LIMIT 20", [tenantId]);
           const msj = await query("SELECT icerik,gonderen_adi,gonderen_rol,created_at FROM saha_konusma_mesaj WHERE tenant_id=$1 AND created_at>=" + S + " ORDER BY created_at DESC LIMIT 40", [tenantId]);
           return { gun, sinyaller: sig.rows, ziyaret_notlari: ziy.rows, teklifler: tek.rows, rakip_fiyatlar: rak.rows, duyurular: dyr.rows, mesajlar: msj.rows };
+        }
+        if (toolName === 'set_reminder') {
+          if (!userId) return { error: 'kullanici bulunamadi — hatirlatma sahibi belirlenemedi' };
+          const metin = String((input && (input.metin || input.icerik)) || '').trim();
+          if (!metin) return { error: 'hatirlatma metni gerekli' };
+          let d = String((input && (input.tarih || input.remind_at)) || '').trim().slice(0, 10);
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { error: 'tarih YYYY-MM-DD formatinda olmali' };
+          const _bugun = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+          if (d < _bugun) return { error: 'tarih gecmiste olamaz (' + d + '); bugun ' + _bugun };
+          const _r = await query(
+            "INSERT INTO saha_rep_not (id, tenant_id, rep_id, icerik, hatirlatma_tarihi) VALUES (gen_random_uuid(), $1, $2, $3, $4) RETURNING id",
+            [tenantId, userId, metin, d]
+          );
+          return { success: true, id: _r.rows[0].id, tarih: d, message: 'Hatirlatma kuruldu: ' + d + ' — ' + metin + '. O gun telefonuna bildirim gelecek; Notlarim ve Plan ekraninda da gorunur.' };
+        }
+        if (toolName === 'list_reminders') {
+          if (!userId) return { error: 'kullanici bulunamadi' };
+          const _bugun = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+          const _r = await query(
+            "SELECT to_char(hatirlatma_tarihi,'YYYY-MM-DD') AS tarih, icerik FROM saha_rep_not WHERE tenant_id=$1 AND rep_id=$2 AND tamamlandi=false AND hatirlatma_tarihi IS NOT NULL ORDER BY hatirlatma_tarihi ASC LIMIT 30",
+            [tenantId, userId]
+          );
+          return { bugun: _bugun, count: _r.rows.length, hatirlatmalar: _r.rows };
         }
         if (toolName === 'create_task') {
           const { title, description = '', priority = 'normal', assigned_to = null, due_date = null } = input;
@@ -26472,6 +29204,16 @@ function buildDeptSystemPrompt(dept, context, session) {
           await query('INSERT INTO brain_notes (tenant_id, content, tags) VALUES ($1,$2,$3)', [tenantId, content, tags]);
           return { success: true, message: 'Not kaydedildi.' };
         }
+        if (toolName === 'unut_hafiza') { /* HAFIZA_FULL */
+          const _uq = String((input && input.konu) || '').trim();
+          if (_uq.length < 2) return { success: false, message: 'Ne unutulacak belirtilmedi.' };
+          const _ur = await query("UPDATE bi_tenant_hafiza SET gecerli=false WHERE tenant_id=$1 AND gecerli=true AND (icerik ILIKE '%'||$2||'%' OR konu ILIKE '%'||$2||'%') RETURNING id", [tenantId, _uq]);
+          return { success: true, message: (_ur.rowCount || 0) + ' kayit unutuldu.' };
+        }
+        if (toolName === 'davranis_yenile') { /* HAFIZA_FULL */
+          const _mn = await _madenciCalistir(tenantId);
+          return { success: true, message: _mn + ' davranis gozlemi guncellendi (odeme/alim oruntusu).' };
+        }
         if (toolName === 'pilot_durum') {   // PILOT_V1
           const _gun = parseInt(input && input.gun, 10) > 0 ? parseInt(input.gun, 10) : 14;
           try {
@@ -26484,7 +29226,7 @@ function buildDeptSystemPrompt(dept, context, session) {
                      (SELECT max(z.ziyaret_tarihi) FROM saha_ziyaret z WHERE z.rep_id=u.id) AS son_ziyaret,
                      (SELECT count(*) FROM saha_oneri o WHERE o.user_id=u.id)::int AS geri_bildirim
                 FROM users u
-               WHERE u.email IN ('eyildiz@krb.com.tr','hbilgi@krb.com.tr')
+               WHERE lower(u.email::text) = ANY( COALESCE((SELECT array_agg(lower(x)) FROM jsonb_array_elements_text((SELECT config_json->'pilot_reps' FROM platform_tenants WHERE id=$1)) x), ARRAY[]::text[]) ) /* EMAIL_AGNOSTIK_V1 */
                ORDER BY u.email`, [tenantId, _gun]);
 
             // 2) Geri bildirim / hata kayitlari — TAM KONUSMA ile (sayilar degil, SOZLER)
@@ -26656,11 +29398,11 @@ function buildDeptSystemPrompt(dept, context, session) {
             "    (array_agg(musteri_adi ORDER BY birim_fiyat ASC))[1]  AS oz_ucuz_mus, " +
             "    (array_agg(musteri_adi ORDER BY birim_fiyat DESC))[1] AS oz_pahali_mus " +
             "  FROM bi_satis_faturalari sf WHERE sf.tenant_id=t.tenant_id::text AND sf.ebat=t.ebat " +
-            "    AND upper(sf.marka)=upper(t.marka) AND sf.birim_fiyat>0 AND sf.grup_adi LIKE 'LASTIK%' " +
+            "    AND upper(sf.marka)=upper(t.marka) AND sf.birim_fiyat>0 AND sf.grup_adi LIKE evren_desen(sf.tenant_id) " +
             "    AND sf.fatura_tarihi >= date_trunc('year', CURRENT_DATE)) oz ON true " +
             // TEKLIF_V2: GERCEK alis maliyeti + agirlikli vadeler (bu yil)
             " LEFT JOIN LATERAL (SELECT ROUND(SUM(miktar*birim_fiyat_kdv_haric)/NULLIF(SUM(miktar),0)) AS ag_alis, " +
-            "    ROUND(SUM(miktar*vade_gun)/NULLIF(SUM(miktar),0)) AS ag_alis_vade " +
+            "    ROUND(SUM(miktar*vade_gun) FILTER (WHERE vade_gun IS NOT NULL)/NULLIF(SUM(miktar) FILTER (WHERE vade_gun IS NOT NULL),0)) AS ag_alis_vade " +
             "  FROM bi_tedarikci_faturalari tf WHERE tf.tenant_id=t.tenant_id AND tf.kalem_kodu=t.kalem_kodu " +
             "    AND tf.birim_fiyat_kdv_haric>0 AND tf.vade_gun IS NOT NULL " +
             "    AND tf.fatura_tarihi >= date_trunc('year', CURRENT_DATE)) al ON true " +
@@ -26710,19 +29452,21 @@ function buildDeptSystemPrompt(dept, context, session) {
         }
         if (toolName === 'teklif_onayla' || toolName === 'teklif_reddet') {
           if (!input.id) return { error: 'id zorunlu' };
-          const cur = await query("SELECT durum, marka, ebat, notlar FROM saha_teklif WHERE tenant_id=$1 AND id=$2", [tenantId, input.id]);
+          const cur = await query("SELECT durum, marka, ebat, notlar, rep_id FROM saha_teklif WHERE tenant_id=$1 AND id=$2", [tenantId, input.id]);
           if (!cur.rows.length) return { error: 'Teklif bulunamadı' };
           const eskiDurum = cur.rows[0].durum;
           const urunAd = ((cur.rows[0].marka || '') + ' ' + (cur.rows[0].ebat || '')).trim();
           if (toolName === 'teklif_onayla') {
             await query("UPDATE saha_teklif SET durum='ONAYLANDI', updated_at=now() WHERE tenant_id=$1 AND id=$2", [tenantId, input.id]);
             try { await query("INSERT INTO saha_teklif_log (teklif_id,alan,eski_deger,yeni_deger,degistiren_kullanici) VALUES ($1,'durum',$2,'ONAYLANDI',NULL)", [input.id, eskiDurum]); } catch(e){}
+            try { if (cur.rows[0].rep_id) pushToUsers(tenantId, [cur.rows[0].rep_id], "✅ Teklifiniz onaylandı", urunAd, { room: "saha", type: "teklif_onay", id: input.id }); } catch (e) {} /* PUSH_HOOKS_V2 */
             return { success: true, message: 'Teklif ONAYLANDI: ' + urunAd };
           } else {
             const neden = input.neden || 'Sahip tarafından reddedildi';
             const yeniNot = (cur.rows[0].notlar ? cur.rows[0].notlar + '\n' : '') + '[RED] ' + neden;
             await query("UPDATE saha_teklif SET durum='TASLAK', notlar=$3, updated_at=now() WHERE tenant_id=$1 AND id=$2", [tenantId, input.id, yeniNot]);
             try { await query("INSERT INTO saha_teklif_log (teklif_id,alan,eski_deger,yeni_deger,degistiren_kullanici) VALUES ($1,'durum',$2,'TASLAK (RED)',NULL)", [input.id, eskiDurum]); } catch(e){}
+            try { if (cur.rows[0].rep_id) pushToUsers(tenantId, [cur.rows[0].rep_id], "↩️ Teklifiniz taslağa döndü", urunAd + " — " + neden, { room: "saha", type: "teklif_red", id: input.id }); } catch (e) {}
             return { success: true, message: 'Teklif reddedildi (taslağa döndürüldü): ' + urunAd + ' — ' + neden };
           }
         }
@@ -26762,7 +29506,7 @@ function buildDeptSystemPrompt(dept, context, session) {
               +'<h1>'+title+'</h1>'
               +(summary ? '<div class="sum">'+summary+'</div>' : '')
               +sectHtml
-              +'<div class="foot"><span>KRB Intelligence · '+date+'</span>'
+              +'<div class="foot"><span>Derive Intelligence · '+date+'</span>'
               +'<button class="pbtn" onclick="window.print()">PDF olarak kaydet ↓</button></div>'
               +'</body></html>';
             mkdirSync('/app/reports',{recursive:true});
@@ -27001,7 +29745,7 @@ async function _tesvikBul(pool, tenantId, marka, rim, sezon, tip) {
   return null;
 }
 
-async function _buildBrainPrompt(tenantId) {
+async function _buildBrainPrompt(tenantId, session, _hMsg) { /* HAFIZA_FULL */
         let prefs = {};
         try {
           const r = await query('SELECT * FROM brain_preferences WHERE tenant_id=$1', [tenantId]);
@@ -27048,21 +29792,52 @@ async function _buildBrainPrompt(tenantId) {
           const r = await query('SELECT content FROM brain_notes WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 5', [tenantId]);
           if (r.rows.length) notesCtx = '\n\nHatırlat: ' + r.rows.map(n => n.content).join(' | ');
         } catch {}
+        let hafizaCtx = '';
+        try {
+          const _hu = (session && session.userId) || null;
+          const _hp = await query("SELECT icerik FROM bi_tenant_hafiza WHERE tenant_id=$1 AND kisi=true AND (user_id=$2 OR user_id IS NULL) AND gecerli ORDER BY son_gorulme DESC LIMIT 8", [tenantId, _hu]);
+          const _hc = await query("SELECT konu, icerik, kaynak FROM bi_tenant_hafiza WHERE tenant_id=$1 AND (kisi IS NOT TRUE) AND gecerli AND kaynak <> 'cikarim' ORDER BY (kaynak='gozlem') DESC, guven DESC, son_gorulme DESC LIMIT 200", [tenantId]);
+          const _q = String(_hMsg || '').toLocaleLowerCase('tr');
+          const _toks = _q.split(/[^a-zçğıöşü0-9]+/i).filter(w => w.length > 3);
+          const _scored = _hc.rows.map(r => { const hay = ((r.konu || '') + ' ' + r.icerik).toLocaleLowerCase('tr'); let sc = 0; for (const t of _toks) if (hay.indexOf(t) >= 0) sc++; return { r, sc }; });
+          const _rel = _scored.filter(x => x.sc > 0).sort((a, b) => b.sc - a.sc).slice(0, 10).map(x => x.r);
+          const _recent = _hc.rows.slice(0, 5);
+          const _seen = new Set(); const _facts = [];
+          for (const r of [..._rel, ..._recent]) { if (!_seen.has(r.icerik)) { _seen.add(r.icerik); _facts.push(r); } }
+          let _blk = '';
+          if (_hp.rows.length) _blk += '\n\nKIM KONUSUYOR (kalici profil — konusanin oncelik/tarz/beklentileri; tonunu buna gore ayarla ama profili YUZE VURMA): ' + _hp.rows.map(r => r.icerik).join(' | ');
+          if (_facts.length) _blk += '\n\nTENANT HAFIZASI (1. gunden damitilmis KALICI gercekler — ipucu, SAYI/ANLIK DURUM DEGIL; guncel rakam icin MUTLAKA canli araci cagir; (gozlem)=veriden, (beyan)=soylenen — CELISIRSE gozleme guven, soz-eylem farkini fark et): ' + _facts.slice(0, 12).map(r => '\n- ' + r.icerik + (r.kaynak === 'gozlem' ? ' (gözlem)' : ' (beyan)')).join('');
+          hafizaCtx = _blk;
+        } catch {}
         let selfCtx = '';
         try {
           const _y = await query("SELECT ad, tur, ne_ise_yarar FROM bi_yetenek WHERE aktif=true AND ne_ise_yarar IS NOT NULL ORDER BY (tur='yuzey') DESC, tur, ad LIMIT 40", []);
-          const _gl = await query("SELECT ts::date AS t, COALESCE(ne, adim) AS ne FROM bi_insa_gunlugu ORDER BY ts DESC LIMIT 8", []);
+          /* TENANT_KIMLIK_AGNOSTIK_A2 — bi_insa_gunlugu (KRB insa gecmisi) tenant CEO prompt'undan cikarildi */
           selfCtx = '\n\nKENDINI TANI - SEN BU PLATFORMSUN (bu defter SU AN veritabanindan okundu, TAMDIR):\n' +
             'Platformun ne oldugu / ne yapabildigi / mobil uygulama / ekranlar / e-posta hakkinda soru gelince YALNIZCA buradan cevap ver. Bir insana SORMA, tahmin etme, e-posta atip ogrenmeye calisma.\n' +
             'Aktif yuzeyler ve yetenekler:\n' +
             (_y.rows.length ? _y.rows.map(function (r) { return '- ' + r.ad + (r.ne_ise_yarar ? ': ' + r.ne_ise_yarar : ''); }).join('\n') : '(defterde aktif yetenek yok)') +
-            '\nSon yapilan isler (insa gunlugu):\n' +
-            (_gl.rows.length ? _gl.rows.map(function (r) { return '- ' + r.t + ' - ' + r.ne; }).join('\n') : '(kayit yok)') +
+            '\nGUNCEL ODALAR/YUZEYLER (canli, bu defterden — SABIT LISTE TUTMA): ' + (_y.rows.filter(function(r){return r.tur==="yuzey";}).map(function(r){return r.ad;}).join(' · ') || '(yuzey isaretli kayit yok)') + '\n' +
             '\nBu defter TAMDIR. Burada OLMAYAN bir ozellik icin "bende kayitli degil / bilmiyorum" de - UYDURMA, insana sorma. Daha derini gerekiyorsa execute_query ile bi_yetenek / bi_insa_gunlugu / bi_icgoru sorgula.';
         } catch (_se) {
           selfCtx = '\n\nKENDI YETENEK DEFTERIM (bi_yetenek) OKUNAMADI. Platform ozellikleri (mobil uygulama vb.) hakkinda kesin konusma; execute_query ile bi_yetenek dene, olmazsa "su an kendi defterime bakamiyorum" de. UYDURMA.';
         }
-        return KRB_COMPANY_PROFILE + '\n\n' + 'Sen CEO Assistant\'sın — ' + company + ownerTitle + ownerName + '\' için kişisel CEO/sahip asistanısın.\n\nBağlam:\n- ' + timeStr + '\n- Hava: ' + weatherTxt + '\n- ' + greet + ', ' + ownerName + '!' + tasksCtx + notesCtx + selfCtx + '\n\nSISTEM HARITASI (bu platform kendini buyuten bir ORGANIZMADIR — ham veriden yeniden hesaplama yapma, kanonik katmani kullan):\n- KANONIK MARJ: bi_marj_atom (donem-eslesmeli maliyet; marka×segment×sezon×jant). Marj/karlilik sorularinda ham faturadan hesaplama YAPMA, atomu kullan.\n- SEBEP-ARASTIRICI: sebep_arastir_marj(tenant,marka) ve sebep_arastir_musteri(tenant,muhatap_kodu) — neden sorularinda (marj neden dustu, musteri neden riskli) bunlari cagir; kopru + net/capraz bakis hazir gelir.\n- YASA KATMANI: bi_yasa + capraz_kontrol(tenant,tur,anahtar) — onaylanmis kurallar (zararina hacim, net pozisyon, celiski-vade); bir ozne icin uygulanabilir yasalari doner.\n- ICGORULER: bi_icgoru (organizmanin urettigi marka-marj/musteri icgoruleri: anlati+oneri). Ne one cikiyor / firsat / risk sorularinda oku.\n- KOKPIT BACKBONE: ciro/marj/stok pivot — marka·segment·sezon·KANAL·stok. Kanal grubu bi_musteri_risk.grup (TOPTAN vs PERAKENDE vs E-TICARET marji ayrisir).\n- SAHA MODULU: temsilci ziyaret/teklif/musteri; VKN ile ERP oto-eslesme; ziyaret gorulme. saha_faaliyet_ozet ile oku.\n- ODA YAPISI (guncel, 5 oda): Kokpit (ana) · CEO Assistant (sen) · Fiyat · Rakip Fiyatlari · Veri. Eski departmanlar (Satis/Fiyatlandirma/Depo/Sistem/Siparis/Marka direktorleri) EMEKLI — onlara atif yapma.\n- KENDINI-TANITAN HAFIZA: sistemin su an NE bildigini / neyin bagli oldugunu ogrenmek icin execute_query ile bi_yetenek (yetenek defteri: ad,tur,durum), bi_insa_gunlugu (ne insa edildi: adim,ne,neden,detay,ts) ve bi_icgoru sorgula. Yapi degismis olabilir — emin degilsen bu defterlere bak, varsayma.\n\nEN UST KURAL - DURUSTLUK (her seyin onunde gelir): (a) Bir EYLEMIN oldugunu (e-posta gonderildi, gorev kuruldu, alarm ayarlandi, kayit yapildi) ANCAK ilgili arac BU TURDA success dondurduyse soyle; arac hata dondurduyse veya hic cagirmadiysan \"su an yapamadim / gonderemedim\" de - ASLA yapmadigin bir isi yaptim deme. (b) Bir rakami/veriyi ancak bir arac BU TURDA getirdiyse soyle; getirmediyse \"elimde su an yok\" de. (c) Platformun KENDISI (mobil uygulama, ekranlar, ozellikler) hakkinda YALNIZCA KENDINI TANI defterinden cevap ver; bir insana e-posta atip SORMA. (d) Emin degilsen kendini guvenilir gostermeye calisma - \"bilmiyorum\" demek yanlis emin olmaktan iyidir.\n\nGörevin:\n1. Türkçe konuş, akıllıca ve nazikçe.\n2. Zaman, hava, bağlamı sohbete doğal dahil et.\n3. Görev talebi = hemen create_task kullan.\n4. HER iş sorusunda query_database ile veriyi sessizce çek — tablo adı, SQL sorgusu, veritabanı detayı ASLA söyleme. Sanki her şeyi zaten biliyormuşsun gibi doğal ve insan gibi cevap ver..\n5. Marj/kârlılık/sebep sorularında kanonik organizmayı kullan (bi_marj_atom, sebep_arastir_marj/musteri, bi_icgoru, capraz_kontrol); ham veri için execute_query. Eski departman-KPI aracı kaldırıldı — organizma katmanını tercih et.\n6. Önemli bilgileri save_note kaydet.\n7. Proaktif önerilerde bulun.\n8. Net, kısa ve doğrudan cevap ver.\n9. Rakip fiyat / piyasa / fiyat alarmı sorularında query_rakip_fiyat kullan — piyasa durumu, okunmamış alarmlar, marka fiyat karşılaştırması.\n10. YETKİLİSİN — "yapamam / gönderemem / elimde yok" DEME. Rapor veya bildirimi ilgili kişiye (mimar, Finans, IT, tedarikçi) send_email ile GERÇEKTEN gönder. Dış birine göndermeden önce alıcı ve konuyu tek cümleyle teyit ettir, onay gelince gönder ve sonucu bildir.\n11. Bir işi bitirmek için gereken araçları arka arkaya kendin çağır, yarım bırakma; somut ve sonuç odaklı ol.\n12. Fiyat alarmı kurmak için rakip_alarm_kur aracını kullan — SKU izlemeye eklenir, hedef fiyat(lar) ayarlanır, tetiklenince e-posta gider.\n13. Teklif onayı: "onay bekleyen teklifler" için bekleyen_teklifler kullan — her teklifte talep fiyatı, mevcut stok, birim maliyet/marj, temsilcinin girdiği rakip fiyat VE o ebattaki gerçek piyasa aralığı (min-max) hazır gelir. Rakip fiyatı yorumla: müşterinin söylediği rakip fiyat o markanın o ebattaki piyasa aralığının ALTINDAYSA muhtemelen blöf; aralık İÇİNDEYSE rakip daha ucuz/alt-segment modelini teklif etmiş olabilir (gerçek rekabet). teklif_detay ile incele, teklif_onayla / teklif_reddet ile karar ver. Excel gerekmez.\n14. Saha farkindaligi (ESSENTIAL): temsilcilerin sahada yazdigi HER SEYI (ziyaret notlari, teklifler, rakip fiyatlari, riskler, firsatlar, DUYURULAR, mesajlar) saha_faaliyet_ozet araci ile oku. ZIYARETLERI ve DUYURULARI okumak KRITIK — sahada ne oldugunu, kimin nerede oldugunu, hangi duyuru cikacagini bunlar anlatir; her saha/musteri/durum/ozet sorusunda MUTLAKA bu araci cagir. Varsayilan pencere 7 gun; bu ay / son X gun / gecmis denirse gun parametresini buyut (90 gune kadar). Tek bir musterinin ziyaret gecmisi/finansali icin execute_query ile saha_ziyaret + saha_musteri + master_musteri sorgula. Sonra insan gibi ozetle ve onemli konularda proaktif uyar.\n15. BICIM cok onemli: Duz, insani sohbet dili yaz. Markdown KULLANMA: tablo (|, ---), kalin yildiz (**), baslik (#) YASAK — ekranda cirkin gorunur. Kisa cumleler; liste gerekiyorsa satir basinda sade tire (-). En fazla 1-2 emoji, abartma. Rakamlari cumle icinde dogal ver.\n16. TUTARLILIK (EN ONEMLI KURAL): Tek bir mesajda kendinle ASLA celisme. Bir verinin/durumun "yok / goremiyorum / elimde yok" oldugunu ancak BU turda ilgili araci cagirip sonucu gordukten sonra soyle; araci cagirmadan ya da onceki turdan hatirlayarak olumsuz hukum verme. Durum/veri degismis olabilir — her soruda ilgili araci YENIDEN cagir ve YALNIZCA bu anki sonuca gore konus. Once "yok" deyip sonra ayni mesajda veri vermek gibi celiskiler guveni yikar.';
+        return (((session&&session.tenantConfig&&session.tenantConfig.company_profile)||KRB_COMPANY_PROFILE)).replace(/\bKRB\b/g,(session&&session.tenantName)?session.tenantName:'KRB') + '\n\n' + 'Sen CEO Assistant\'sın — ' + company + ownerTitle + ownerName + '\' için kişisel CEO/sahip asistanısın.\n\nBağlam:\n- ' + timeStr + '\n- Hava: ' + weatherTxt + '\n- ' + greet + ', ' + ownerName + '!' + tasksCtx + notesCtx + hafizaCtx + selfCtx + '\n\nSISTEM HARITASI (bu platform kendini buyuten bir ORGANIZMADIR — ham veriden yeniden hesaplama yapma, kanonik katmani kullan):\n- KANONIK MARJ: bi_marj_atom (donem-eslesmeli maliyet; marka×segment×sezon×jant). Marj/karlilik sorularinda ham faturadan hesaplama YAPMA, atomu kullan.\n- SEBEP-ARASTIRICI: sebep_arastir_marj(tenant,marka) ve sebep_arastir_musteri(tenant,muhatap_kodu) — neden sorularinda (marj neden dustu, musteri neden riskli) bunlari cagir; kopru + net/capraz bakis hazir gelir.\n- YASA KATMANI: bi_yasa + capraz_kontrol(tenant,tur,anahtar) — onaylanmis kurallar (zararina hacim, net pozisyon, celiski-vade); bir ozne icin uygulanabilir yasalari doner.\n- ICGORULER: bi_icgoru (organizmanin urettigi marka-marj/musteri icgoruleri: anlati+oneri). Ne one cikiyor / firsat / risk sorularinda oku.\n- KOKPIT BACKBONE: ciro/marj/stok pivot — marka·segment·sezon·KANAL·stok. Kanal grubu bi_musteri_risk.grup (TOPTAN vs PERAKENDE vs E-TICARET marji ayrisir).\n- SAHA MODULU: temsilci ziyaret/teklif/musteri; VKN ile ERP oto-eslesme; ziyaret gorulme. saha_faaliyet_ozet ile oku.\n- ODALAR/YUZEYLER: SABIT LISTE TUTMA — guncel odalar/yuzeyler yukaridaki KENDINI TANI defterinden (bi_yetenek tur=yuzey, canli) gelir; yeni oda eklenince orada otomatik belirir. Eski departman odalari (Satis/Fiyatlandirma/Depo/Sistem/Siparis/Marka) EMEKLI.\n- IKI-IS KOKPITI (yeni, /app Finans odasi canli /api/bi/kokpit-iki): is TEK degil IKI ayri. TUKETICI = kategori_segment(kategori)=\'PSR\' (bi_marj_atom); TICARI = geri kalan (TBR/OTR/YENILEME/LSR/IND/AG). Canli ay tuk/tic = bi_satis_faturalari.grup_adi (LASTIK TUKETICI / LASTIK TICARI). Marj/ciro/nakit sorularinda BU ayrimi kullan. CIRO = TUM SIRKET (tum grup_adi, bi_satis_faturalari); MARJ/KAR = YALNIZ lastik isi (bi_marj_atom) — karistirma. Bu ay = gercek takvim ayi (ciro/marj canli, muhasebe/donem maliyeti bazi, ay kapaninca kesinlesir). Ayrinti: bi_insa_gunlugu adim=IKI_IS_KOKPIT.\n- MARJ TRENDI: "marj neden dustu/degisti" sorusunda 12-ay ORTALAMAYA degil bi_marj_atom AYLIK trende bak (tük/tic ayri, kategori_segment); hangi ay hangi is kolunun dondugunu goster. Tek ortalama iniş/çıkışı gizler. (IKI_IS_MARJ_TREND)\n- DSO/TAHSILAT (is-bazinda): iki AYRI soru — OLCULEN odeme suresi (bi_tahsilat son12_suresi, tutar-agirlikli, gercek fatura->odeme) vs DSO (bakiye/gunluk-satis; gunluk=12ay ciro/365). Yuksek DSO tek basina kotu tahsilat DEGIL: olculen hizli ama DSO yuksekse fark birkac ESKI TAKILMIS HESAP (yogunlasma), sistemik degil -> o hesabi kapat. Fark kucuk/yayilmis -> genel vade disiplini. Bakiye/gecikmis bi_musteri_risk; sinif bi_satis_faturalari×bi_marj_atom. Sinifsiz = son12 lastik alisi olmayan (dormant/lastik-disi). Ayrinti: bi_insa_gunlugu adim=IKI_IS_DSO.\n- IKTISATCI BAKIS (finans odasinin akademik-iktisatci katmani; ekonomist AYRI bir yuzey degil, SEN CEO asistani olarak bu bakisi da tasirsin): finans sorularinda pano okuma degil ORUNTU + NEDENSELLIK + ILERI-GORUS uret. Bes acinin recetesi (hepsi ham SQL ile kesfe acik; kanonik sayi her zaman kanon katmandan):\n  1) VADE MAKASI = agirlikli satis vadesi eksi agirlikli alim vadesi. Satis vadesi bi_satis_faturalari.odeme_kosulu ("N Gun Vade" ise N, pesin/nakit/havale/kart/cek/senet/mukabil ise 0), satir_tutar agirlikli. Alim vadesi bi_tedarikci_faturalari.vade_gun, satir_kdv_haric agirlikli. Pozitif = musteriyi finanse ediyorsun (nakit baskisi); negatif = tedarikci seni finanse ediyor. Son 12 ay ile onceki 12 ayi kiyasla; makasin yonu degistiyse isletme sermayesi rahatladi ya da sikisti. Elle kurma; vade_makasi(tenant_id) fonksiyonunu cagir -> satis_vade_12, alim_vade_12, makas_12, satis_vade_onceki, alim_vade_onceki, makas_onceki, kayma (kanonik ₺-agirlikli). makas_12 negatif = tedarikci seni finanse ediyor; kayma negatif = makas lehine dondu.\n  2) FIYAT GECISGENLIGI = bir markada alim birim-fiyatinin yildan yila zammi ile satis birim-fiyatinin zammini kiyasla (alim bi_tedarikci_faturalari.birim_fiyat_kdv_haric; satis bi_satis_faturalari satir_tutar bolu miktar). Satis zammi alim zammindan kucukse marj sikisiyor: girdi pahalaniyor ama fiyata yansitamiyorsun. DIGER markasini disla.\n  3) ON-SIPARIS KADERI = bi_on_siparis taahhudu (sezon_yili, sezon, marka, ebat, alici; ozne firmanin kendi kitabi = alici ozne adi) ile o marka arti ebatin gecmis kis (Ekim-Subat) fiili satisini (bi_satis_faturalari) kiyasla. BUYUME-AYARLI ol: beklenen = gecmis en iyi kis adedi carpi isletmenin kis yildan yila buyume orani (toplam kis adet bu yil bolu gecen yil). Taahhut beklenenin ustundeyse sezon GELMEDEN asiri-baglama demektir: beklenen olu stok arti maliyet-alti satis. Ebat metnini normalize et (yuk indeksi ve boslugu at). Yalniz oznenin kendi kitabi spekulatif risktir; musteri on-taahhudu zaten satilmistir. Bu analizi ELLE SQL ile kurma (agir cok-CTE, yanlis pencere/grain riski -> imkansiz sayi uretebilirsin); onsiparis_kaderi(tenant_id) fonksiyonunu cagir: SELECT marka, ebat, commit_adet, beklenen, fazla_adet, ratio, buyume_g FROM onsiparis_kaderi(tenant_kimligi) WHERE fazla_adet>0 ORDER BY fazla_adet DESC. Kanonik dogrulanmis mantik: yalniz Ekim-Subat kis, sadece lastik, adet-bazli buyume-ayarli, normalize ebat, KRB-kendi taahhut. buyume_g isletmenin kis YoY buyumesi (~1,1). Ozet icin sum(commit_adet)/sum(fazla_adet).\n  4) MARKA SAGLIGI / ASIRI-BAGLAMA = ayni markanin hem maliyet-alti satisi (bi_marj_atom brut_kar negatif) hem hareketsiz olu stogu (bi_stok_durumu, son 90 gun cikisi olmayan) varsa kok-neden o markaya asiri baglanmadir. Gecisgenlik, sizinti, olu stok ve on-siparis ayni markayi isaret ediyorsa tesaduf degildir; birlestir ve tek kok-neden olarak anlat. Bunun icin marka_saglik(tenant_id) fonksiyonunu cagir -> her marka icin brut_kar_m, sizinti_m, olu_stok_m, gecisgenlik_fark, sorun_say. sorun_say>=2 olan marka birden fazla yerden kaniyor (ornek: hem maliyet-alti hem olu stok hem gecisgenlik sikismasi) -> tek kok-neden: o markaya asiri baglanma. Elle kurma.\n  5) NAKIT-MARJ REJIMI = aylik seride marj ile hacim, sizinti ile marj korelasyonuna bak (Postgres corr). Hacim sezonunda marj coker, sizinti ve DSO/alacak/stok siser, prim/tesvik bunu subvanse eder; o yuzden headline marj yaniltici olabilir, tesvik-sonrasi net marji ayrica oku. Buyume; marji, nakdi ve stogu birlikte yiyebilir.\n  ILKE: bu bes analizde ham SQL serbesttir (kesif), ama marj/ciro/dongu/gecikmis gibi KANONIK sayilar her zaman kanon katmandan gelir (bi_marj_atom, v_finans_ticari_sermaye, v_net_gecikmis_musteri). Soyledigin her rakam o an kostugun sorgudan gelsin, uydurma; anlamli/esik gecmeyen bulguyu one surme. Devlet-farkinda ol: firmanin ZATEN yaptigini (ornegin verilen on-siparis) bilerek, ancak sonra marjinal hamleyi oner. Ayrinti: bi_insa_gunlugu adim=IKTISATCI_BAKIS.\n- KENDINI-TANITAN HAFIZA: sistemin su an NE bildigini / neyin bagli oldugunu ogrenmek icin execute_query ile bi_yetenek (yetenek defteri: ad,tur,durum), bi_insa_gunlugu (ne insa edildi: adim,ne,neden,detay,ts) ve bi_icgoru sorgula. Yapi degismis olabilir — emin degilsen bu defterlere bak, varsayma.\n\nEN UST KURAL - DURUSTLUK v2 (her seyin onunde gelir, asagidaki Gorevin maddelerinden ustundur): KAYNAK: bir isim, rakam, musteri, temsilci veya tarihi ancak BU TURDA bir arac getirdiyse soyle; kac kayit oldugunu veya kimin kaydi oldugunu ASLA uydurma. VARLIK: bir musteri veya temsilci adini soylemeden once master_musteri veya rep listesinde dogrula; bulunmuyorsa resmi kayitta yok de. HAFIZA: kaynak cikarim veya beyan olan bilgi IPUCUDUR, kanit degildir; kesin dille soyleme, teyit et; kendi cikarimini veriden gozlendi diye sunma. ECHO: gecmis mesajlardaki (kendi eski ozetlerindeki) musteri, temsilci ve marka-kacis iddialarini KOPYALAMA; her musteri-ozel iddiayi bu turda canli veriden dogrula, dogrulayamadigini yazma. CELISKI: bir musteri-marka veya olay iddiasi canli veriyle (marka kirilimi vb) celisiyorsa soyleme. EYLEM: gonderildi yalniz arac success dondurduyse; teslim teyidin yoksa ulasti deme; hata donduyse gonderemedim de. STABILITE: daha once soyledigin bir donemin sayisi degisirse sessizce degistirme, nedenini soyle. OZET: selamdan sonra dogrudan ise gec, gecmis itiraf veya ciro girizgahi yazma. MEKANIK: kolon, SQL veya sorguyu duzeltiyorum gibi arka plan detayini yazma. TON: dalkavukluk, unvan uydurma, dini efuzyon, emoji bombardimani, teatral tekrar ve oz-elestiri dongusu yok; rakam neyse onu soyle. ---  (a) Bir EYLEMIN oldugunu (e-posta gonderildi, gorev kuruldu, alarm ayarlandi, kayit yapildi) ANCAK ilgili arac BU TURDA success dondurduyse soyle; arac hata dondurduyse veya hic cagirmadiysan \"su an yapamadim / gonderemedim\" de - ASLA yapmadigin bir isi yaptim deme. (b) Bir rakami/veriyi ancak bir arac BU TURDA getirdiyse soyle; getirmediyse \"elimde su an yok\" de. (c) Platformun KENDISI (mobil uygulama, ekranlar, ozellikler) hakkinda YALNIZCA KENDINI TANI defterinden cevap ver; bir insana e-posta atip SORMA. (d) Emin degilsen kendini guvenilir gostermeye calisma - \"bilmiyorum\" demek yanlis emin olmaktan iyidir.\n\nGörevin:\n1. Türkçe konuş, akıllıca ve nazikçe.\n2. Zaman, hava, bağlamı sohbete doğal dahil et.\n3. Görev talebi = hemen create_task kullan.\n3b. Hatırlatma/anımsatma talebinde (\"bana hatırlat\", \"yarın ara\", \"cuma anımsat\") set_reminder kullan — kısa metin + tarih (YYYY-MM-DD); o gün kullanıcının telefonuna push gider, Notlarım/Plan ekranında görünür. Tarih net değilse TEK soruyla netleştir. \"Nelerim var / hatırlatmalarım / yaklaşan\" denince list_reminders.\n4. HER iş sorusunda query_database ile veriyi sessizce çek — tablo adı, SQL sorgusu, veritabanı detayı ASLA söyleme. Sanki her şeyi zaten biliyormuşsun gibi doğal ve insan gibi cevap ver..\n5. Marj/kârlılık/sebep sorularında kanonik organizmayı kullan (bi_marj_atom, sebep_arastir_marj/musteri, bi_icgoru, capraz_kontrol); ham veri için execute_query. Eski departman-KPI aracı kaldırıldı — organizma katmanını tercih et.\n6. Önemli bilgileri save_note kaydet. Kalıcı hafızan var: gozlem (veriden) beyandan (soylenen) guvenilir — celisirse gozleme guven; kullanıcı "unut / yanlis tanidin" derse unut_hafiza cagir.\n7. Proaktif önerilerde bulun.\n8. Net, kısa ve doğrudan cevap ver.\n9. Rakip fiyat / piyasa / fiyat alarmı sorularında query_rakip_fiyat kullan — piyasa durumu, okunmamış alarmlar, marka fiyat karşılaştırması.\n10. YETKİLİSİN — "yapamam / gönderemem / elimde yok" DEME. Rapor veya bildirimi ilgili kişiye (mimar, Finans, IT, tedarikçi) send_email ile GERÇEKTEN gönder. Dış birine göndermeden önce alıcı ve konuyu tek cümleyle teyit ettir, onay gelince gönder ve sonucu bildir.\n11. Bir işi bitirmek için gereken araçları arka arkaya kendin çağır, yarım bırakma; somut ve sonuç odaklı ol.\n12. Fiyat alarmı kurmak için rakip_alarm_kur aracını kullan — SKU izlemeye eklenir, hedef fiyat(lar) ayarlanır, tetiklenince e-posta gider.\n13. Teklif onayı: "onay bekleyen teklifler" için bekleyen_teklifler kullan — her teklifte talep fiyatı, mevcut stok, birim maliyet/marj, temsilcinin girdiği rakip fiyat VE o ebattaki gerçek piyasa aralığı (min-max) hazır gelir. Rakip fiyatı yorumla: müşterinin söylediği rakip fiyat o markanın o ebattaki piyasa aralığının ALTINDAYSA muhtemelen blöf; aralık İÇİNDEYSE rakip daha ucuz/alt-segment modelini teklif etmiş olabilir (gerçek rekabet). teklif_detay ile incele, teklif_onayla / teklif_reddet ile karar ver. Excel gerekmez.\n14. Saha farkindaligi (ESSENTIAL): temsilcilerin sahada yazdigi HER SEYI (ziyaret notlari, teklifler, rakip fiyatlari, riskler, firsatlar, DUYURULAR, mesajlar) saha_faaliyet_ozet araci ile oku. ZIYARETLERI ve DUYURULARI okumak KRITIK — sahada ne oldugunu, kimin nerede oldugunu, hangi duyuru cikacagini bunlar anlatir; her saha/musteri/durum/ozet sorusunda MUTLAKA bu araci cagir. Varsayilan pencere 7 gun; bu ay / son X gun / gecmis denirse gun parametresini buyut (90 gune kadar). Tek bir musterinin ziyaret gecmisi/finansali icin execute_query ile saha_ziyaret + saha_musteri + master_musteri sorgula. Sonra insan gibi ozetle ve onemli konularda proaktif uyar.\n15. BICIM cok onemli: Duz, insani sohbet dili yaz. Markdown KULLANMA: tablo (|, ---), kalin yildiz (**), baslik (#) YASAK — ekranda cirkin gorunur. Kisa cumleler; liste gerekiyorsa satir basinda sade tire (-). En fazla 1-2 emoji, abartma. Rakamlari cumle icinde dogal ver.\n16. TUTARLILIK (EN ONEMLI KURAL): Tek bir mesajda kendinle ASLA celisme. Bir verinin/durumun "yok / goremiyorum / elimde yok" oldugunu ancak BU turda ilgili araci cagirip sonucu gordukten sonra soyle; araci cagirmadan ya da onceki turdan hatirlayarak olumsuz hukum verme. Durum/veri degismis olabilir — her soruda ilgili araci YENIDEN cagir ve YALNIZCA bu anki sonuca gore konus. Once "yok" deyip sonra ayni mesajda veri vermek gibi celiskiler guveni yikar.';
+      }
+
+            function _brainSysCache(sp) {  /* BRAIN_CACHE_V1 — sistem promptunun buyuk STATIK blogunu prompt-cache'le */
+        try {
+          if (typeof sp !== "string") return sp;
+          const cut = sp.indexOf("\n\nSISTEM HARITASI");
+          if (cut < 1) return sp;                       // isaret yok -> aynen string dondur (davranis degismez)
+          const dinamik = sp.slice(0, cut);             // profil + tanitim + zaman/hava/gorev/hafiza (her cagride degisir)
+          const statik  = sp.slice(cut);                // SISTEM HARITASI + Gorevin + DURUSTLUK (sabit ~5-7k token)
+          if (statik.length < 3000) return sp;          // cok kisaysa cache esigi altinda -> ugrasma
+          return [
+            { type: "text", text: statik, cache_control: { type: "ephemeral" } },
+            { type: "text", text: dinamik }
+          ];
+        } catch (e) { return sp; }
       }
 
       async function _handleBrainChat(session, request, response) {
@@ -27072,6 +29847,7 @@ async function _buildBrainPrompt(tenantId) {
         }
         const tenantId = session.tenantId;
         await _ensureBrainDb();
+        try { const _mk = (globalThis.__madenciLast = globalThis.__madenciLast || new Map()); const _lk = String(session.tenantId); const _nowm = Date.now(); if (!_mk.get(_lk) || (_nowm - _mk.get(_lk)) > 72000000) { _mk.set(_lk, _nowm); _madenciCalistir(session.tenantId).catch(function(){}); } } catch (e) {} /* HAFIZA_FULL */
         let body;
         try { body = await readJson(request); } catch { sendJson(response, 400, { error: 'Invalid JSON' }); return; }
         const userMsg = (body.message || '').trim();
@@ -27091,7 +29867,7 @@ async function _buildBrainPrompt(tenantId) {
         await query('INSERT INTO brain_conversations (tenant_id, role, content) VALUES ($1,$2,$3)', [tenantId, 'user', userMsg]);
         let hist = [];
         try {
-          const r = await query('SELECT role, content FROM brain_conversations WHERE tenant_id=$1 ORDER BY created_at DESC LIMIT 30', [tenantId]);
+          const r = await query('SELECT role, content FROM brain_conversations WHERE tenant_id=$1 AND char_length(content) <= 1500 ORDER BY created_at DESC LIMIT 30', [tenantId]);
           hist = r.rows.reverse();
         } catch {}
         // ⚠ GECMIS_ZEHRI_V1 — 14 Tem. KOK NEDEN BURASIYDI.
@@ -27107,16 +29883,17 @@ async function _buildBrainPrompt(tenantId) {
         if (messages[messages.length - 1].content !== userMsg || messages[messages.length - 1].role !== 'user') {
           messages.push({ role: 'user', content: userMsg });
         }
-        let systemPrompt = await _buildBrainPrompt(tenantId);
+        let systemPrompt = await _buildBrainPrompt(tenantId, session, userMsg);
 
         // BRISA_V1 — Fatih Bilen'in ILK acilisinda tek seferlik "uyandim" brifingi.
-        // Sadece: (a) karsilama isteginde, (b) fbilen@krb.com.tr icin, (c) bugun
+        // Sadece: (a) karsilama isteginde, (b) yapilandirilmis ozel-karsilama sahibi icin, (c) bugun
         // henuz karsilama uretilmemisse.
         if (body.is_greeting) {
           try {
             const _who = await query("SELECT email FROM users WHERE id=$1", [session.userId]);
             const _mail = (_who.rows[0] || {}).email || '';
-            if (_mail === 'fbilen@krb.com.tr') {
+            let _ozelMail=''; try{ _ozelMail=String(((await query("SELECT config_json->>'ozel_karsilama_email' e FROM platform_tenants WHERE id=$1",[tenantId])).rows[0]||{}).e||''); }catch(_e){} /* EMAIL_AGNOSTIK_V1 */
+            if (_ozelMail && _mail && _mail.toLowerCase() === _ozelMail.toLowerCase()) {
               // CANLI rakamlar — hicbiri sabit yazilmadi.
               const [_kam, _lassa, _ucuz, _haz] = await Promise.all([
                 query(`SELECT count(*)::int AS ilan, count(DISTINCT marka)::int AS marka,
@@ -27187,7 +29964,7 @@ Bu karsilamayi SEN yaz, kendi sesinle. Su akista:
      315/80R22.5'i 315/80R22'ye kirpiyordu — var olmayan bir ebat. Huseyin'in tum
      portfoyu gorunmezdi; sorsalar "internette kamyon lastigi yok" derdin.
      SIMDI: ${k.ilan || 0} ilan, ${k.marka || 0} marka, ${k.pazaryeri || 0} pazaryeri.
-   • ${l.marka || 'Lassa'} ${l.desen || ''} ${l.ebat || ''}: KRB liste ${l.krb || 0} TL,
+   • ${l.marka || 'Lassa'} ${l.desen || ''} ${l.ebat || ''}: Liste ${l.krb || 0} TL,
      internette ${l.pmin || 0}-${l.pmax || 0} TL. Yani listemiz internetteki EN YUKSEK
      fiyatin %${l.fark || 0} USTUNDE. Musteri telefonuna bakiyor; temsilci bilmiyordu.
      Artik cebinde.
@@ -27251,7 +30028,7 @@ Rakamlari DEGISTIRME. Bu brifingi bir daha tekrarlama — sadece bu karsilamada.
             // stop_reason='max_tokens' donuyor, dongu break ediyor ve ARAC HIC CAGRILMIYOR.
             // "gonderiyorum" deyip gondermemesinin sebebi buydu.
             max_tokens: 4000,
-            system: systemPrompt,
+            system: _brainSysCache(systemPrompt),  /* BRAIN_CACHE_V1 */
             tools: _BRAIN_TOOLS,
             messages: loopMsgs,
             stream: true
@@ -27296,7 +30073,7 @@ Rakamlari DEGISTIRME. Bu brifingi bir daha tekrarlama — sadece bu karsilamada.
           const toolResults = [];
           for (const tu of toolUses) {
             let res;
-            try { res = await _runBrainTool(tu.name, tu.input, tenantId); }
+            try { res = await _runBrainTool(tu.name, tu.input, tenantId, session.userId); }
             catch(e) { res = { error: e.message }; }
             toolResults.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(res) });
           }
@@ -27309,6 +30086,7 @@ Rakamlari DEGISTIRME. Bu brifingi bir daha tekrarlama — sadece bu karsilamada.
         }
         if (fullResp.trim()) {
           await query('INSERT INTO brain_conversations (tenant_id, role, content) VALUES ($1,$2,$3)', [tenantId, 'assistant', fullResp.trim()]);
+          _distillHafiza(tenantId, session.userId, userMsg, fullResp.trim()).catch(function(){}); /* HAFIZA_FULL */
           if (body.is_greeting) {
             try { await query("INSERT INTO agent_greeting_cache (tenant_id,user_id,agent,greet_date,content) VALUES ($1,$2,'ceo',CURRENT_DATE,$3) ON CONFLICT (user_id,agent,greet_date) DO UPDATE SET content=EXCLUDED.content, created_at=now()", [tenantId, session.userId, fullResp.trim()]); } catch (e) {}
           }
@@ -27394,6 +30172,13 @@ Rakamlari DEGISTIRME. Bu brifingi bir daha tekrarlama — sadece bu karsilamada.
             } catch { sendJson(response,404,{error:'Rapor bulunamadı.'}); }
             return;
           }
+          if (url.pathname === '/api/brain/history' && request.method === 'GET') {
+            try {
+              const _bh = await query('SELECT role, content FROM brain_conversations WHERE tenant_id=$1 AND char_length(content) <= 1500 ORDER BY created_at DESC LIMIT 40', [session.tenantId]);
+              sendJson(response, 200, { mesajlar: _bh.rows.reverse() });
+            } catch (e) { sendJson(response, 200, { mesajlar: [] }); }
+            return;
+          }
           if (url.pathname === '/api/brain/chat' && request.method === 'POST') {
             await _handleBrainChat(session, request, response); return;
           }
@@ -27414,11 +30199,11 @@ Rakamlari DEGISTIRME. Bu brifingi bir daha tekrarlama — sadece bu karsilamada.
     }
 
     if (url.pathname.startsWith('/api/brain/')) {
-      // CEO_MOBIL_V1 — intelligence yetkisi VEYA saha manager/admin (mobil CEO Assistant odası yönetim içindir).
+      // CEO_MOBIL_V1 — intelligence yetkisi VEYA saha 'ceo' capi (matris yonetir; manager varsayilan).
       let session = await requireModuleAccess(request, 'intelligence').catch(() => null);
       if (!session) {
         const _ss = await requireSahaAccess(request).catch(() => null);
-        if (_ss && ["manager", "admin"].includes(_ss.sahaRole)) session = _ss;
+        if (_ss && _sahaCapRole(_ss, "ceo", ["manager"])) session = _ss;  /* SERVER_CAP_V1 */
       }
       if (!session) { sendJson(response, 403, { error: "yetki yok" }); return; }
       await global._brain._handleBrainRoute(session, request, response, url);
@@ -27483,6 +30268,53 @@ function _intentPrefilter(text) {
   // opportunity / demand cues
   if (/(filo|\bsube|buyu|artir|yeni magaza|anlasma|potansiyel|genisle|ihtiyac|alacak|istiyor|talep|siparis|\badet|lazim|palet|stok)/.test(t)) return true;
   return false;
+}
+
+async function _rakipFotoCoz(tenantId, fotoId, ziyaretId, repId, mime, buf) {  /* RAKIP_OCR_V1 */
+  try {
+    if (!buf || !buf.length || buf.length > 4 * 1024 * 1024) return;
+    const _mt = ["image/jpeg","image/png","image/webp","image/gif"].includes(mime) ? mime : "image/jpeg";
+    const b64 = buf.toString("base64");
+    const sys = "Bu bir saha satis fotografidir. EGER bir RAKIP / piyasa LASTIK FIYAT LISTESI ise her satiri cikar; degilse bos dizi dondur. SADECE JSON.\n" +
+      "Cikti: {\"rakip\": \"liste sahibi rakip/firma adi (TATKO gibi) ya da null\", \"kalemler\": [{\"marka\":\"...\",\"model\":\"desen/tip ya da null\",\"ebat\":\"orn 23.5R25 ya da null\",\"birim_fiyat\": sayi_TL, \"kdv_haric\": true|false|null, \"adet\": null}]}\n" +
+      "Fiyati okunamayan/olmayan satiri ATLA. Sayilari ondalik/nokta olmadan tam TL ver (115.000 -> 115000). Fiyat listesi degilse: {\"rakip\":null,\"kalemler\":[]}.";
+    const msg = await anthropic.messages.create({
+      model: "claude-sonnet-4-6", max_tokens: 1500,
+      messages: [{ role: "user", content: [
+        { type: "image", source: { type: "base64", media_type: _mt, data: b64 } },
+        { type: "text", text: sys }
+      ]}]
+    });
+    let out = (msg.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+    const a = out.indexOf("{"), z = out.lastIndexOf("}");
+    if (a < 0 || z < 0) return;
+    const j = JSON.parse(out.slice(a, z + 1));
+    const kalemler = Array.isArray(j.kalemler) ? j.kalemler : [];
+    if (!kalemler.length) return;
+    const rakipAd = j.rakip ? String(j.rakip).slice(0, 60) : null;
+    const zr = await pool.query("SELECT musteri_id FROM saha_ziyaret WHERE id=$1 AND tenant_id=$2", [ziyaretId, tenantId]);
+    const musteriId = zr.rows[0] ? zr.rows[0].musteri_id : null;
+    let n = 0;
+    for (const k of kalemler) {
+      let fiyat = k.birim_fiyat != null ? Number(k.birim_fiyat) : null;
+      if (fiyat == null || !isFinite(fiyat) || fiyat <= 0) continue;
+      const kdvNot = k.kdv_haric === false ? " (KDV dahil)" : k.kdv_haric === true ? " (KDV haric)" : "";
+      await pool.query(
+        "INSERT INTO saha_rakip_teklif (tenant_id,kaynak,rakip_marka,rakip_model,ebat,rakip_fiyat,musteri_id,ziyaret_id,rep_id,notlar,created_by,dogrulanmis) " +
+        "VALUES ($1,'FOTO',$2,$3,$4,$5,$6,$7,$8,$9,$8,false)",
+        [tenantId, String(k.marka || rakipAd || "Bilinmiyor").slice(0,60), k.model ? String(k.model).slice(0,80) : null,
+         k.ebat ? String(k.ebat).slice(0,40) : null, Math.round(fiyat), musteriId, ziyaretId, repId,
+         ("[foto-okuma] " + (rakipAd ? rakipAd + " " : "") + kdvNot).slice(0, 200)]);
+      n++;
+    }
+    if (n) {
+      await pool.query(
+        "INSERT INTO saha_sinyal (tenant_id,tip,onem,ozet,detay,kaynak_tip,kaynak_id,rep_id,musteri_id,owner_bildirildi) VALUES ($1,'rakip',3,$2,$3,'ziyaret_foto',$4,$5,$6,FALSE)",
+        [tenantId, ("Rakip fiyat listesi fotograftan okundu: " + (rakipAd || "rakip") + " — " + n + " kalem").slice(0,500),
+         JSON.stringify({ rakip: rakipAd, kalemler: kalemler.slice(0, 40) }), fotoId, repId, musteriId]);
+      try { console.log("[rakip-foto] " + n + " kalem cikarildi, ziyaret " + ziyaretId); } catch (e) {}
+    }
+  } catch (e) { try { console.error("[rakip-foto]", e && e.message); } catch (er) {} }
 }
 
 async function _extractIntent(text) {
@@ -27671,7 +30503,7 @@ async function _sahaGunlukOzet(tenantId) {
     try {
       const msg = await anthropic.messages.create({
         model: "claude-haiku-4-5-20251001", max_tokens: 900,
-        system: "Sen KRB sahibinin CEO asistanisin. Asagidaki son 24 saatlik saha verisini (sinyaller, ziyaret notlari, teklifler, duyurular) oku ve sahibe kisa, insan gibi bir GUNLUK OZET yaz Turkce. Once en kritik riskler/firsatlar, sonra bekleyen teklifler, sonra genel aktivite. Kisa madde isaretleri, rakam ve musteri adi ver, patronun zamanina saygi goster.",
+        system: "Sen firma sahibinin CEO asistanisin. Asagidaki son 24 saatlik saha verisini (sinyaller, ziyaret notlari, teklifler, duyurular) oku ve sahibe kisa, insan gibi bir GUNLUK OZET yaz Turkce. Once en kritik riskler/firsatlar, sonra bekleyen teklifler, sonra genel aktivite. Kisa madde isaretleri, rakam ve musteri adi ver, patronun zamanina saygi goster.",
         messages: [{ role: "user", content: raw.slice(0, 12000) }]
       });
       digest = (msg.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
@@ -27683,6 +30515,117 @@ async function _sahaGunlukOzet(tenantId) {
     await pool.query("UPDATE saha_sinyal SET owner_bildirildi=TRUE WHERE tenant_id=$1 AND onem>=3 AND created_at>=" + S, [tenantId]);
     return { sent: true, to, chars: digest.length };
   } catch (e) { return { sent: false, err: String(e && e.message) }; }
+}
+
+/* GUNLUK_RAPOR_EXEC_V1 — Yonetici gunluk raporu (5 bolum). */
+let _execRaporBusy = false;
+async function _ensureRaporLog() {
+  try { await pool.query("CREATE TABLE IF NOT EXISTS saha_rapor_gunluk_log (tenant_id uuid NOT NULL, gun date NOT NULL, tur text NOT NULL, sent_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (tenant_id, gun, tur))"); }
+  catch (e) { try { console.warn("ensureRaporLog:", e.message); } catch (er) {} }
+}
+function _rtl(n) { try { return "₺" + Math.round(Number(n) || 0).toLocaleString("tr-TR"); } catch (e) { return "₺" + Math.round(Number(n) || 0); } }
+function _radet(n) { try { return (Math.round(Number(n) || 0)).toLocaleString("tr-TR"); } catch (e) { return String(Math.round(Number(n) || 0)); } }
+function _rsec(baslik, renk, ic) { return "<div style='margin:0 0 16px'><div style='font-size:13px;font-weight:800;color:" + renk + ";text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px'>" + baslik + "</div>" + ic + "</div>"; }
+function _rrow(k, v) { return "<tr><td style='padding:3px 16px 3px 0;color:#475569'>" + k + "</td><td style='padding:3px 0;font-weight:700;text-align:right'>" + v + "</td></tr>"; }
+
+async function _execRaporVeri(tenantId, gun) {
+  const V = { gun };
+  try { const g = await pool.query("SELECT to_char($1::date,'DD.MM.YYYY') s", [gun]); V.gunStr = g.rows[0].s; } catch (e) { V.gunStr = String(gun); }
+  // FINANCE
+  try { const r = await pool.query("SELECT COALESCE(SUM(odenen_tutar),0)::numeric tahsil, COUNT(*) adet FROM bi_odeme_gecmisi WHERE tenant_id=$1 AND odeme_tarihi=$2::date", [tenantId, gun]); V.tahsil = Number(r.rows[0].tahsil) || 0; V.tahsil_adet = Number(r.rows[0].adet) || 0; } catch (e) { V.tahsil = 0; V.tahsil_adet = 0; }
+  try { const r = await pool.query("SELECT COALESCE(SUM(net_gecikmis),0)::numeric gecikmis FROM v_net_gecikmis_musteri WHERE tenant_id::text=$1", [String(tenantId)]); V.gecikmis = Number(r.rows[0].gecikmis) || 0; } catch (e) { V.gecikmis = 0; } /* NET_GECIKMIS_EXECRAPOR_V1 brut->net kanon */
+  try { const r = await pool.query("SELECT grup_adi, ROUND(SUM((vade_tarihi - fatura_tarihi)*satir_tutar)/NULLIF(SUM(satir_tutar),0))::int vade FROM bi_satis_faturalari WHERE tenant_id=$1 AND fatura_tarihi=$2::date AND grup_adi = ANY(evren_gruplar(tenant_id)) AND vade_tarihi IS NOT NULL AND satir_tutar>0 GROUP BY 1", [tenantId, gun]); V.vade = { tuk: null, tic: null }; for (const x of r.rows) { if (x.grup_adi === 'LASTIK TUKETICI') V.vade.tuk = Number(x.vade); else if (x.grup_adi === 'LASTIK TICARI') V.vade.tic = Number(x.vade); } } catch (e) { V.vade = { tuk: null, tic: null }; }
+  // SALES
+  try { const r = await pool.query("SELECT COALESCE(SUM(miktar) FILTER (WHERE grup_adi='LASTIK TUKETICI'),0)::numeric tuk, COALESCE(SUM(miktar) FILTER (WHERE grup_adi='LASTIK TICARI'),0)::numeric tic, COALESCE(SUM(satir_tutar) FILTER (WHERE grup_adi = ANY(evren_gruplar(tenant_id))),0)::numeric ciro FROM bi_satis_faturalari WHERE tenant_id=$1 AND fatura_tarihi=$2::date AND satir_tutar>0", [tenantId, gun]); V.satis = { tuk: Math.round(Number(r.rows[0].tuk) || 0), tic: Math.round(Number(r.rows[0].tic) || 0), ciro: Number(r.rows[0].ciro) || 0 }; V.satis.toplam = V.satis.tuk + V.satis.tic; } catch (e) { V.satis = { tuk: 0, tic: 0, ciro: 0, toplam: 0 }; }
+  try { const r = await pool.query("SELECT COALESCE(NULLIF(TRIM(r.grup),''),'Diger') kanal, SUM(f.miktar)::numeric adet FROM bi_satis_faturalari f LEFT JOIN LATERAL (SELECT grup FROM bi_musteri_risk mr WHERE mr.tenant_id=$1 AND mr.muhatap_kodu=f.musteri_kodu ORDER BY export_date DESC LIMIT 1) r ON true WHERE f.tenant_id=$1 AND f.fatura_tarihi=$2::date AND f.grup_adi = ANY(evren_gruplar(f.tenant_id)) AND f.miktar>0 GROUP BY 1 ORDER BY 2 DESC", [tenantId, gun]); V.kanal = r.rows.map(x => ({ k: x.kanal, adet: Math.round(Number(x.adet) || 0) })); } catch (e) { V.kanal = []; }
+  // CUSTOMER numbers
+  try { const r = await pool.query("SELECT COUNT(*) FILTER (WHERE z.durum='TAMAMLANDI') ziyaret, COUNT(DISTINCT z.musteri_id) FILTER (WHERE z.durum='TAMAMLANDI') musteri, COUNT(*) FILTER (WHERE z.durum='TAMAMLANDI' AND m.tip='TUKETICI') tuk, COUNT(*) FILTER (WHERE z.durum='TAMAMLANDI' AND m.tip='TICARI') tic FROM saha_ziyaret z LEFT JOIN saha_musteri m ON m.id=z.musteri_id WHERE z.tenant_id=$1 AND z.ziyaret_tarihi=$2::date", [tenantId, gun]); V.zk = { ziyaret: Number(r.rows[0].ziyaret) || 0, musteri: Number(r.rows[0].musteri) || 0, tuk: Number(r.rows[0].tuk) || 0, tic: Number(r.rows[0].tic) || 0 }; } catch (e) { V.zk = { ziyaret: 0, musteri: 0, tuk: 0, tic: 0 }; }
+  // FIELD raw (AI)
+  try { const r = await pool.query("SELECT z.notlar, m.firma, m.il, m.tip FROM saha_ziyaret z LEFT JOIN saha_musteri m ON m.id=z.musteri_id WHERE z.tenant_id=$1 AND z.ziyaret_tarihi=$2::date AND z.notlar IS NOT NULL AND length(trim(z.notlar))>0 ORDER BY z.created_at DESC LIMIT 80", [tenantId, gun]); V.notlar = r.rows; } catch (e) { V.notlar = []; }
+  try { const r = await pool.query("SELECT s.tip, s.onem, s.ozet, m.firma FROM saha_sinyal s LEFT JOIN saha_musteri m ON m.id=s.musteri_id WHERE s.tenant_id=$1 AND (s.created_at AT TIME ZONE 'Europe/Istanbul')::date=$2::date ORDER BY s.onem DESC, s.created_at DESC LIMIT 80", [tenantId, gun]); V.sinyaller = r.rows; } catch (e) { V.sinyaller = []; }
+  try { const r = await pool.query("SELECT DISTINCT jsonb_array_elements_text(CASE WHEN jsonb_typeof(z.detay->'rakipler')='array' THEN z.detay->'rakipler' WHEN jsonb_typeof(z.detay->'tedarikci_markalar')='array' THEN z.detay->'tedarikci_markalar' ELSE '[]'::jsonb END) rk FROM saha_ziyaret z WHERE z.tenant_id=$1 AND z.ziyaret_tarihi=$2::date", [tenantId, gun]); V.rakipler = r.rows.map(x => x.rk).filter(Boolean); } catch (e) { V.rakipler = []; }
+  return V;
+}
+
+async function _execRaporAI(V) {
+  const ctx = {
+    tarih: V.gunStr,
+    ziyaret_ozet: { toplam: V.zk.ziyaret, musteri: V.zk.musteri, tuketici: V.zk.tuk, ticari: V.zk.tic },
+    ziyaret_notlari: (V.notlar || []).map(n => ({ firma: n.firma, il: n.il, tip: n.tip, not: String(n.notlar || "").slice(0, 400) })),
+    sinyaller: (V.sinyaller || []).map(x => ({ tip: x.tip, onem: x.onem, firma: x.firma, ozet: String(x.ozet || "").slice(0, 300) })),
+    rakip_marka_bahisleri: V.rakipler || []
+  };
+  const sys = "Sen bir lastik toptancisinin saha zekasi asistanisin. Sana DUNKU saha verisi verilecek. SADECE verilenlere dayan, uydurma. Turkce, kisa, patron diliyle. Yanit SADECE JSON: {\"headline\":\"tek cumle en onemli sey\",\"field_voice\":\"2-3 cumle piyasa nabzi/mood\",\"customer\":\"2-3 cumle dun ziyaret edilen musteriler ne hissediyor, ozel talep/durum\",\"competitors\":\"2-3 cumle rakip lastik MARKA haberleri ve DISTRIBUTOR haberleri; ayir\"}. Bir alanda veri yoksa 'Dun kayda deger not yok.' yaz.";
+  try {
+    const msg = await anthropic.messages.create({ model: "claude-haiku-4-5-20251001", max_tokens: 700, system: sys, messages: [{ role: "user", content: JSON.stringify(ctx).slice(0, 14000) }] });
+    let t = (msg.content || []).filter(b => b.type === "text").map(b => b.text).join("").trim();
+    t = t.replace(/^```json/i, "").replace(/^```/, "").replace(/```$/, "").trim();
+    const o = JSON.parse(t);
+    return { headline: o.headline || "", field_voice: o.field_voice || "", customer: o.customer || "", competitors: o.competitors || "" };
+  } catch (e) { return { headline: "", field_voice: "", customer: "", competitors: "", _err: String(e && e.message) }; }
+}
+
+function _execRaporHtml(V, ai) {
+  const vadeStr = (V.vade.tuk != null || V.vade.tic != null) ? ("Tüketici " + (V.vade.tuk != null ? V.vade.tuk + " gün" : "—") + " · Ticari " + (V.vade.tic != null ? V.vade.tic + " gün" : "—")) : "—";
+  const tahsilNote = (V.tahsil === 0) ? " <span style='color:#94a3b8;font-size:12px'>(düne ait ERP yüklemesi yok olabilir)</span>" : "";
+  const fin = "<table style='border-collapse:collapse;font-size:14px'>" + _rrow("Tahsil edilen (dün)", _rtl(V.tahsil) + tahsilNote) + _rrow("Net gecikmiş alacak", _rtl(V.gecikmis)) /* NET_GECIKMIS_EXECLBL_V1 */ + _rrow("Ağırlıklı vade (dünkü satış)", vadeStr) + "</table>";
+  const kanalStr = V.kanal.length ? V.kanal.map(c => c.k + " " + _radet(c.adet)).join(" · ") : "—";
+  const sal = "<table style='border-collapse:collapse;font-size:14px'>" + _rrow("Toplam adet (lastik)", _radet(V.satis.toplam)) + _rrow("Tüketici / Ticari", _radet(V.satis.tuk) + " / " + _radet(V.satis.tic)) + _rrow("Ciro (lastik)", _rtl(V.satis.ciro)) + _rrow("Kanal", kanalStr) + "</table>";
+  const cust = "<table style='border-collapse:collapse;font-size:14px;margin-bottom:6px'>" + _rrow("Ziyaret (dün)", _radet(V.zk.ziyaret)) + _rrow("Ulaşılan müşteri", _radet(V.zk.musteri)) + _rrow("Tüketici / Ticari ziyaret", _radet(V.zk.tuk) + " / " + _radet(V.zk.tic)) + "</table>" + (ai.customer ? "<div style='font-size:13px;color:#334155'>" + ai.customer + "</div>" : "");
+  return "<div style='font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:640px'>" +
+    "<h2 style='margin:0 0 2px'>📊 Yönetici Günlük Raporu</h2>" +
+    "<p style='color:#64748b;margin:0 0 14px'>" + V.gunStr + " · dün</p>" +
+    (ai.headline ? "<p style='font-size:15px;background:#eff6ff;border-left:3px solid #3b82f6;padding:9px 13px;margin:0 0 16px'>" + ai.headline + "</p>" : "") +
+    _rsec("1 · Finance", "#0ea5e9", fin) +
+    _rsec("2 · Sales", "#6366f1", sal) +
+    _rsec("3 · Field Voice", "#10b981", "<div style='font-size:13px;color:#334155'>" + (ai.field_voice || "—") + "</div>") +
+    _rsec("4 · Customer", "#f59e0b", cust) +
+    _rsec("5 · Competitors", "#ef4444", "<div style='font-size:13px;color:#334155'>" + (ai.competitors || "—") + "</div>") +
+    "<p style='color:#94a3b8;font-size:12px;margin-top:10px'>Derive • KRB — her sabah 08:00 (Europe/Istanbul)</p></div>";
+}
+
+async function _execDailyReport(tenantId, opts) {
+  opts = opts || {};
+  try {
+    const gr = await pool.query("SELECT ((now() AT TIME ZONE 'Europe/Istanbul')::date - 1)::text dun");
+    const gun = gr.rows[0].dun;
+    const V = await _execRaporVeri(tenantId, gun);
+    const aktivite = V.tahsil + V.satis.toplam + V.zk.ziyaret + (V.sinyaller || []).length + (V.notlar || []).length + (V.gecikmis > 0 ? 1 : 0);
+    if (!aktivite && !opts.force) return { sent: false, reason: "no activity", gun };
+    const ai = await _execRaporAI(V);
+    const html = _execRaporHtml(V, ai);
+    const title = "📊 Yönetici Günlük — " + V.gunStr;
+    const line = ai.headline || ("Dün " + _radet(V.zk.ziyaret) + " ziyaret · " + _radet(V.satis.toplam) + " adet satış · tahsil " + _rtl(V.tahsil) + ".");
+    const body = line + " (Finans/Satış/Saha — e-postada tam rapor)";
+    if (opts.dry) return { sent: false, dry: true, gun, veri: V, ai, push: { title, body }, html };
+    const ids = await sahaManagerIds(tenantId, null);
+    let pushed = 0;
+    if (ids.length) { try { await pushToUsers(tenantId, ids, title, body.slice(0, 200), { room: "saha", type: "gunluk_rapor" }); pushed = ids.length; } catch (e) {} }
+    let mailed = 0;
+    try { const em = await pool.query("SELECT DISTINCT lower(email) email FROM users WHERE id = ANY($1::uuid[]) AND email IS NOT NULL AND email <> ''", [ids]); for (const e2 of em.rows) { try { await sendGraphMail({ to: e2.email, subject: title, body: html }); mailed++; } catch (e) {} } } catch (e) {}
+    return { sent: true, gun, inbox: ids.length, pushed, mailed };
+  } catch (e) { return { sent: false, err: String(e && e.message) }; }
+}
+
+async function _gunlukRaporExecTick(force) {
+  if (_execRaporBusy && !force) return { busy: true };
+  _execRaporBusy = true;
+  try {
+    const t = await pool.query("SELECT (now() AT TIME ZONE 'Europe/Istanbul')::date bugun, EXTRACT(hour FROM now() AT TIME ZONE 'Europe/Istanbul')::int saat");
+    const bugun = t.rows[0].bugun, saat = Number(t.rows[0].saat);
+    if (!force && (saat < 8 || saat >= 12)) { _execRaporBusy = false; return { skipped: "saat " + saat }; }
+    await _ensureRaporLog();
+    const tens = await pool.query("SELECT DISTINCT tenant_id FROM saha_ziyaret");
+    const out = [];
+    for (const row of tens.rows) {
+      const T = row.tenant_id;
+      if (!force) { const g = await pool.query("INSERT INTO saha_rapor_gunluk_log (tenant_id,gun,tur) VALUES ($1,$2,'exec') ON CONFLICT DO NOTHING RETURNING 1", [T, bugun]); if (!g.rowCount) continue; }
+      out.push(await _execDailyReport(T, { force: !!force }));
+    }
+    if (out.length) { try { console.log("[rapor] exec gunluk:", out.length); } catch (e) {} }
+    _execRaporBusy = false;
+    return { ran: out.length, out };
+  } catch (e) { _execRaporBusy = false; try { console.warn("gunlukRaporExecTick:", e.message); } catch (er) {} return { err: String(e && e.message) }; }
 }
 
 // ⭐ KENDİNİ-KAYDET (omurga_32): konteyner her açılışında yetenek defterini tazele.
@@ -27766,7 +30709,7 @@ createServer(async (request, response) => {
     return;
   }
 
-  if (request.url?.startsWith("/api/")) {
+  if (request.url?.startsWith("/api/") || request.url?.startsWith("/invite/")) {  /* INVITE_PAGE_ROUTE_V1 */
     if (!checkApiRateLimit(request, response)) return;
     handleApi(request, response);
     return;
@@ -27871,7 +30814,7 @@ async function ensureSahaSchema() {
     // ── 1. Modül kaydı + plan + aktif tenant aboneliği ──
     await db.query(`
       INSERT INTO platform_modules (id, name, description) VALUES
-        ('saha', 'KRB Saha', 'Saha ziyaretleri ve iskonto onay yönetimi')
+        ('saha', 'Saha', 'Saha ziyaretleri ve iskonto onay yönetimi')
       ON CONFLICT (id) DO NOTHING
     `);
     await db.query(`
@@ -27893,7 +30836,7 @@ async function ensureSahaSchema() {
       SELECT tu.tenant_id, u.id, 'saha', 'admin'
       FROM users u
       JOIN tenant_users tu ON tu.user_id = u.id AND tu.active = true
-      WHERE u.email = 'yonetim@krb.com.tr'
+      WHERE tu.tenant_role = 'tenant_admin'  /* EMAIL_AGNOSTIK_V1 — her tenant kendi admini */
       ON CONFLICT (tenant_id, user_id, module_id) DO NOTHING
     `);
 
@@ -27986,6 +30929,8 @@ async function ensureSahaSchema() {
       CREATE INDEX IF NOT EXISTS idx_saha_ziyaret_mus    ON saha_ziyaret (tenant_id, musteri_id, ziyaret_tarihi DESC);
       CREATE INDEX IF NOT EXISTS idx_saha_ziyaret_durum  ON saha_ziyaret (tenant_id, durum, planlanan_tarih);
       CREATE INDEX IF NOT EXISTS idx_saha_foto_ziyaret   ON saha_ziyaret_foto (ziyaret_id);
+      CREATE TABLE IF NOT EXISTS saha_ziyaret_katilimci (tenant_id uuid NOT NULL, ziyaret_id uuid NOT NULL REFERENCES saha_ziyaret(id) ON DELETE CASCADE, user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE, PRIMARY KEY (ziyaret_id, user_id)); -- KATILIMCI_JOIN_V1
+      CREATE INDEX IF NOT EXISTS idx_saha_katilimci_user ON saha_ziyaret_katilimci (tenant_id, user_id);
       CREATE INDEX IF NOT EXISTS idx_saha_isk_durum      ON saha_iskonto_talep (tenant_id, durum, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_saha_isk_rep        ON saha_iskonto_talep (tenant_id, rep_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_saha_cari_adi       ON saha_cari_cache (tenant_id, lower(musteri_adi));
@@ -28165,6 +31110,9 @@ async function ensureSahaSchema() {
       ALTER TABLE saha_ziyaret ADD COLUMN IF NOT EXISTS lokasyon_id uuid REFERENCES saha_musteri_lokasyon(id) ON DELETE SET NULL;
       -- Teklif ↔ master ürün bağlantısı: hangi katalog kalemi teklif edildi
       ALTER TABLE saha_teklif ADD COLUMN IF NOT EXISTS kalem_kodu text;
+      ALTER TABLE saha_teklif ADD COLUMN IF NOT EXISTS kok_teklif_id uuid;  -- TEKLIF_REVIZE_V1
+      ALTER TABLE saha_teklif ADD COLUMN IF NOT EXISTS revizyon_no integer NOT NULL DEFAULT 1;  -- TEKLIF_REVIZE_V1
+      CREATE INDEX IF NOT EXISTS idx_saha_teklif_kok ON saha_teklif (tenant_id, kok_teklif_id);  -- TEKLIF_REVIZE_V1
       -- ZIYARET_GORULME_V1 — ziyaret raporu "görüldü": herkes kimin gördüğünü görür (detay açılınca otomatik).
       CREATE TABLE IF NOT EXISTS saha_ziyaret_gorulme (
         tenant_id uuid NOT NULL,
@@ -28396,7 +31344,7 @@ async function refreshSahaMasters(db) {
            COUNT(*), COALESCE(SUM(f.miktar), 0), COALESCE(SUM(f.satir_tutar), 0)
     FROM bi_satis_faturalari f
     WHERE f.kalem_kodu IS NOT NULL
-      AND f.grup_adi LIKE 'LASTIK%'   -- LASTIK_FILTRE_V1: İŞÇİLİK/YEDEK PARCA urun degil
+      AND f.grup_adi LIKE evren_desen(f.tenant_id)   -- LASTIK_FILTRE_V1: İŞÇİLİK/YEDEK PARCA urun degil
     GROUP BY f.tenant_id, f.kalem_kodu
     ON CONFLICT (tenant_id, kalem_kodu) DO UPDATE
       SET kalem_tanimi = EXCLUDED.kalem_tanimi, marka = COALESCE(EXCLUDED.marka, master_urun.marka),
@@ -28457,8 +31405,21 @@ async function refreshSahaMasters(db) {
               ORDER BY tenant_id, vergi_no, toplam_ciro DESC NULLS LAST) mm
      WHERE sm.musteri_kodu IS NULL AND NULLIF(sm.vergi_no,'') IS NOT NULL AND sm.aktif = true
        AND sm.tenant_id::text = mm.tenant_id::text AND sm.vergi_no = mm.vergi_no
+       AND NOT EXISTS (SELECT 1 FROM saha_kimlik_duzeltme d WHERE d.saha_id = sm.id AND d.faz IN ('AYIR','AYIR2','REDDET') AND d.eski_musteri_kodu = mm.musteri_kodu) /* KIMLIK_AUTOLINK_GUARD_V1 */
   `);
 
+  await client.query(`
+    UPDATE saha_musteri sm SET musteri_kodu = mm.musteri_kodu, updated_at = now()
+      FROM (SELECT DISTINCT ON (tenant_id, kimlik) tenant_id, kimlik, musteri_kodu
+              FROM (SELECT tenant_id, NULLIF(vergi_no,'') AS kimlik, musteri_kodu, toplam_ciro FROM master_musteri WHERE NULLIF(vergi_no,'') IS NOT NULL
+                    UNION ALL
+                    SELECT tenant_id, NULLIF(tc_no,'') AS kimlik, musteri_kodu, toplam_ciro FROM master_musteri WHERE NULLIF(tc_no,'') IS NOT NULL) uk
+              ORDER BY tenant_id, kimlik, toplam_ciro DESC NULLS LAST) mm
+     WHERE sm.musteri_kodu IS NULL AND sm.aktif = true
+       AND sm.tenant_id::text = mm.tenant_id::text
+       AND mm.kimlik IN (NULLIF(sm.vergi_no,''), NULLIF(sm.tc_no,''))
+       AND NOT EXISTS (SELECT 1 FROM saha_kimlik_duzeltme d WHERE d.saha_id = sm.id AND d.faz IN ('AYIR','AYIR2','REDDET') AND d.eski_musteri_kodu = mm.musteri_kodu)
+  `);  /* KIMLIK_TC_BATCH_V1 — VKN+TC union oto-baglama (vergi_no batch'e ek; guard'li) */
   console.log("Saha masters: ready");
 }
 
@@ -28568,6 +31529,179 @@ async function handleSahaApi(request, response, url, deps) {
   const path = url.pathname;
 
   // Saha oturum + rol denetimi. moduleRole: rep | manager | admin
+  
+  // ── Paylasilan akilli-fiyat helper'lari (musteri-fiyat-liste ile AYNI matematik) — TEKLIF_ONERI_V1 ──
+  //     NOT: musteri-fiyat-liste icindeki mantik ile SENKRON tutulmali (kopya). Ileride o
+  //     endpoint de bunlari cagiracak sekilde sadelestirilebilir.
+  async function _smartSkorRaw(T, musteri) {  /* TEKLIF_ONERI_V1 */
+    const out = { skor: null, bilesenler: null, vade_oneri: null, vol: null, risk: null };
+    try {
+      const sc = (await query(`WITH cust AS (
+             SELECT musteri_kodu,
+               SUM(satir_tutar) ciro, SUM(miktar) adet,
+               SUM(miktar*(vade_tarihi-fatura_tarihi)::numeric)/NULLIF(SUM(miktar),0) vade,
+               COUNT(DISTINCT date_trunc('month',fatura_tarihi)) ay_sayisi,
+               COUNT(DISTINCT ebat) ebat_n
+             FROM bi_satis_faturalari
+             WHERE tenant_id::text=$1 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+               AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months')
+               AND musteri_kodu NOT IN (SELECT f2.musteri_kodu FROM bi_satis_faturalari f2 WHERE f2.tenant_id::text=$1 AND f2.grup_adi LIKE evren_desen(f2.tenant_id) AND f2.fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') AND f2.musteri_kodu IN (SELECT muhatap_kodu FROM bi_musteri_risk WHERE tenant_id::text=$1 AND grup ILIKE '%TEDAR%') GROUP BY f2.musteri_kodu HAVING SUM(f2.satir_tutar) > 5000000) /* TEDARFILT_V1 */
+             GROUP BY musteri_kodu),
+           risk AS (
+             SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, hesap_bakiyesi, vadesi_gecmis, kredi_limiti
+             FROM bi_musteri_risk WHERE tenant_id::text=$1 AND musteri_mi
+             ORDER BY muhatap_kodu, export_date DESC),
+           net AS (SELECT musteri_kodu, net_pozisyon FROM bi_cari_bakiye WHERE tenant_id::text=$1),
+           tah AS (SELECT muhatap_kodu, gec_odeme_orani, ort_gecikme_gun, son12_adedi, son12_gec_orani, son12_gecikme_gun FROM bi_tahsilat WHERE tenant_id::text=$1),
+           base AS (
+             SELECT c.*, COALESCE(r.vadesi_gecmis,0) overdue, COALESCE(r.hesap_bakiyesi,0) bakiye,
+               COALESCE(r.kredi_limiti,0) kredi, COALESCE(n.net_pozisyon, r.hesap_bakiyesi, 0) net_poz,
+               (t.muhatap_kodu IS NOT NULL) has_tah,
+               CASE WHEN COALESCE(t.son12_adedi,0)>0 THEN t.son12_gec_orani ELSE t.gec_odeme_orani END eff_gec,
+               CASE WHEN COALESCE(t.son12_adedi,0)>0 THEN t.son12_gecikme_gun ELSE t.ort_gecikme_gun END eff_gun
+             FROM cust c LEFT JOIN risk r ON r.muhatap_kodu=c.musteri_kodu LEFT JOIN net n ON n.musteri_kodu=c.musteri_kodu LEFT JOIN tah t ON t.muhatap_kodu=c.musteri_kodu),
+           scored AS (
+             SELECT b.*, percent_rank() OVER (ORDER BY ciro) s_vol,
+               (CASE WHEN has_tah THEN 0.6*(1-LEAST(GREATEST(COALESCE(eff_gec,0),0),100)/100.0)+0.4*(1-LEAST(GREATEST(COALESCE(eff_gun,0),0),60)/60.0) ELSE 0.6*(1-LEAST(COALESCE(vade,0),120)/120.0)+0.4*(CASE WHEN overdue<=0 THEN 1.0 WHEN bakiye<=0 THEN 0.3 ELSE GREATEST(0,1-overdue/bakiye) END) END) s_pay,
+               (0.6*LEAST(ay_sayisi,12)/12.0 + 0.4*LEAST(ebat_n,10)/10.0) s_loyal,
+               (CASE WHEN kredi>0 THEN GREATEST(0,1-GREATEST(net_poz,0)/kredi) WHEN net_poz<=0 THEN 1.0 ELSE 0.5 END) s_risk
+             FROM base b)
+           SELECT round(100*(0.35*s_pay+0.25*s_vol+0.20*s_loyal+0.20*s_risk))::int skor,
+             round(s_pay*100)::int odeme, round(s_vol*100)::int hacim,
+             round(s_loyal*100)::int sadakat, round(s_risk*100)::int risk,
+             s_vol::float8 vol_raw, s_risk::float8 risk_raw
+           FROM scored WHERE musteri_kodu=$2`, [T, musteri])).rows[0];
+      if (sc) {
+        out.skor = Number(sc.skor);
+        out.bilesenler = { odeme: Number(sc.odeme), hacim: Number(sc.hacim), sadakat: Number(sc.sadakat), risk: Number(sc.risk) };
+        out.vol = Number(sc.vol_raw); out.risk = Number(sc.risk_raw);
+        const _comb = (Number(sc.odeme) + Number(sc.risk)) / 2;
+        out.vade_oneri = _comb < 40 ? "Peşin / azami 30 gün — riskli profil" : (_comb < 65 ? "azami 60 gün" : "90 güne kadar esnek — iyi ödeyici");
+      }
+    } catch (e) { console.error("[teklif-oneri skor]", e && e.message); }
+    return out;
+  }
+
+  async function _smartKalemFiyat(T, musteri, kalem, _vol, _risk) {  /* TEKLIF_ONERI_V1 */
+    const r = { oneri: null, durum: null, gercek: null, marj_oneri: null, ad: null, marka: null, ebat: null, lo: null, med: null, hi: null, mx: null, maliyet: null, repl_cost: null, vade_menu: null, rakip: null, brand_hedef: null, floorCost: 0, hedef_taban: null };
+    try {
+      const p = (await query(`SELECT
+             (SELECT (SUM(ciro)-SUM(brut_kar))/NULLIF(SUM(adet),0) FROM bi_marj_atom
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND ay>=(CURRENT_DATE-INTERVAL '12 months')) cost,
+             (SELECT SUM(satir_kdv_haric)/NULLIF(SUM(miktar),0) FROM bi_tedarikci_faturalari
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '90 days')) repl_cost,
+             (SELECT percentile_cont(0.25) WITHIN GROUP (ORDER BY birim_fiyat) FROM bi_satis_faturalari
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+                  AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '12 months') AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))) lo,
+             (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY birim_fiyat) FROM bi_satis_faturalari
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+                  AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '12 months') AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))) med,
+             (SELECT percentile_cont(0.9) WITHIN GROUP (ORDER BY birim_fiyat) FROM bi_satis_faturalari
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+                  AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '12 months') AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))) hi,
+             (SELECT MAX(birim_fiyat) FROM bi_satis_faturalari
+                WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND grup_adi LIKE evren_desen(tenant_id) AND miktar>0
+                  AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '12 months') AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))) mx,
+             (SELECT kalem_tanimi FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND kalem_kodu=$2 AND kalem_tanimi IS NOT NULL ORDER BY fatura_tarihi DESC LIMIT 1) ad,
+             (SELECT max(marka) FROM bi_marj_atom WHERE tenant_id::text=$1 AND kalem_kodu=$2) marka,
+             (SELECT max(ebat) FROM bi_marj_atom WHERE tenant_id::text=$1 AND kalem_kodu=$2) ebat,
+             (SELECT GREATEST(0.12, LEAST(0.30, percentile_cont(0.6) WITHIN GROUP (ORDER BY m))) FROM (SELECT SUM(brut_kar)/NULLIF(SUM(ciro),0) m FROM bi_marj_atom WHERE tenant_id::text=$1 AND marka=(SELECT max(marka) FROM bi_marj_atom WHERE tenant_id::text=$1 AND kalem_kodu=$2) AND ebat IS NOT NULL AND ebat<>'' AND ay>=(CURRENT_DATE-INTERVAL '12 months') GROUP BY kalem_kodu HAVING SUM(adet)>=20 AND SUM(ciro)>0) x) brand_hedef /* MARKATIER_PRICE_V1 */`, [T, kalem])).rows[0];
+      if (p) {
+        const lo = p.lo != null ? Math.round(Number(p.lo)) : null, hi = p.hi != null ? Math.round(Number(p.hi)) : null;
+        const cost = p.cost != null ? Math.round(Number(p.cost)) : null, repl = p.repl_cost != null ? Math.round(Number(p.repl_cost)) : null;
+        const mx = p.mx != null ? Math.round(Number(p.mx)) : null;
+        r.ad = p.ad || null; r.marka = p.marka || null; r.ebat = p.ebat || null;
+        r.med = p.med != null ? Math.round(Number(p.med)) : null;
+        r.lo = lo; r.hi = hi; r.mx = mx; r.maliyet = cost; r.repl_cost = repl;
+        let gercek = null, gvade = null;
+        const g = (await query(`SELECT SUM(miktar*birim_fiyat)/NULLIF(SUM(miktar),0) fiyat,
+                  SUM(miktar*(vade_tarihi-fatura_tarihi)::numeric)/NULLIF(SUM(miktar),0) vade
+           FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND musteri_kodu=$2 AND kalem_kodu=$3
+             AND miktar>0 AND fatura_tarihi>=(CURRENT_DATE-INTERVAL '18 months')
+             AND (para_birimi IS NULL OR upper(para_birimi) IN ('TRY','TL'))`, [T, musteri, kalem])).rows[0];
+        if (g && g.fiyat != null) { gercek = Math.round(Number(g.fiyat)); gvade = g.vade != null ? Math.round(Number(g.vade)) : null; }
+        r.gercek = gercek;
+        if (lo != null && hi != null) {
+          const vol = _vol != null ? _vol : 0.5, risk = _risk != null ? _risk : 0.5;
+          const floorCost = (repl != null ? repl : cost) || 0;
+          const RATE = 0.42;
+          const plBase = Math.max(0, Math.min(1, 0.62 * (1 - vol) + 0.38 * (1 - risk)));
+          const bandBase = lo + plBase * (hi - lo);
+          const brandH = (p.brand_hedef != null) ? Math.max(0.12, Math.min(0.30, Number(p.brand_hedef))) : 0.12; /* MARKATIER_PRICE_V1 */
+          const pesin = Math.max(bandBase, floorCost > 0 ? floorCost / (1 - brandH) : bandBase);
+          const fairAt = (vd) => {
+            const fin = (floorCost > 0 ? floorCost : lo) * (RATE / 365) * Math.min(Math.max(vd, 0), 120);
+            let f = pesin + fin;
+            if (mx != null) f = Math.min(f, Math.max(mx, pesin));
+            return Math.round(f / 250) * 250;
+          };
+          const fair = fairAt(gvade != null ? gvade : 45);
+          r.oneri = fair;
+          r.vade_menu = [0, 30, 60, 90].map(v => ({ vade: v, fiyat: fairAt(v) }));
+          r.floorCost = floorCost;
+          r.brand_hedef = Math.round(brandH * 1000) / 10;
+          r.hedef_taban = Math.round(pesin);
+          if (gercek == null) r.durum = "YENI";
+          else if (fair > gercek * 1.03) r.durum = "LIFT";
+          else if (gercek > fair * 1.12) r.durum = "WATCH";
+          else r.durum = "UYGUN";
+          r.marj_oneri = (floorCost > 0 && fair > 0) ? Math.round((fair - floorCost) / fair * 1000) / 10 : null;
+          try { /* RAKIPWATCH_V1 */
+            if (r.ebat && musteri) {
+              const cmp = (await query(`SELECT st.rakip_marka, st.rakip_fiyat, st.kayip_nedeni, to_char(st.created_at,'YYYY-MM-DD') tarih FROM saha_teklif st JOIN saha_musteri sm ON sm.id=st.musteri_id WHERE st.tenant_id=$1::uuid AND sm.musteri_kodu=$2 AND st.rakip_fiyat IS NOT NULL AND st.ebat=$3 AND st.created_at >= now() - INTERVAL '9 months' ORDER BY st.created_at DESC LIMIT 1`, [T, musteri, r.ebat])).rows[0];
+              if (cmp && cmp.rakip_fiyat != null) {
+                const rf = Math.round(Number(cmp.rakip_fiyat));
+                r.rakip = { marka: cmp.rakip_marka || null, fiyat: rf, neden: cmp.kayip_nedeni || null, tarih: cmp.tarih || null };
+                const minFloor = floorCost > 0 ? floorCost / 0.88 : 0;
+                if (rf < fair) {
+                  r.oneri = Math.round(Math.max(rf, minFloor) / 250) * 250;
+                  r.durum = (rf >= minFloor) ? 'RAKIP' : 'RAKIP_MALIYET';
+                  r.marj_oneri = (floorCost > 0 && r.oneri > 0) ? Math.round((r.oneri - floorCost) / r.oneri * 1000) / 10 : null;
+                }
+              }
+            }
+          } catch (e) { console.error('[teklif-oneri rakipwatch]', e && e.message); }
+        }
+      }
+    } catch (e) { console.error("[teklif-oneri kalem]", e && e.message); }
+    return r;
+  }
+
+
+  
+  // BAYILIK_SCOPE_FIX_V1 — beyin-blogundaki _bayilikMi/_sonAlisFiyati saha kapsaminda gorunmez;
+  //   burada saha handler'inin gorebilecegi ESDEGER kopyalar (ayni sorgu/davranis).
+  async function _bayilikMiSaha(pool, tenantId, marka) {
+    if (!marka) return false;
+    const r = await pool.query(
+      "SELECT 1 FROM bi_fiyat_iskonto WHERE tenant_id=$1::uuid " +
+      " AND upper(marka)=upper($2) AND aktif=true LIMIT 1",
+      [tenantId, marka]);
+    return r.rows.length > 0;
+  }
+  async function _sonAlisFiyatiSaha(pool, tenantId, kalemKodu) {
+    if (!kalemKodu) return null;
+    const r = await pool.query(
+      "SELECT birim_fiyat_kdv_haric AS f, fatura_tarihi AS t, tedarikci_adi AS td, " +
+      "       vade_gun AS vg, (CURRENT_DATE - fatura_tarihi)::int AS gun " +
+      "  FROM bi_tedarikci_faturalari " +
+      " WHERE tenant_id=$1::uuid AND kalem_kodu=$2 AND birim_fiyat_kdv_haric > 0 " +
+      "   AND miktar > 0 " +
+      " ORDER BY fatura_tarihi DESC LIMIT 1",
+      [tenantId, kalemKodu]);
+    const x = r.rows[0];
+    if (!x) return null;
+    const g = Number(x.gun);
+    return {
+      fiyat: Math.round(Number(x.f) * 100) / 100,
+      tarih: x.t, tedarikci: x.td,
+      vade_gun: x.vg == null ? null : Number(x.vg),
+      gun_once: g,
+      bayat: g > 180
+    };
+  }
+
+
   async function requireSahaAccess(req, allowedRoles = null) {
     const session = await requireModuleAccess(req, "saha");
     // Tenant'sız platform_owner (ör. Derive hesabı) tek aktif tenant'a bağlanır
@@ -28576,13 +31710,144 @@ async function handleSahaApi(request, response, url, deps) {
       session.tenantId = t.rows[0]?.id || null;
       if (!session.tenantId) throw Object.assign(new Error("Aktif tenant bulunamadı."), { statusCode: 500 });
     }
-    const sahaRole = (session.moduleRole === "admin" || normalizeRole(session.role) === "platform_owner")
+    const sahaRole = (session.moduleRole === "admin" || normalizeRole(session.role) === "platform_owner" || String(session.role || "").trim().toLowerCase() === "company_owner") /* SAHA_GM_ADMIN_V1 */
       ? "admin"
       : (session.moduleRole === "manager" ? "manager" : "rep");
     if (allowedRoles && !allowedRoles.includes(sahaRole)) {
       throw Object.assign(new Error("Bu işlem için yetkiniz yok."), { statusCode: 403 });
     }
-    return { ...session, sahaRole };
+    const _sess = { ...session, sahaRole };
+    _enforceSahaDept(req, _sess);  /* IZIN_SAHAMAP_V1 */
+    return _sess;
+  }
+
+  /* IZIN_SAHAMAP_V1 — route -> izin veren sekme(ler). Boş departman = role fallback; admin bypass;
+     haritada olmayan rota = açık (altyapı/webhook/paylaşımlı yardımcı). Paylaşımlı çekirdek uçlar
+     (ziyaret/müşteri/teklif) permissif küme: ancak ilgili sekmelerin HİÇBİRİ yoksa 403. */
+  const SAHA_DEPT_MAP = {
+    "/api/saha/bugun": ["bugun"],
+    "/api/saha/gunluk-baslangic": ["bugun"],
+    "/api/saha/ziyaretler": ["ziyaretler", "bugun", "plan", "rapor"],
+    "/api/saha/musteriler": ["musteriler", "plan", "teklif", "ziyaretler"],
+    "/api/saha/kontrol-musteriler": ["musteriler"],
+    "/api/saha/eslestirilmemis": ["musteriler"],
+    "/api/saha/mukerrerler": ["musteriler"],
+    "/api/saha/notlar": ["notlarim", "plan"],
+    "/api/saha/teklifler": ["teklif", "rapor", "bugun"],
+    "/api/saha/iskonto-secenekler": ["teklif"],
+    "/api/saha/iskonto-kurallar": ["teklif"],
+    "/api/saha/tesvik-bilgi": ["teklif"],
+    "/api/saha/musteri-destek": ["teklif"],
+    "/api/saha/kampanya-ara": ["teklif"],
+    "/api/saha/stok-durumu": ["teklif"],
+    "/api/saha/rep-brain": ["rep-brain"],
+    "/api/saha/rep-profil": ["rep-brain"],
+    "/api/saha/harita": ["harita"],
+    "/api/saha/harita-il-metrikler": ["harita"],
+    "/api/saha/harita-il-saha": ["harita"],  /* HARITA_ILSAHA_V1 */
+    "/api/saha/harita-il-cariler": ["harita"],
+    "/api/saha/harita-il-ozet": ["harita"],
+    "/api/saha/harita-musteri-brief": ["harita"],
+    "/api/saha/harita-musteri-ozet": ["harita"],
+    "/api/saha/harita-musteriler": ["harita"],
+    "/api/saha/piyasa-dosya": ["piyasa"],
+    "/api/saha/rakip-teklif": ["piyasa", "rakip"],
+    "/api/saha/rakip-teklif-ozet": ["piyasa", "rakip"],
+    "/api/saha/oneriler": ["oneriler", "bugun", "sistem"],
+    "/api/saha/duyurular": ["duyurular", "piyasa"],
+    "/api/saha/konusmalar": ["mesajlar"],
+    "/api/saha/konusmalar/coklu": ["mesajlar"],
+    "/api/saha/konusmalar/yayim": ["mesajlar"],
+    "/api/saha/yayim-okuyanlar": ["mesajlar"],
+    "/api/saha/rapor/ozet": ["rapor"],
+    "/api/saha/rapor/bolge-marka": ["rapor"],
+    "/api/saha/rapor/rakip": ["rapor"],
+    "/api/saha/rapor/rep-performans": ["rapor"],
+    "/api/saha/rapor/ziyaret-etki": ["etki"],  /* SEKME_CAP_SRV_V1 */  /* ZIYARET_ETKI_V1 */
+    "/api/saha/rapor/portfoy": ["portfoy"],  /* SEKME_CAP_SRV_V1 */  /* PORTFOY_V1 */
+    "/api/saha/rapor/teklif": ["rapor", "teklif"],
+    "/api/saha/rapor/ziyaret-ciro": ["ciro"],
+    "/api/saha/rapor/risk-saha": ["risk"],
+    "/api/saha/rapor/sabah-rotam": ["rotam"],
+    "/api/saha/rapor/kapsam": ["kapsam", "rapor"],
+    "/api/saha/rapor/kapsam-export": ["kapsam", "rapor"],
+    "/api/saha/rapor/ziyaret-analiz": ["rapor"],  /* ZIYARET_ANALIZ_V1 */
+    "/api/saha/musteri-aksiyon": ["kapsam", "musteriler", "ziyaretler", "rapor"],
+    "/api/saha/nabiz-ozet": ["memnuniyet"],  /* MEMNUNIYET_GATE_SRV_V1 */
+    "/api/saha/manager-portfoyum": ["yon-portfoy"],  /* YONPORTFOY_DEPTMAP_V1 */
+    "/api/saha/manager-portfoyum/ekran": ["yon-portfoy"],
+    "/api/saha/manager-portfoyum/liste": ["yon-portfoy"],
+    "/api/saha/manager-portfoyum/lensler": ["yon-portfoy"],
+    "/api/saha/manager-portfoyum/lens-liste": ["yon-portfoy"],
+    "/api/saha/manager-portfoyum/beyaz": ["yon-portfoy"],
+    "/api/saha/manager-portfoyum/retention": ["yon-portfoy"],
+    "/api/saha/manager-portfoyum/retention-liste": ["yon-portfoy"],
+    "/api/saha/manager-portfoyum/yazkis": ["yon-portfoy"],
+    "/api/saha/manager-portfoyum/konsantr-liste": ["yon-portfoy"]
+  };
+  const _SAHA_NEWK = ["ciro", "risk", "rotam", "yon-portfoy"];  /* YONPORTFOY_DEPTMAP_V1 */
+  function _enforceSahaDept(req, sess) {  /* IZIN_SAHAMAP_V1 */
+    if (sess.sahaRole === "admin") return;                       // admin = tam erisim
+    let pth;
+    try { pth = new URL(req.url, "http://localhost").pathname; } catch (e) { return; }
+    const need = SAHA_DEPT_MAP[pth];
+    if (!need) return;                                           // haritada yok = acik
+    const depts = Array.isArray(sess.permissions && sess.permissions.departments) ? sess.permissions.departments : [];
+    if (!depts.length) return;                                   // bos = role fallback (client ile ayni)
+    if (need.some(d => depts.includes(d))) return;               // ilgili sekmelerden biri var
+    const needNew = need.filter(d => _SAHA_NEWK.includes(d));    // yeni anahtar gecis kurali (ciro/risk/rotam)
+    if (needNew.length && !_SAHA_NEWK.some(k => depts.includes(k))) {
+      if (sess.sahaRole === "manager") return;                  // manager varsayilani = hepsi
+      if (sess.sahaRole === "rep" && needNew.includes("rotam")) return;  // rep varsayilani = rotam
+    }
+    throw Object.assign(new Error("Bu bölüm için yetkiniz yok."), { statusCode: 403 });
+  }
+
+  /* YETKI_FAZ1 — capability kontrolu (client _yetki / _enforceSahaDept ile birebir): admin bypass; bos departments -> rol fallback (izin); degilse includes. */
+  function _sahaCap(sess, cap) { if (!sess) return false; if (sess.sahaRole === "admin") return true; const d = Array.isArray(sess.permissions && sess.permissions.departments) ? sess.permissions.departments : []; return (!d.length) ? true : d.includes(cap); }
+  /* SERVER_CAP_V1 — yonetim ucu capi: admin bypass; kisisel effective liste doluysa YALNIZ onu okur; bossa rol varsayilanina duser (client _yetki ile birebir). _sahaCap'in "bos=hepsi acik" davranisi finans/yonetim uclari icin fazla acik oldugundan bu kullanilir. */
+  function _sahaCapRole(sess, cap, defRoles) { if (!sess) return false; if (sess.sahaRole === "admin") return true; const d = Array.isArray(sess.permissions && sess.permissions.departments) ? sess.permissions.departments : []; if (d.length) return d.includes(cap); return Array.isArray(defRoles) && defRoles.includes(sess.sahaRole); }
+  /* YETKI_FAZ3A — veri kapsami WHERE parcasi (opt-in; permissions_json.scope). params dizisine positional push eder. */
+  /* YETKI_FAZ3B — tek müşteri kapsam kontrolü (opt-in; admin/tumu -> true, sorgu yok). */
+  async function _sahaScopeGuard(sess, musteriId) {
+    if (!sess || sess.sahaRole === "admin") return true;
+    const sc = (sess.permissions && sess.permissions.scope) || {};
+    if (!sc.level || sc.level === "tumu") return true;
+    const params = [sess.tenantId, musteriId];
+    const r = await query("SELECT 1 FROM saha_musteri m WHERE m.tenant_id=$1 AND m.id=$2 AND m.aktif=true" + _sahaScopeSql(sess, params, "m"), params);
+    return r.rowCount > 0;
+  }
+  function _sahaScopeSql(sess, params, alias) {
+    if (!sess || sess.sahaRole === "admin") return "";
+    const sc = (sess.permissions && sess.permissions.scope) || {};
+    const lvl = sc.level || "tumu";
+    if (lvl === "tumu" || !lvl) return "";
+    if (lvl === "kendi") { params.push(sess.userId); return " AND " + alias + ".sorumlu_rep = $" + params.length; }
+    if (lvl === "bolge") {
+      const regs = Array.isArray(sc.regions) ? sc.regions.filter(Boolean) : [];
+      if (!regs.length) { params.push(sess.userId); return " AND " + alias + ".sorumlu_rep = $" + params.length; }
+      params.push(regs); return " AND " + alias + ".il = ANY($" + params.length + "::text[])";
+    }
+    if (lvl === "bolum") {
+      params.push(sess.tenantId); const ti = params.length;
+      params.push(sess.userId);   const ui = params.length;
+      return " AND " + alias + ".sorumlu_rep IN (SELECT dm2.user_id FROM tenant_department_membership dm1 JOIN tenant_department_membership dm2 ON dm2.tenant_id=dm1.tenant_id AND dm2.department_id=dm1.department_id WHERE dm1.tenant_id::text=$" + ti + "::text AND dm1.user_id=$" + ui + ")";
+    }
+    return "";
+  }
+
+  async function requireSahaDept(request, dept) {  /* IZIN_SAHADEPT_V1 — Saha alt-sekme sunucu yetkilendirmesi */
+    const session = await requireSahaAccess(request);
+    if (session.sahaRole === "admin") return session;                 // admin = tam erisim (bypass)
+    const depts = Array.isArray(session.permissions && session.permissions.departments) ? session.permissions.departments : [];
+    if (depts.includes(dept)) return session;                         // acik yetki
+    const NEWK = ["ciro", "risk", "rotam"];
+    const hasNewRec = NEWK.some(k => depts.includes(k));
+    if (!hasNewRec) {                                                  // kayit yok -> ROL VARSAYILANI (client _rTabOk ile ayni)
+      if (session.sahaRole === "manager") return session;             // manager = hepsi
+      if (session.sahaRole === "rep" && dept === "rotam") return session; // rep = yalniz rotam
+    }
+    throw Object.assign(new Error("Bu sekme için yetkiniz yok: " + dept), { statusCode: 403 });
   }
 
   try {
@@ -28675,8 +31940,8 @@ async function handleSahaApi(request, response, url, deps) {
                FROM saha_teklif WHERE tenant_id = $1`, [session.tenantId]),
         query(`SELECT COUNT(*) AS acik FROM saha_teklif WHERE tenant_id = $1 AND durum IN ('TASLAK','ONAY_BEKLIYOR','ONAYLANDI','SUNULDU')`,
           [session.tenantId]),
-        query(`SELECT COUNT(*) FILTER (WHERE durum = 'TAMAMLANDI' AND kaynak = 'APP' AND ziyaret_tarihi = CURRENT_DATE) AS bugun,
-                      COUNT(*) FILTER (WHERE durum = 'PLANLANDI' AND planlanan_tarih = CURRENT_DATE) AS planli
+        query(`SELECT COUNT(*) FILTER (WHERE durum = 'TAMAMLANDI' AND kaynak = 'APP' AND ziyaret_tarihi = (now() AT TIME ZONE 'Europe/Istanbul')::date) AS bugun,
+                      COUNT(*) FILTER (WHERE durum = 'PLANLANDI' AND planlanan_tarih = (now() AT TIME ZONE 'Europe/Istanbul')::date) AS planli
                FROM saha_ziyaret WHERE tenant_id = $1`, [session.tenantId]),
         query(`
           SELECT * FROM (
@@ -28831,20 +32096,29 @@ async function handleSahaApi(request, response, url, deps) {
       const like = `%${q}%`;
       const prefix = `${q}%`;
       const vknMi = /^\d{10,11}$/.test(q); // 10-11 hane → vergi no araması
+      const isRep = session.sahaRole === "rep";  /* MUSTERI_ARA_REP_SCOPE_V1 — rep yalniz kendi musterileri (sorumlu_rep) */
+      const _nrm = (x) => `lower(translate(${x},'İIıŞşÇçÖöÜüĞğ','iiissccoouugg'))`;  /* MUSTERI_ARA_TR_NORMALIZE_V1 — TR harf + buyuk/kucuk duyarsiz */
+      const paramsK = [session.tenantId, like, prefix];
+      let condK = `${_nrm("firma")} LIKE ${_nrm("$2")}`;
+      if (vknMi) { paramsK.push(q); condK += ` OR vergi_no = $${paramsK.length}`; }
+      let repK = "";
+      if (isRep) { paramsK.push(session.userId); repK = ` AND sorumlu_rep = $${paramsK.length}`; }
       const kart = await query(`
-        SELECT id, tip, firma, musteri_kodu, il, ilce, segment, durum, yetkili, telefon, vergi_no, tc_no
+        SELECT id, tip, firma, musteri_kodu, il, ilce, segment, durum, yetkili, telefon, vergi_no, tc_no,
+               raf_markalar, bayilikler, rakip_toptancilar, kis_stok, yaz_stok,
+               sektorler, tedarikci_markalar, kullanilan_markalar, arac_parki, yillik_potansiyel  /* MUSTERI_ARA_PROFIL_V1 — ziyaret formu prefill icin profil */
         FROM saha_musteri
-        WHERE tenant_id = $1 AND aktif = true AND (firma ILIKE $2 ${vknMi ? "OR vergi_no = $4" : ""})
-        ORDER BY (firma ILIKE $3) DESC, firma
+        WHERE tenant_id = $1 AND aktif = true AND (${condK})${repK}
+        ORDER BY (${_nrm("firma")} LIKE ${_nrm("$3")}) DESC, firma
         LIMIT 12
-      `, vknMi ? [session.tenantId, like, prefix, q] : [session.tenantId, like, prefix]);
+      `, paramsK);
       const kodlar = kart.rows.map(r => r.musteri_kodu).filter(Boolean);
-      const cari = await query(`
+      const cari = /* MUSTERI_ARA_REP_ERP_V1 — rep de ERP (SAP) carileri arayabilir */ await query(`
         SELECT musteri_kodu, musteri_adi, son_fatura, fatura_sayisi, toplam_ciro, vergi_no, tc_no
         FROM master_musteri
-        WHERE tenant_id = $1 AND musteri_adi ILIKE $2
+        WHERE tenant_id = $1 AND ${_nrm("musteri_adi")} LIKE ${_nrm("$2")}
           AND NOT (musteri_kodu = ANY($4::text[]))
-        ORDER BY (musteri_adi ILIKE $3) DESC, toplam_ciro DESC NULLS LAST
+        ORDER BY (${_nrm("musteri_adi")} LIKE ${_nrm("$3")}) DESC, toplam_ciro DESC NULLS LAST
         LIMIT 12
       `, [session.tenantId, like, prefix, kodlar.length ? kodlar : ["__none__"]]);
       sendJson(response, 200, {
@@ -28860,6 +32134,640 @@ async function handleSahaApi(request, response, url, deps) {
     }
 
     // ── Müşteri listesi ──
+    /* PORTFOYUM_EP_V1 — rep "Portföyüm": dönem(canlı)/vade/ödeme/risk, rep+tenant kapsamlı */
+    if (method === "GET" && path === "/api/saha/portfoyum") {
+      const session = await requireSahaAccess(request);
+      const T = session.tenantId;
+      const pA = [T];
+      const scopeA = _sahaScopeSql(session, pA, "m");
+      const baseSql = `
+        SELECT DISTINCT ON (m.musteri_kodu)
+          m.musteri_kodu, m.firma, m.il, m.ilce,
+          mm.toplam_ciro::bigint AS ciro_tum, mm.son_bakiye::bigint AS bakiye, mm.son_fatura AS son_fatura,
+          rk.kredi_limiti::bigint AS kredi_limiti, rk.toplam_risk::bigint AS toplam_risk, COALESCE(ng.net_gecikmis,0)::bigint AS vadesi_gecmis, /* NET_GECIKMIS_PORTFOYUM_V1 brut->net kanon */
+          round(t.ort_gecikme_gun)::int AS ort_gecikme, round(t.gec_odeme_orani)::int AS gec_orani,
+          round(t.son12_gecikme_gun)::int AS son12_gecikme, round(t.son12_gec_orani)::int AS son12_gec_orani,
+          sk.segment AS skor_segment, sk.p_alive AS skor_palive, sk.exp30 AS skor_exp30, sk.siparis AS skor_siparis, sk.son_gun AS skor_son_gun, sk.medyan_gun AS skor_medyan  /* PORTFOYUM_SKOR_JOIN_V1 */
+        FROM saha_musteri m
+        LEFT JOIN master_musteri  mm ON mm.tenant_id=m.tenant_id AND mm.musteri_kodu=m.musteri_kodu
+        LEFT JOIN bi_musteri_risk rk ON rk.tenant_id=m.tenant_id AND rk.muhatap_kodu=m.musteri_kodu
+        LEFT JOIN bi_tahsilat      t ON t.tenant_id=m.tenant_id AND t.muhatap_kodu=m.musteri_kodu
+        LEFT JOIN saha_satis_skor  sk ON sk.tenant_id=m.tenant_id AND sk.musteri_kodu=m.musteri_kodu
+        LEFT JOIN v_net_gecikmis_musteri ng ON ng.tenant_id=m.tenant_id AND ng.muhatap_kodu=m.musteri_kodu /* NET_GECIKMIS_PORTFOYUM_V1 */
+        WHERE m.tenant_id=$1 AND m.aktif=true AND COALESCE(m.musteri_kodu,'')<>''` + scopeA + `
+        ORDER BY m.musteri_kodu`;
+      const baseR = await query(baseSql, pA);
+      const pB = [T];
+      const scopeB = _sahaScopeSql(session, pB, "m");
+      const perSql = `
+        WITH mine AS (
+          SELECT DISTINCT m.musteri_kodu FROM saha_musteri m
+          WHERE m.tenant_id=$1 AND m.aktif=true AND COALESCE(m.musteri_kodu,'')<>''` + scopeB + `
+        ),
+        p AS (SELECT date_trunc('month',CURRENT_DATE) AS m0, date_trunc('year',CURRENT_DATE) AS y0),
+        fv AS (
+          SELECT f.musteri_kodu, f.fatura_tarihi, f.satir_tutar, f.miktar,
+            CASE WHEN f.odeme_kosulu ~* 'peşin|pesin|mal mukabili|vesaik|mahsuben' THEN 0
+                 WHEN f.odeme_kosulu ~ '([0-9]+)[[:space:]]*[Gg]ün' THEN (regexp_match(f.odeme_kosulu,'([0-9]+)[[:space:]]*[Gg]ün'))[1]::int
+                 WHEN f.odeme_kosulu ~* 'havale|kredi kart|sanal pos|çek|cek' THEN 0 ELSE NULL END AS vg
+          FROM bi_satis_faturalari f JOIN mine ON mine.musteri_kodu=f.musteri_kodu
+          WHERE f.tenant_id=$1::text AND f.satir_tutar>0
+        )
+        SELECT fv.musteri_kodu,
+          round(SUM(fv.satir_tutar) FILTER (WHERE fv.fatura_tarihi = CURRENT_DATE))::bigint AS bugun,
+          round(SUM(fv.satir_tutar) FILTER (WHERE fv.fatura_tarihi >= date_trunc('week',CURRENT_DATE)))::bigint AS hafta,
+          round(SUM(fv.satir_tutar) FILTER (WHERE fv.fatura_tarihi >= p.m0))::bigint AS buay,
+          round(SUM(fv.satir_tutar) FILTER (WHERE fv.fatura_tarihi >= date_trunc('month',CURRENT_DATE - INTERVAL '1 year') AND fv.fatura_tarihi <= CURRENT_DATE - INTERVAL '1 year'))::bigint AS buay_gy,
+          round(SUM(fv.satir_tutar) FILTER (WHERE fv.fatura_tarihi >= p.m0 - INTERVAL '3 month'  AND fv.fatura_tarihi < p.m0))::bigint AS ciro_3ay,
+          round(SUM(fv.satir_tutar) FILTER (WHERE fv.fatura_tarihi >= p.m0 - INTERVAL '6 month'  AND fv.fatura_tarihi < p.m0))::bigint AS ciro_6ay,
+          round(SUM(fv.satir_tutar) FILTER (WHERE fv.fatura_tarihi >= p.y0 AND fv.fatura_tarihi <= CURRENT_DATE))::bigint AS ciro_ytd,
+          round(SUM(fv.satir_tutar) FILTER (WHERE fv.fatura_tarihi >= p.m0 - INTERVAL '15 month' AND fv.fatura_tarihi < p.m0 - INTERVAL '12 month'))::bigint AS ciro_3ay_gy,
+          round(SUM(fv.satir_tutar) FILTER (WHERE fv.fatura_tarihi >= p.m0 - INTERVAL '18 month' AND fv.fatura_tarihi < p.m0 - INTERVAL '12 month'))::bigint AS ciro_6ay_gy,
+          round(SUM(fv.satir_tutar) FILTER (WHERE fv.fatura_tarihi >= p.y0 - INTERVAL '1 year' AND fv.fatura_tarihi <= CURRENT_DATE - INTERVAL '1 year'))::bigint AS ciro_ytd_gy,
+          round(SUM(fv.satir_tutar) FILTER (WHERE fv.fatura_tarihi >= p.m0 - INTERVAL '12 month'))::bigint AS ciro_12,
+          round(SUM(fv.miktar)      FILTER (WHERE fv.fatura_tarihi >= p.m0 - INTERVAL '12 month'))::int    AS adet_12,
+          round(SUM(fv.vg*fv.satir_tutar) FILTER (WHERE fv.vg IS NOT NULL AND fv.fatura_tarihi >= p.m0 - INTERVAL '12 month'))::bigint AS vade_x_ciro,
+          round(SUM(fv.satir_tutar)       FILTER (WHERE fv.vg IS NOT NULL AND fv.fatura_tarihi >= p.m0 - INTERVAL '12 month'))::bigint AS ciro_vade,
+          round(SUM(fv.satir_tutar)       FILTER (WHERE fv.vg = 0            AND fv.fatura_tarihi >= p.m0 - INTERVAL '12 month'))::bigint AS pesin_ciro
+        FROM fv CROSS JOIN p GROUP BY fv.musteri_kodu`;
+      const perR = await query(perSql, pB);
+      const byKod = {}; for (const r of perR.rows) byKod[r.musteri_kodu] = r;
+      /* PORTFOYUM_ENRICH_V1 — tam-SKU karma + trend + ERP eşleşmeyen (saf SQL, zarif düşer) */
+      const ebatByKod = {}; let _pfTrend = [], _pfEslesmeyen = [];
+      try {
+        const pC = [T]; const scopeC = _sahaScopeSql(session, pC, "m");
+        const skuR = await query(`
+          WITH mine AS (SELECT DISTINCT m.musteri_kodu FROM saha_musteri m
+            WHERE m.tenant_id=$1 AND m.aktif=true AND COALESCE(m.musteri_kodu,'')<>''` + scopeC + `),
+          g AS (SELECT f.musteri_kodu, f.kalem_kodu,
+                  max(regexp_replace(f.kalem_tanimi,'[[:space:]]+[A-Da-d]-[A-Da-d]-[0-9]+[dD][bB][[:space:]]*$','')) AS sku,
+                  sum(f.miktar) AS adet
+                FROM bi_satis_faturalari f JOIN mine ON mine.musteri_kodu=f.musteri_kodu
+                WHERE f.tenant_id=$1::text AND f.satir_tutar>0 AND f.fatura_tarihi>=CURRENT_DATE-INTERVAL '24 months' AND COALESCE(f.kalem_kodu,'')<>''
+                GROUP BY f.musteri_kodu, f.kalem_kodu),
+          r AS (SELECT *, row_number() OVER (PARTITION BY musteri_kodu ORDER BY adet DESC) rn FROM g)
+          SELECT musteri_kodu, sku, round(adet)::int AS adet FROM r WHERE rn<=15 ORDER BY musteri_kodu, adet DESC`, pC);
+        for (const r of skuR.rows) { (ebatByKod[r.musteri_kodu] = ebatByKod[r.musteri_kodu] || []).push({ ebat: r.sku, adet: r.adet }); }
+      } catch (e) {}
+      try {
+        const pD = [T]; const scopeD = _sahaScopeSql(session, pD, "m");
+        const trR = await query(`
+          WITH mine AS (SELECT DISTINCT m.musteri_kodu FROM saha_musteri m
+            WHERE m.tenant_id=$1 AND m.aktif=true AND COALESCE(m.musteri_kodu,'')<>''` + scopeD + `)
+          SELECT to_char(date_trunc('month',f.fatura_tarihi),'YYYY-MM') AS ay,
+                 round(SUM(f.satir_tutar))::bigint AS ciro, round(SUM(f.miktar))::int AS adet
+          FROM bi_satis_faturalari f JOIN mine ON mine.musteri_kodu=f.musteri_kodu
+          WHERE f.tenant_id=$1::text AND f.satir_tutar>0 AND f.fatura_tarihi>=date_trunc('month',CURRENT_DATE)-INTERVAL '35 months'
+          GROUP BY 1 ORDER BY 1`, pD);
+        _pfTrend = trR.rows.map(r => ({ ay: r.ay, ciro: Number(r.ciro) || 0, adet: Number(r.adet) || 0 }));
+      } catch (e) {}
+      try {
+        const pE = [T]; const scopeE = _sahaScopeSql(session, pE, "m");
+        const esR = await query(`SELECT m.firma, m.il FROM saha_musteri m
+          WHERE m.tenant_id=$1 AND m.aktif=true AND COALESCE(m.musteri_kodu,'')=''` + scopeE + `
+          ORDER BY m.firma LIMIT 100`, pE);
+        _pfEslesmeyen = esR.rows.map(r => ({ firma: r.firma, il: r.il }));
+      } catch (e) {}
+      const musteriler = baseR.rows.map(b => {
+        const pp = byKod[b.musteri_kodu] || {};
+        const cv=Number(pp.ciro_vade||0), vx=Number(pp.vade_x_ciro||0), c12=Number(pp.ciro_12||0), pc=Number(pp.pesin_ciro||0);
+        return { musteri_kodu:b.musteri_kodu, firma:b.firma, il:b.il, ilce:b.ilce,
+          ciro_tum:b.ciro_tum, bakiye:b.bakiye, son_fatura:b.son_fatura,
+          kredi_limiti:b.kredi_limiti, toplam_risk:b.toplam_risk, vadesi_gecmis:b.vadesi_gecmis,
+          ort_gecikme:b.ort_gecikme, gec_orani:b.gec_orani, son12_gecikme:b.son12_gecikme, son12_gec_orani:b.son12_gec_orani,
+          ciro_12:c12||null, adet_12:pp.adet_12||null,
+          bugun:pp.bugun||null, hafta:pp.hafta||null, buay:pp.buay||null, buay_gy:pp.buay_gy||null,
+          ciro_3ay:pp.ciro_3ay||null, ciro_6ay:pp.ciro_6ay||null, ciro_ytd:pp.ciro_ytd||null,
+          ciro_3ay_gy:pp.ciro_3ay_gy||null, ciro_6ay_gy:pp.ciro_6ay_gy||null, ciro_ytd_gy:pp.ciro_ytd_gy||null,
+          agirlikli_vade: cv>0?Math.round(vx/cv):null, pesin_pct: c12>0?Math.round(100*pc/c12):null, ebatlar: ebatByKod[b.musteri_kodu]||null, segment: b.skor_segment ? { st:b.skor_segment, palive:b.skor_palive==null?null:Number(b.skor_palive), exp30:b.skor_exp30==null?null:Number(b.skor_exp30), siparis:b.skor_siparis, son_gun:b.skor_son_gun, medyan_gun:b.skor_medyan } : null };
+      });
+      const num=v=>Number(v)||0;
+      const ozet={ musteri:musteriler.length,
+        ciro_12:musteriler.reduce((a,c)=>a+num(c.ciro_12),0),
+        buay:musteriler.reduce((a,c)=>a+num(c.buay),0), buay_gy:musteriler.reduce((a,c)=>a+num(c.buay_gy),0),
+        hafta:musteriler.reduce((a,c)=>a+num(c.hafta),0), bugun:musteriler.reduce((a,c)=>a+num(c.bugun),0),
+        vadesi_gecmis_toplam:musteriler.reduce((a,c)=>a+num(c.vadesi_gecmis),0),
+        riskli_hesap:musteriler.filter(c=>num(c.vadesi_gecmis)>0).length };
+      sendJson(response, 200, { rep:{ id:session.userId, ad:session.name||"" }, ozet, musteriler, trend:_pfTrend, eslesmeyen:_pfEslesmeyen }); /* PORTFOYUM_ENRICH_V1 */
+      return;
+    }
+
+    /* =====================================================================
+   MANAGER_PORTFOYUM_V1 — Yönetici Portföyüm (book state + ekip varyans)
+   ---------------------------------------------------------------------
+   NEREYE: server_container.mjs · saha endpoint bloğuna, /api/saha/portfoyum
+           endpoint'inin BİTTİĞİ yerden (return; } ~ satır 31879) HEMEN SONRA yapıştır.
+   İLKE:  Salt-okunur. requireSahaAccess(...,["manager","admin"]). _sahaScopeSql KULLANMAZ
+          (yönetici tüm tenant'ı görür). Canlıya YAZMAZ.
+
+   ⭐ TEK DOĞRU KAYNAK — rep ekranıyla BİREBİR eşleşme garantisi:
+      Per-rep sayılar /api/saha/portfoyum ile AYNI tanım:
+        aktif=true + COALESCE(musteri_kodu,'')<>'' + DISTINCT musteri_kodu + segment=saha_satis_skor.
+      Böylece bir rep'in ekranındaki "uyuyan" = manager ızgarasındaki "uyuyan".
+      Kodsuz (musteri_kodu boş) = ayrı "eslesmeyen" sayısı (rep ekranında da ayrı). Skorsuz = kodlu ama skor yok.
+      NOT: bir müşteri 2 rep'e atanmışsa (mükerrer) her iki rep'te de sayılır (rep ekranı da öyle);
+           book toplamı DISTINCT olduğundan reps toplamından küçük olabilir — beklenen.
+   DOĞRULANDI (2026-08-09 canlı): kovalar ok/seyrek/due/dormant/slip; kodlu-skorsuz+kodsuz~741; kapsam 90 gün.
+   ===================================================================== */
+
+// (1) VERİ — GET /api/saha/manager-portfoyum?donem=buay|3ay|6ay|12ay|ytd
+if (method === "GET" && path === "/api/saha/manager-portfoyum") {
+  const session = await requireSahaAccess(request, ["manager", "admin"]);
+  const T = session.tenantId;
+  let _u; try { _u = new URL(request.url, "http://x"); } catch (e) { _u = null; }
+  const donem = (_u && _u.searchParams.get("donem")) || "12ay";
+  const DSTART = donem === "buay" ? "date_trunc('month',CURRENT_DATE)"
+              : donem === "3ay"  ? "CURRENT_DATE - INTERVAL '3 months'"
+              : donem === "6ay"  ? "CURRENT_DATE - INTERVAL '6 months'"
+              : donem === "ytd"  ? "date_trunc('year',CURRENT_DATE)"
+              :                    "CURRENT_DATE - INTERVAL '12 months'";
+  const DGY = donem === "buay" ? "date_trunc('month',CURRENT_DATE) - INTERVAL '1 year'"
+            : donem === "3ay"  ? "CURRENT_DATE - INTERVAL '15 months'"
+            : donem === "6ay"  ? "CURRENT_DATE - INTERVAL '18 months'"
+            : donem === "ytd"  ? "date_trunc('year',CURRENT_DATE) - INTERVAL '1 year'"
+            :                    "CURRENT_DATE - INTERVAL '24 months'";
+  const GYEND = "CURRENT_DATE - INTERVAL '1 year'";
+
+  // A) BOOK STATE — DISTINCT kodlu müşteri üzerinden canlılık dağılımı (rep ekranıyla aynı taban)
+  const bookR = await query(
+    `SELECT COALESCE(sk.segment,'skorsuz') AS kova, count(*) AS n
+       FROM (SELECT DISTINCT m.musteri_kodu, m.tenant_id
+               FROM saha_musteri m
+              WHERE m.tenant_id=$1 AND m.aktif=true AND COALESCE(m.musteri_kodu,'')<>'') mk
+       LEFT JOIN saha_satis_skor sk ON sk.tenant_id=mk.tenant_id AND sk.musteri_kodu=mk.musteri_kodu
+      GROUP BY 1`, [T]);
+  const book = { ok: 0, seyrek: 0, due: 0, dormant: 0, slip: 0, skorsuz: 0, eslesmeyen: 0 };
+  for (const r of bookR.rows) { book[r.kova] = Number(r.n) || 0; }
+  // kodsuz (eşleşmeyen) — rep ekranında da ayrı tutulur
+  const eslR = await query(
+    `SELECT count(*) AS n FROM saha_musteri
+      WHERE tenant_id=$1 AND aktif=true AND COALESCE(musteri_kodu,'')=''`, [T]);
+  book.eslesmeyen = Number(eslR.rows[0] && eslR.rows[0].n) || 0;
+
+  // B) EKİP VARYANS — per-rep, DISTINCT kodlu müşteri (rep ekranı tanımı) + davranış + ciro(dönem)
+  const repR = await query(
+    `WITH base AS (
+        SELECT m.sorumlu_rep, m.musteri_kodu,
+               max(sk.segment)          AS segment,
+               bool_or(zv.mid IS NOT NULL) AS visited90
+          FROM saha_musteri m
+          LEFT JOIN saha_satis_skor sk ON sk.tenant_id=m.tenant_id AND sk.musteri_kodu=m.musteri_kodu
+          LEFT JOIN (SELECT DISTINCT musteri_id AS mid FROM saha_ziyaret
+                       WHERE tenant_id=$1 AND ziyaret_tarihi >= CURRENT_DATE - INTERVAL '90 days') zv
+                 ON zv.mid = m.id
+         WHERE m.tenant_id=$1 AND m.aktif=true AND m.sorumlu_rep IS NOT NULL
+           AND COALESCE(m.musteri_kodu,'')<>''
+         GROUP BY m.sorumlu_rep, m.musteri_kodu
+     ),
+     ciro AS (
+        SELECT d.sorumlu_rep, sum(f.satir_tutar) AS c
+          FROM (SELECT DISTINCT sorumlu_rep, musteri_kodu, tenant_id
+                  FROM saha_musteri
+                 WHERE tenant_id=$1 AND aktif=true AND sorumlu_rep IS NOT NULL
+                   AND COALESCE(musteri_kodu,'')<>'') d
+          JOIN bi_satis_faturalari f
+            ON f.tenant_id::text=d.tenant_id::text AND f.musteri_kodu=d.musteri_kodu
+         WHERE f.satir_tutar>0 AND f.fatura_tarihi >= ${DSTART}
+           AND f.grup_adi NOT IN ('PRİM HAKEDİŞLERİ','HAMMADDE','DURAN VARLIKLAR','ALINAN HIZMETLER')
+         GROUP BY d.sorumlu_rep
+     )
+     SELECT COALESCE(u.full_name,u.name,'—') AS rep, base.sorumlu_rep AS user_id,
+            count(*)                                        AS portfoy,
+            count(*) FILTER (WHERE base.segment='slip')     AS kayiyor,
+            count(*) FILTER (WHERE base.segment='dormant')  AS uyuyan,
+            count(*) FILTER (WHERE base.segment='due')      AS siparis_vakti,
+            count(*) FILTER (WHERE base.segment='seyrek')   AS seyrek,
+            count(*) FILTER (WHERE base.segment='ok')       AS duzenli,
+            count(*) FILTER (WHERE base.segment IS NULL)    AS skorsuz,
+            round(100.0*count(*) FILTER (WHERE base.visited90)/NULLIF(count(*),0)) AS kapsam90,
+            round(100.0*count(*) FILTER (WHERE base.segment IN ('slip','dormant') AND base.visited90)
+                  /NULLIF(count(*) FILTER (WHERE base.segment IN ('slip','dormant')),0))  AS kayan_ziyaret90,
+            round(COALESCE(max(ciro.c),0))                  AS ciro_donem
+       FROM base
+       LEFT JOIN ciro    ON ciro.sorumlu_rep=base.sorumlu_rep
+       LEFT JOIN users u ON u.id=base.sorumlu_rep
+      GROUP BY u.full_name, u.name, base.sorumlu_rep
+      ORDER BY portfoy DESC`, [T]);
+
+  const reps = repR.rows
+    .map(r => ({
+      rep: r.rep, user_id: r.user_id, portfoy: +r.portfoy || 0,
+      kayiyor: +r.kayiyor || 0, uyuyan: +r.uyuyan || 0, siparis_vakti: +r.siparis_vakti || 0,
+      seyrek: +r.seyrek || 0, duzenli: +r.duzenli || 0, skorsuz: +r.skorsuz || 0,
+      kapsam90: r.kapsam90 == null ? null : +r.kapsam90,
+      kayan_ziyaret90: r.kayan_ziyaret90 == null ? null : +r.kayan_ziyaret90,
+      ciro_donem: +r.ciro_donem || 0
+    }))
+    .filter(r => r.portfoy >= 2);  // sentinel/sistem hesapları ele (KRB Yönetim Paneli vb.)
+
+  const ozet = {
+    saha_rep_say: reps.length,
+    portfoy_musteri: reps.reduce((a, c) => a + c.portfoy, 0),
+    skorlu: book.ok + book.seyrek + book.due + book.dormant + book.slip,
+    skorsuz: book.skorsuz,
+    eslesmeyen: book.eslesmeyen,
+    ciro_donem: reps.reduce((a, c) => a + c.ciro_donem, 0)
+  };
+  sendJson(response, 200, { donem, book, reps, ozet });
+  return;
+}
+
+// (2) EKRAN — GET /api/saha/manager-portfoyum/ekran  → shell HTML (finans.html deseni)
+/* MANAGER_PF_LISTE_V1 — drill listesi: bir rep'in / kovanın GERÇEK müşterileri.
+   Salt-okunur. GET /api/saha/manager-portfoyum/liste?tip=rep|kova&ref=<user_id|segment>&donem=...
+   NEREYE: /api/saha/manager-portfoyum/ekran endpoint'inin HEMEN ÜSTÜNE (patch otomatik yapar). */
+if (method === "GET" && path === "/api/saha/manager-portfoyum/liste") {
+  const session = await requireSahaAccess(request, ["manager", "admin"]);
+  const T = session.tenantId;
+  let _u; try { _u = new URL(request.url, "http://x"); } catch (e) { _u = null; }
+  const tip = (_u && _u.searchParams.get("tip")) || "rep";
+  const ref = (_u && _u.searchParams.get("ref")) || "";
+  if (!ref) { sendJson(response, 200, { tip, ref, toplam: 0, liste: [] }); return; }
+  const params = [T];
+  let filt;
+  if (tip === "kova") { params.push(ref); filt = "sk.segment = $" + params.length; }
+  else { params.push(ref); filt = "mk.sorumlu_rep::text = $" + params.length; }  // tip=rep
+  const r = await query(
+    `WITH mk AS (
+        SELECT DISTINCT ON (m.musteri_kodu) m.musteri_kodu, m.firma, m.il, m.sorumlu_rep, m.id
+          FROM saha_musteri m
+         WHERE m.tenant_id=$1 AND m.aktif=true AND COALESCE(m.musteri_kodu,'')<>''
+         ORDER BY m.musteri_kodu, m.id
+     ),
+     f AS (
+        SELECT mk.*, sk.segment
+          FROM mk LEFT JOIN saha_satis_skor sk ON sk.tenant_id=$1 AND sk.musteri_kodu=mk.musteri_kodu
+         WHERE ${filt}
+     )
+     SELECT f.musteri_kodu, f.firma, f.il, f.segment,
+            round(COALESCE(c.ciro,0))::bigint AS ciro_12, z.son_ziyaret
+       FROM f
+       LEFT JOIN LATERAL (
+            SELECT sum(x.satir_tutar) AS ciro FROM bi_satis_faturalari x
+             WHERE x.tenant_id::text=$1::text AND x.musteri_kodu=f.musteri_kodu AND x.satir_tutar>0
+               AND x.fatura_tarihi>=CURRENT_DATE-INTERVAL '12 months'
+               AND x.grup_adi NOT IN ('PRİM HAKEDİŞLERİ','HAMMADDE','DURAN VARLIKLAR','ALINAN HIZMETLER')
+       ) c ON true
+       LEFT JOIN LATERAL (
+            SELECT max(z2.ziyaret_tarihi)::date AS son_ziyaret FROM saha_ziyaret z2
+             WHERE z2.tenant_id=$1 AND z2.musteri_id=f.id
+       ) z ON true
+      ORDER BY ciro_12 DESC NULLS LAST
+      LIMIT 200`, params);
+  const liste = r.rows.map(x => ({
+    musteri_kodu: x.musteri_kodu, firma: x.firma || x.musteri_kodu, il: x.il || "—",
+    segment: x.segment || null, ciro_12: +x.ciro_12 || 0, son_ziyaret: x.son_ziyaret || null
+  }));
+  sendJson(response, 200, { tip, ref, toplam: liste.length, liste });
+  return;
+}
+
+
+/* MANAGER_PF_LENSLER_V1 — 7 lens gerçek veri. Salt-okunur.
+   GET /api/saha/manager-portfoyum/lensler?donem=...
+   NEREYE: /api/saha/manager-portfoyum/ekran endpoint'inin HEMEN ÜSTÜNE (patch otomatik). */
+if (method === "GET" && path === "/api/saha/manager-portfoyum/lensler") {
+  const session = await requireSahaAccess(request, ["manager", "admin"]);
+  const T = session.tenantId;
+  let _u; try { _u = new URL(request.url, "http://x"); } catch (e) { _u = null; }
+  const donem = (_u && _u.searchParams.get("donem")) || "12ay";
+  const DSTART = donem === "buay" ? "date_trunc('month',CURRENT_DATE)"
+              : donem === "3ay"  ? "CURRENT_DATE - INTERVAL '3 months'"
+              : donem === "6ay"  ? "CURRENT_DATE - INTERVAL '6 months'"
+              : donem === "ytd"  ? "date_trunc('year',CURRENT_DATE)"
+              :                    "CURRENT_DATE - INTERVAL '12 months'";
+
+  const DGY = donem === "buay" ? "date_trunc('month',CURRENT_DATE) - INTERVAL '1 year'"
+            : donem === "3ay"  ? "CURRENT_DATE - INTERVAL '15 months'"
+            : donem === "6ay"  ? "CURRENT_DATE - INTERVAL '18 months'"
+            : donem === "ytd"  ? "date_trunc('year',CURRENT_DATE) - INTERVAL '1 year'"
+            :                    "CURRENT_DATE - INTERVAL '24 months'";
+  const GYEND = "CURRENT_DATE - INTERVAL '1 year'";
+  const sube = (await query(
+    `SELECT sube AS ad,
+            count(DISTINCT musteri_kodu) FILTER (WHERE fatura_tarihi>=${DSTART}) musteri,
+            round(sum(satir_tutar) FILTER (WHERE fatura_tarihi>=${DSTART}))::bigint ciro,
+            round(sum(satir_tutar) FILTER (WHERE fatura_tarihi>=${DGY} AND fatura_tarihi<${GYEND}))::bigint ciro_gy
+       FROM bi_satis_faturalari WHERE tenant_id=$1 AND satir_tutar>0 AND fatura_tarihi>=${DGY} AND COALESCE(sube,'')<>'' AND NOT EXISTS (SELECT 1 FROM bi_musteri_risk _mr WHERE _mr.tenant_id::text=bi_satis_faturalari.tenant_id::text AND _mr.muhatap_kodu=bi_satis_faturalari.musteri_kodu AND _mr.grup IN ('TEDARİKÇİ','IMALATCI','PERSONEL','GRUP MUSTERILERI'))
+      GROUP BY 1 ORDER BY ciro DESC NULLS LAST LIMIT 8`, [T])).rows;
+
+  const musteritipi = (await query(
+    `SELECT r.grup AS ad,
+            count(DISTINCT f.musteri_kodu) FILTER (WHERE f.fatura_tarihi>=${DSTART}) musteri,
+            round(sum(f.satir_tutar) FILTER (WHERE f.fatura_tarihi>=${DSTART}))::bigint ciro,
+            round(sum(f.satir_tutar) FILTER (WHERE f.fatura_tarihi>=${DGY} AND f.fatura_tarihi<${GYEND}))::bigint ciro_gy
+       FROM bi_satis_faturalari f
+       JOIN bi_musteri_risk r ON r.tenant_id::text=f.tenant_id::text AND r.muhatap_kodu=f.musteri_kodu
+      WHERE f.tenant_id=$1 AND f.satir_tutar>0 AND f.fatura_tarihi>=${DGY}
+        AND r.grup IN ('.PERAKENDE','FILO TICARI','FILO TUKETICI','TOPTAN','KURUM','E-TICARET','IHRACAT')
+      GROUP BY 1 ORDER BY ciro DESC NULLS LAST`, [T])).rows;
+
+  const bolge = (await query(
+    `SELECT sehir AS ad,
+            count(DISTINCT musteri_kodu) FILTER (WHERE fatura_tarihi>=${DSTART}) musteri,
+            round(sum(satir_tutar) FILTER (WHERE fatura_tarihi>=${DSTART}))::bigint ciro,
+            round(sum(satir_tutar) FILTER (WHERE fatura_tarihi>=${DGY} AND fatura_tarihi<${GYEND}))::bigint ciro_gy
+       FROM bi_satis_faturalari WHERE tenant_id=$1 AND satir_tutar>0 AND fatura_tarihi>=${DGY} AND COALESCE(sehir,'')<>'' AND NOT EXISTS (SELECT 1 FROM bi_musteri_risk _mr WHERE _mr.tenant_id::text=bi_satis_faturalari.tenant_id::text AND _mr.muhatap_kodu=bi_satis_faturalari.musteri_kodu AND _mr.grup IN ('TEDARİKÇİ','IMALATCI','PERSONEL','GRUP MUSTERILERI'))
+      GROUP BY 1 ORDER BY ciro DESC NULLS LAST LIMIT 8`, [T])).rows;
+
+  const marka = (await query(
+    `SELECT marka AS ad, count(DISTINCT musteri_kodu) musteri, round(sum(satir_tutar))::bigint ciro
+       FROM bi_satis_faturalari WHERE tenant_id=$1 AND satir_tutar>0 AND fatura_tarihi>=${DSTART}
+        AND marka NOT IN ('İŞÇİLİK','PRİM HAKEDİŞLERİ','DURAN VARLIK','ALINAN HİZMET','TÜM MARKALAR','DIGER')
+      GROUP BY 1 ORDER BY ciro DESC NULLS LAST LIMIT 8`, [T])).rows;
+
+  const rakip = (await query(
+    `SELECT m AS ad, count(*) n FROM saha_musteri sm, unnest(sm.tedarikci_markalar) m
+      WHERE sm.tenant_id=$1 AND sm.aktif GROUP BY 1 ORDER BY 2 DESC LIMIT 8`, [T])).rows;
+
+  const kohort = (await query(
+    `SELECT extract(year from m.ilk_fatura)::int yil,
+            CASE WHEN r.grup IN ('FILO TICARI','FILO TUKETICI','TOPTAN','KURUM','IHRACAT') THEN 'b2b'
+                 WHEN r.grup='.PERAKENDE' THEN 'perakende'
+                 WHEN r.grup='E-TICARET' THEN 'eticaret'
+                 ELSE 'diger' END tip,
+            count(*) kazanilan,
+            count(*) FILTER (WHERE m.son_fatura >= CURRENT_DATE - INTERVAL '12 months') aktif
+       FROM master_musteri m
+       LEFT JOIN bi_musteri_risk r ON r.tenant_id::text=m.tenant_id::text AND r.muhatap_kodu=m.musteri_kodu
+      WHERE m.tenant_id=$1 AND m.ilk_fatura >= DATE '2022-01-01'
+      GROUP BY 1,2 ORDER BY 1`, [T])).rows;
+
+  const urunR = (await query(
+    `SELECT count(*) FILTER (WHERE NOT (kategori_kirilimi ? 'MOTOR YAGLARI')) yag_yok,
+            count(*) FILTER (WHERE NOT (kategori_kirilimi ? 'AKU')) aku_yok,
+            count(*) toplam
+       FROM master_musteri WHERE tenant_id=$1 AND kategori_kirilimi IS NOT NULL AND kategori_kirilimi <> '{}'::jsonb AND NOT EXISTS (SELECT 1 FROM bi_musteri_risk _mr WHERE _mr.tenant_id::text=master_musteri.tenant_id::text AND _mr.muhatap_kodu=master_musteri.musteri_kodu AND _mr.grup IN ('TEDARİKÇİ','IMALATCI','PERSONEL','GRUP MUSTERILERI'))`, [T])).rows[0] || {};
+
+  const konsR = (await query(
+    `WITH c AS (SELECT musteri_kodu, sum(satir_tutar) v FROM bi_satis_faturalari
+                 WHERE tenant_id=$1 AND satir_tutar>0 AND fatura_tarihi>=${DSTART} AND NOT EXISTS (SELECT 1 FROM bi_musteri_risk _mr WHERE _mr.tenant_id::text=bi_satis_faturalari.tenant_id::text AND _mr.muhatap_kodu=bi_satis_faturalari.musteri_kodu AND _mr.grup IN ('TEDARİKÇİ','IMALATCI','PERSONEL','GRUP MUSTERILERI')) GROUP BY 1),
+     r AS (SELECT v, sum(v) OVER (ORDER BY v DESC) run, sum(v) OVER () tot, row_number() OVER (ORDER BY v DESC) rn FROM c)
+     SELECT (SELECT count(*) FROM c) toplam_hesap,
+            min(rn) FILTER (WHERE run >= 0.8*tot) hesap_80,
+            round(100.0*max(v)/NULLIF(max(tot),0))::int en_buyuk_pct FROM r`, [T])).rows[0] || {};
+
+  const num = v => v == null ? null : Number(v);
+  sendJson(response, 200, {
+    donem,
+    sube:   sube.map(x => ({ ad: x.ad, musteri: +x.musteri || 0, ciro: +x.ciro || 0, ciro_gy: +x.ciro_gy || 0 })),
+    musteritipi: musteritipi.map(x => ({ ad: x.ad, musteri: +x.musteri || 0, ciro: +x.ciro || 0, ciro_gy: +x.ciro_gy || 0 })),
+    bolge:  bolge.map(x => ({ ad: x.ad, musteri: +x.musteri || 0, ciro: +x.ciro || 0, ciro_gy: +x.ciro_gy || 0 })),
+    marka:  marka.map(x => ({ ad: x.ad, musteri: +x.musteri || 0, ciro: +x.ciro || 0 })),
+    rakip:  rakip.map(x => ({ ad: x.ad, n: +x.n || 0 })),
+    kohort: kohort.map(x => ({ yil: +x.yil, tip: x.tip, kazanilan: +x.kazanilan || 0, aktif: +x.aktif || 0 })),
+    urun:   { yag_yok: num(urunR.yag_yok), aku_yok: num(urunR.aku_yok), toplam: num(urunR.toplam) },
+    konsantr: { toplam_hesap: num(konsR.toplam_hesap), hesap_80: num(konsR.hesap_80), en_buyuk_pct: num(konsR.en_buyuk_pct) }
+  });
+  return;
+}
+
+
+/* MANAGER_PF_LENSLISTE_V1 — lens satırının arkasındaki gerçek müşteriler. Salt-okunur.
+   GET /api/saha/manager-portfoyum/lens-liste?tip=sube|bolge|marka|sektor|urun|kohort&ref=<deger>
+   NEREYE: /api/saha/manager-portfoyum/ekran endpoint'inin HEMEN ÜSTÜNE (patch otomatik). */
+if (method === "GET" && path === "/api/saha/manager-portfoyum/lens-liste") {
+  const session = await requireSahaAccess(request, ["manager", "admin"]);
+  const T = session.tenantId;
+  let _u; try { _u = new URL(request.url, "http://x"); } catch (e) { _u = null; }
+  const tip = (_u && _u.searchParams.get("tip")) || "";
+  const ref = (_u && _u.searchParams.get("ref")) || "";
+  let rows = [];
+  if (tip === "urun" && ref) {
+    rows = (await query(
+      `SELECT m.musteri_kodu, m.musteri_adi AS firma, m.sehir AS il,
+              round(COALESCE(c.ciro,0))::bigint AS ciro_12
+         FROM master_musteri m
+         LEFT JOIN LATERAL (SELECT sum(x.satir_tutar) AS ciro FROM bi_satis_faturalari x
+                             WHERE x.tenant_id=$1 AND x.musteri_kodu=m.musteri_kodu AND x.satir_tutar>0
+                               AND x.fatura_tarihi>=CURRENT_DATE-INTERVAL '12 months') c ON true
+        WHERE m.tenant_id=$1 AND m.kategori_kirilimi IS NOT NULL AND m.kategori_kirilimi <> '{}'::jsonb
+          AND NOT (m.kategori_kirilimi ? $2)
+        ORDER BY ciro_12 DESC NULLS LAST LIMIT 200`, [T, ref])).rows;
+  } else if (tip === "kohort" && ref) {
+    rows = (await query(
+      `SELECT musteri_kodu, musteri_adi AS firma, sehir AS il,
+              round(COALESCE(toplam_ciro,0))::bigint AS ciro_12, son_fatura AS son_ziyaret
+         FROM master_musteri WHERE tenant_id=$1 AND extract(year from ilk_fatura)::int = $2::int
+        ORDER BY ciro_12 DESC NULLS LAST LIMIT 200`, [T, ref])).rows;
+  } else if (tip === "musteritipi" && ref) {
+    rows = (await query(
+      `SELECT mm.musteri_adi AS firma, mm.sehir AS il, t.musteri_kodu, round(t.ciro)::bigint AS ciro_12
+         FROM (SELECT f.musteri_kodu, sum(f.satir_tutar) AS ciro FROM bi_satis_faturalari f
+                JOIN bi_musteri_risk r ON r.tenant_id::text=f.tenant_id::text AND r.muhatap_kodu=f.musteri_kodu
+                WHERE f.tenant_id=$1 AND f.satir_tutar>0 AND f.fatura_tarihi>=CURRENT_DATE-INTERVAL '12 months' AND r.grup=$2
+                GROUP BY 1 ORDER BY 2 DESC LIMIT 200) t
+         LEFT JOIN master_musteri mm ON mm.tenant_id=$1 AND mm.musteri_kodu=t.musteri_kodu
+        ORDER BY ciro_12 DESC NULLS LAST`, [T, ref])).rows;
+  } else if (tip) {
+    let clause, params = [T];
+    if (tip === "sube")       { params.push(ref); clause = "f.sube = $2"; }
+    else if (tip === "bolge") { params.push(ref); clause = "f.sehir = $2"; }
+    else if (tip === "marka") { params.push(ref); clause = "f.marka = $2"; }
+    else if (tip === "sektor") {
+      clause = ref === "TBR" ? "f.satis_kanali='TBR SATIŞ'"
+             : ref === "OTR" ? "f.satis_kanali='OTR SATIŞ'"
+             : ref === "FILO" ? "f.satis_kanali LIKE '%FİLO%'"
+             : "(f.satis_kanali LIKE 'MAĞAZA%' OR f.satis_kanali LIKE 'LASTİK SERVİS%' OR f.satis_kanali='TÜKETİCİ ÜRÜNLER SATIŞ' OR f.satis_kanali LIKE 'E-TİCARET%')";
+    } else { sendJson(response, 200, { tip, ref, toplam: 0, liste: [] }); return; }
+    rows = (await query(
+      `SELECT mm.musteri_adi AS firma, mm.sehir AS il, t.musteri_kodu, round(t.ciro)::bigint AS ciro_12
+         FROM (SELECT f.musteri_kodu, sum(f.satir_tutar) AS ciro FROM bi_satis_faturalari f
+                WHERE f.tenant_id=$1 AND f.satir_tutar>0 AND f.fatura_tarihi>=CURRENT_DATE-INTERVAL '12 months'
+                  AND ${clause}
+                GROUP BY 1 ORDER BY 2 DESC LIMIT 200) t
+         LEFT JOIN master_musteri mm ON mm.tenant_id=$1 AND mm.musteri_kodu=t.musteri_kodu
+        ORDER BY ciro_12 DESC NULLS LAST`, params)).rows;
+  } else { sendJson(response, 200, { tip, ref, toplam: 0, liste: [] }); return; }
+  const liste = rows.map(x => ({
+    musteri_kodu: x.musteri_kodu, firma: x.firma || x.musteri_kodu, il: x.il || "—",
+    segment: x.segment || null, ciro_12: +x.ciro_12 || 0, son_ziyaret: x.son_ziyaret || null
+  }));
+  sendJson(response, 200, { tip, ref, toplam: liste.length, liste });
+  return;
+}
+
+
+/* MANAGER_PF_BEYAZ_V1 — Beyaz alan: bizden alan ama saha temsilcisi olmayan B2B. Salt-okunur.
+   GET /api/saha/manager-portfoyum/beyaz  → { hesap, ciro, gruplar:[{grup,hesap,ciro}], liste:[...top 200] }
+   NEREYE: /api/saha/manager-portfoyum/ekran endpoint'inin HEMEN ÜSTÜNE (patch otomatik). */
+if (method === "GET" && path === "/api/saha/manager-portfoyum/beyaz") {
+  const session = await requireSahaAccess(request, ["manager", "admin"]);
+  const T = session.tenantId;
+  const WS = `
+    WITH satan AS (
+      SELECT f.musteri_kodu, round(sum(f.satir_tutar))::bigint ciro
+        FROM bi_satis_faturalari f
+       WHERE f.tenant_id::text=$1::text AND f.satir_tutar>0 AND f.fatura_tarihi>=CURRENT_DATE-INTERVAL '12 months'
+         AND f.grup_adi NOT IN ('PRİM HAKEDİŞLERİ','HAMMADDE','DURAN VARLIKLAR','ALINAN HIZMETLER')
+       GROUP BY 1),
+    b2b AS (
+      SELECT s.musteri_kodu, s.ciro, r.grup
+        FROM satan s JOIN bi_musteri_risk r ON r.tenant_id::text=$1::text AND r.muhatap_kodu=s.musteri_kodu
+       WHERE r.grup IN ('FILO TICARI','FILO TUKETICI','TOPTAN','KURUM')),
+    ws AS (
+      SELECT b.* FROM b2b b
+       WHERE NOT EXISTS (SELECT 1 FROM saha_musteri m
+                          WHERE m.tenant_id::text=$1::text AND m.aktif AND m.musteri_kodu=b.musteri_kodu AND m.sorumlu_rep IS NOT NULL))`;
+
+  const grupR = (await query(WS + `
+    SELECT grup, count(*) hesap, round(sum(ciro))::bigint ciro FROM ws GROUP BY 1 ORDER BY ciro DESC NULLS LAST`, [T])).rows;
+
+  const listeR = (await query(WS + `
+    SELECT ws.musteri_kodu, mm.musteri_adi AS firma, mm.sehir AS il, ws.ciro AS ciro_12, ws.grup
+      FROM ws LEFT JOIN master_musteri mm ON mm.tenant_id::text=$1::text AND mm.musteri_kodu=ws.musteri_kodu
+     ORDER BY ws.ciro DESC NULLS LAST LIMIT 200`, [T])).rows;
+
+  const gruplar = grupR.map(x => ({ grup: x.grup, hesap: +x.hesap || 0, ciro: +x.ciro || 0 }));
+  const liste = listeR.map(x => ({ musteri_kodu: x.musteri_kodu, firma: x.firma || x.musteri_kodu, il: x.il || "—",
+    segment: null, ciro_12: +x.ciro_12 || 0, son_ziyaret: null, grup: x.grup }));
+  sendJson(response, 200, {
+    hesap: gruplar.reduce((a, g) => a + g.hesap, 0),
+    ciro:  gruplar.reduce((a, g) => a + g.ciro, 0),
+    gruplar, liste
+  });
+  return;
+}
+
+
+/* MANAGER_PF_RETENTION_V1 — kohort kalıcılık ısı-haritası + kayıp müşteri + perakende yaz→kış boşluğu. Salt-okunur.
+   GET /api/saha/manager-portfoyum/retention           → kohort×yıl matris (tüm tipler)
+   GET /api/saha/manager-portfoyum/retention-liste?kohort=2022&tip=b2b → o kohorttan susmuş müşteriler + ₺ (tip=tumu destekli)
+   GET /api/saha/manager-portfoyum/yazkis              → perakende: yaz alıp kış almayan + liste
+   NEREYE: /api/saha/manager-portfoyum/ekran endpoint'inin HEMEN ÜSTÜNE (patch otomatik). */
+if (method === "GET" && path === "/api/saha/manager-portfoyum/retention") {
+  const session = await requireSahaAccess(request, ["manager", "admin"]);
+  const T = session.tenantId;
+  const r = await query(
+    `WITH cust AS (
+        SELECT f.musteri_kodu, min(extract(year from f.fatura_tarihi))::int ilk_yil,
+               array_agg(DISTINCT extract(year from f.fatura_tarihi)::int) yillar
+          FROM bi_satis_faturalari f
+         WHERE f.tenant_id::text=$1::text AND f.satir_tutar>0 AND f.fatura_tarihi IS NOT NULL AND NOT EXISTS (SELECT 1 FROM bi_musteri_risk _mr WHERE _mr.tenant_id::text=f.tenant_id::text AND _mr.muhatap_kodu=f.musteri_kodu AND _mr.grup IN ('TEDARİKÇİ','IMALATCI','PERSONEL','GRUP MUSTERILERI'))
+         GROUP BY 1),
+     typed AS (
+        SELECT c.ilk_yil, c.yillar,
+          CASE WHEN r.grup='TOPTAN' THEN 'toptan'
+               WHEN r.grup='FILO TICARI' THEN 'ticari'
+               WHEN r.grup='.PERAKENDE' THEN 'perakende'
+               WHEN r.grup='E-TICARET' THEN 'eticaret'
+               WHEN r.grup='KURUM' THEN 'kurum' ELSE 'diger' END tip
+          FROM cust c LEFT JOIN bi_musteri_risk r ON r.tenant_id::text=$1::text AND r.muhatap_kodu=c.musteri_kodu
+         WHERE c.ilk_yil >= 2022 AND COALESCE(r.grup,'') <> 'KURUM')
+     SELECT ilk_yil, tip, count(*) kazanilan,
+       count(*) FILTER (WHERE 2022=ANY(yillar)) y2022,
+       count(*) FILTER (WHERE 2023=ANY(yillar)) y2023,
+       count(*) FILTER (WHERE 2024=ANY(yillar)) y2024,
+       count(*) FILTER (WHERE 2025=ANY(yillar)) y2025,
+       count(*) FILTER (WHERE 2026=ANY(yillar)) y2026
+     FROM typed GROUP BY 1,2 ORDER BY 2,1`, [T]);
+  const rows = r.rows.map(x => ({ ilk_yil: +x.ilk_yil, tip: x.tip, kazanilan: +x.kazanilan || 0,
+    y: { 2022: +x.y2022||0, 2023: +x.y2023||0, 2024: +x.y2024||0, 2025: +x.y2025||0, 2026: +x.y2026||0 } }));
+  sendJson(response, 200, { retention: rows, yillar: [2022, 2023, 2024, 2025, 2026], simdi: 2026 });
+  return;
+}
+
+if (method === "GET" && path === "/api/saha/manager-portfoyum/retention-liste") {
+  const session = await requireSahaAccess(request, ["manager", "admin"]);
+  const T = session.tenantId;
+  let _u; try { _u = new URL(request.url, "http://x"); } catch (e) { _u = null; }
+  const kohort = parseInt((_u && _u.searchParams.get("kohort")) || "0", 10) || 0;
+  const tip = (_u && _u.searchParams.get("tip")) || "b2b";
+  if (!kohort) { sendJson(response, 200, { kohort: 0, tip, toplam: 0, ciro_toplam: 0, liste: [] }); return; }
+  const r = await query(
+    `SELECT mm.musteri_kodu, mm.musteri_adi AS firma, mm.sehir AS il,
+            round(mm.toplam_ciro)::bigint AS ciro_12, mm.son_fatura::date AS son_alim,
+            count(*) OVER () AS toplam, sum(round(mm.toplam_ciro)::bigint) OVER () AS ciro_toplam
+       FROM master_musteri mm
+       LEFT JOIN bi_musteri_risk r ON r.tenant_id::text=mm.tenant_id::text AND r.muhatap_kodu=mm.musteri_kodu
+      WHERE mm.tenant_id::text=$1::text AND extract(year from mm.ilk_fatura)::int=$2 AND NOT EXISTS (SELECT 1 FROM bi_musteri_risk _mr WHERE _mr.tenant_id::text=mm.tenant_id::text AND _mr.muhatap_kodu=mm.musteri_kodu AND _mr.grup IN ('TEDARİKÇİ','IMALATCI','PERSONEL','GRUP MUSTERILERI'))
+        AND ($3='tumu' AND COALESCE(r.grup,'')<>'KURUM'
+             OR (CASE WHEN r.grup='TOPTAN' THEN 'toptan'
+                      WHEN r.grup='FILO TICARI' THEN 'ticari'
+                      WHEN r.grup='.PERAKENDE' THEN 'perakende'
+                      WHEN r.grup='E-TICARET' THEN 'eticaret'
+                      WHEN r.grup='KURUM' THEN 'kurum' ELSE 'diger' END)=$3)
+        AND (mm.son_fatura IS NULL OR mm.son_fatura < CURRENT_DATE - INTERVAL '12 months')
+      ORDER BY mm.toplam_ciro DESC NULLS LAST LIMIT 200`, [T, kohort, tip]);
+  const liste = r.rows.map(x => ({ musteri_kodu: x.musteri_kodu, firma: x.firma || x.musteri_kodu, il: x.il || "—",
+    segment: null, ciro_12: +x.ciro_12 || 0, son_ziyaret: x.son_alim || null, sonlbl: "son alım" }));
+  const toplam = r.rows[0] ? +r.rows[0].toplam : 0;
+  const ciro_toplam = r.rows[0] ? +r.rows[0].ciro_toplam : 0;
+  sendJson(response, 200, { kohort, tip, toplam, ciro_toplam, liste });
+  return;
+}
+
+if (method === "GET" && path === "/api/saha/manager-portfoyum/yazkis") {
+  const session = await requireSahaAccess(request, ["manager", "admin"]);
+  const T = session.tenantId;
+  const den = (await query(
+    `SELECT count(*) FILTER (WHERE m.kategori_kirilimi ? 'YAZ') yaz_toplam,
+            count(*) FILTER (WHERE m.kategori_kirilimi ? 'YAZ' AND NOT (m.kategori_kirilimi ? 'KIS')) yaz_kis_yok
+       FROM master_musteri m
+       JOIN bi_musteri_risk r ON r.tenant_id::text=m.tenant_id::text AND r.muhatap_kodu=m.musteri_kodu
+      WHERE m.tenant_id=$1 AND r.grup='.PERAKENDE'
+        AND m.kategori_kirilimi IS NOT NULL AND m.kategori_kirilimi <> '{}'::jsonb`, [T])).rows[0] || {};
+  const liste = (await query(
+    `SELECT m.musteri_kodu, m.musteri_adi AS firma, m.sehir AS il,
+            round(m.toplam_ciro)::bigint ciro, m.son_fatura::date son
+       FROM master_musteri m
+       JOIN bi_musteri_risk r ON r.tenant_id::text=m.tenant_id::text AND r.muhatap_kodu=m.musteri_kodu
+      WHERE m.tenant_id=$1 AND r.grup='.PERAKENDE'
+        AND m.kategori_kirilimi ? 'YAZ' AND NOT (m.kategori_kirilimi ? 'KIS')
+      ORDER BY m.toplam_ciro DESC NULLS LAST LIMIT 200`, [T])).rows;
+  sendJson(response, 200, {
+    yaz_toplam: +den.yaz_toplam || 0, yaz_kis_yok: +den.yaz_kis_yok || 0,
+    liste: liste.map(x => ({ musteri_kodu: x.musteri_kodu, firma: x.firma || x.musteri_kodu, il: x.il || "—",
+      segment: null, ciro_12: +x.ciro || 0, son_ziyaret: x.son || null, sonlbl: "son alım" }))
+  });
+  return;
+}
+
+/* MANAGER_PF_KONSANTR_LISTE — konsantrasyon lensi drill: en büyük hesaplar + pay% + kümülatif. Salt-okunur. */
+if (method === "GET" && path === "/api/saha/manager-portfoyum/konsantr-liste") {
+  const session = await requireSahaAccess(request, ["manager", "admin"]);
+  const T = session.tenantId;
+  let _u; try { _u = new URL(request.url, "http://x"); } catch (e) { _u = null; }
+  const donem = (_u && _u.searchParams.get("donem")) || "12ay";
+  const DSTART = donem === "buay" ? "date_trunc('month',CURRENT_DATE)"
+              : donem === "3ay"  ? "CURRENT_DATE - INTERVAL '3 months'"
+              : donem === "6ay"  ? "CURRENT_DATE - INTERVAL '6 months'"
+              : donem === "ytd"  ? "date_trunc('year',CURRENT_DATE)"
+              :                    "CURRENT_DATE - INTERVAL '12 months'";
+  const r = await query(
+    `WITH c AS (SELECT f.musteri_kodu, round(sum(f.satir_tutar))::bigint v
+                  FROM bi_satis_faturalari f
+                 WHERE f.tenant_id::text=$1::text AND f.satir_tutar>0 AND f.fatura_tarihi>=${DSTART} AND NOT EXISTS (SELECT 1 FROM bi_musteri_risk _mr WHERE _mr.tenant_id::text=f.tenant_id::text AND _mr.muhatap_kodu=f.musteri_kodu AND _mr.grup IN ('TEDARİKÇİ','IMALATCI','PERSONEL','GRUP MUSTERILERI'))
+                 GROUP BY 1),
+         tt AS (SELECT sum(v) t FROM c)
+     SELECT c.musteri_kodu, mm.musteri_adi AS firma, mm.sehir AS il, c.v AS ciro,
+            round(100.0*c.v/NULLIF((SELECT t FROM tt),0),1) AS pay,
+            round(100.0*sum(c.v) OVER (ORDER BY c.v DESC)/NULLIF((SELECT t FROM tt),0),1) AS kum,
+            (SELECT count(*) FROM c) AS toplam
+       FROM c LEFT JOIN master_musteri mm ON mm.tenant_id::text=$1::text AND mm.musteri_kodu=c.musteri_kodu
+      WHERE c.v>0 ORDER BY c.v DESC LIMIT 200`, [T]);
+  const liste = r.rows.map(x => ({ musteri_kodu: x.musteri_kodu, firma: x.firma || x.musteri_kodu, il: x.il || "—",
+    segment: null, nosz: true, ciro_12: +x.ciro || 0,
+    ekstra: "pay %" + (x.pay == null ? "0" : x.pay) + " · kümülatif %" + (x.kum == null ? "0" : x.kum) }));
+  const toplam = r.rows[0] ? +r.rows[0].toplam : 0;
+  sendJson(response, 200, { donem, toplam, liste });
+  return;
+}
+
+if (method === "GET" && path === "/api/saha/manager-portfoyum/ekran") {
+  if (response.headersSent) return;
+  try {
+    await requireSahaAccess(request, ["manager", "admin"]);
+    const _h = await readFile("/app/shells/manager_portfoyum.html", "utf8");
+    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    response.end(_h);
+  } catch (e) {
+    if (!response.headersSent) sendJson(response, 403, { error: "yetki yok / ekran bulunamadi" });
+  }
+  return;
+}
+
+
     if (method === "GET" && path === "/api/saha/musteriler") {
       const session = await requireSahaAccess(request);
       const params = [session.tenantId];
@@ -28903,7 +32811,8 @@ async function handleSahaApi(request, response, url, deps) {
           WHERE t.musteri_id = m.id
             AND t.durum IN ('TASLAK','ONAY_BEKLIYOR','ONAYLANDI','SUNULDU')
         ) tk ON true
-        WHERE m.tenant_id = $1 AND m.aktif = true`;
+        WHERE m.tenant_id = $1 AND m.aktif = true AND COALESCE(m.kayit_kaynagi,'') <> 'EXCEL_IMPORT_KONTROL'`; /* KONTROL_FIX_V1 */
+      sql += _sahaScopeSql(session, params, "m");  /* YETKI_FAZ3A — veri kapsami (liste) */
       const tip = url.searchParams.get("tip");
       const durum = url.searchParams.get("durum");
       const q = (url.searchParams.get("q") || "").trim();
@@ -28934,6 +32843,7 @@ async function handleSahaApi(request, response, url, deps) {
     let m;
     if (method === "GET" && (m = path.match(new RegExp(`^/api/saha/musteriler/(${SAHA_UUID_RE})$`)))) {
       const session = await requireSahaAccess(request);
+      if (!(await _sahaScopeGuard(session, m[1]))) { sendJson(response, 404, { error: "Müşteri bulunamadı." }); return; }  /* YETKI_FAZ3B */
       const result = await query(`
         SELECT m.*, u.full_name AS sorumlu_rep_adi,
                sz.son_ziyaret, sz.ziyaret_sayisi,
@@ -28966,6 +32876,7 @@ async function handleSahaApi(request, response, url, deps) {
     // ERP'ye bağlı olmayan (Yeni Nokta) müşteride sadece teklifler döner, finansal için dürüstçe erp:false.
     if (method === "GET" && (m = path.match(new RegExp(`^/api/saha/musteriler/(${SAHA_UUID_RE})/finansal$`)))) {
       const session = await requireSahaAccess(request);
+      if (!(await _sahaScopeGuard(session, m[1]))) { sendJson(response, 404, { error: "Müşteri bulunamadı." }); return; }  /* YETKI_FAZ3B */
       const cur = await query("SELECT id, musteri_kodu FROM saha_musteri WHERE tenant_id=$1 AND id=$2 AND aktif=true", [session.tenantId, m[1]]);
       if (!cur.rowCount) { sendJson(response, 404, { error: "Müşteri bulunamadı." }); return; }
       const kod = cur.rows[0].musteri_kodu;
@@ -29003,6 +32914,190 @@ async function handleSahaApi(request, response, url, deps) {
         } catch (e) { console.error("[finansal trend]", e && e.message); }
       }
       sendJson(response, 200, out);
+      return;
+    }
+
+    // ── MUSTERI_OLAYLAR_V1 — müşteri zaman çizelgesi (union) ──
+    if (method === "GET" && (m = path.match(new RegExp(`^/api/saha/musteriler/(${SAHA_UUID_RE})/olaylar$`)))) {
+      const session = await requireSahaAccess(request);
+      if (!(await _sahaScopeGuard(session, m[1]))) { sendJson(response, 404, { error: "Müşteri bulunamadı." }); return; }  /* YETKI_FAZ3B */
+      const tid = session.tenantId, mid = m[1];
+      const cr = await query(`SELECT m.id, m.firma, m.tip, m.musteri_kodu kod, m.sorumlu_rep::text rid,
+               sg.durum, sg.ritim, sg.recency_ay, sg.guven
+          FROM saha_musteri m
+          LEFT JOIN saha_musteri_saglik sg ON sg.tenant_id=$1::text AND sg.musteri_kodu=m.musteri_kodu
+         WHERE m.tenant_id::text=$1::text AND m.id=$2 AND m.aktif=true`, [tid, mid]);  /* MUSTERI_OLAYLAR_FIX1 */
+      if (!cr.rowCount) { sendJson(response, 404, { error: "Müşteri bulunamadı." }); return; }
+      const M = cr.rows[0], kod = M.kod;
+      const ev = [];
+      const push = (ts, tip, ikon, baslik, alt, kim, extra) => { if (ts) ev.push({ ts: (ts instanceof Date ? ts.toISOString() : ts), tip, ikon, baslik, alt: alt || null, kim: kim || null, ...(extra || {}) }); };  /* MUSTERI_HATIRLATMA_DUZENLE_V1 */
+      const idSet = new Set(); if (M.rid) idSet.add(M.rid);
+      const q = async (sql, p) => { try { return (await query(sql, p)).rows; } catch (e) { console.error("[olaylar]", e && e.message); return []; } };
+      // ziyaret
+      const ziy = await q(`SELECT z.id, z.ziyaret_tarihi ts, z.notlar, z.rep_id::text rid, l.ad AS lokasyon_adi,
+                 (SELECT count(*) FROM saha_ziyaret_foto f WHERE f.ziyaret_id = z.id)::int AS foto_sayisi  /* MUSTERI_OLAYLAR_ZIYARET_FIX_V1 */
+          FROM saha_ziyaret z
+          LEFT JOIN saha_musteri_lokasyon l ON l.id = z.lokasyon_id
+         WHERE z.tenant_id=$1 AND z.musteri_id=$2 AND z.durum='TAMAMLANDI' ORDER BY z.ziyaret_tarihi DESC LIMIT 25`, [tid, mid]);
+      ziy.forEach(z => { if (z.rid) idSet.add(z.rid); push(z.ts, "ziyaret", "🚗", z.notlar ? ("Ziyaret — " + String(z.notlar).slice(0, 120)) : "Ziyaret", (z.lokasyon_adi ? "📍" + z.lokasyon_adi : "") + (Number(z.foto_sayisi) ? " · 📷" + z.foto_sayisi : ""), z.rid, { zid: z.id }); });  /* MUSTERI_OLAYLAR_ZIYARET_FIX_V1 */
+      // sinyal / not
+      const sig = await q(`SELECT id, created_at ts, tip, onem, ozet, rep_id::text rid, detay FROM saha_sinyal
+          WHERE tenant_id=$1 AND musteri_id=$2 ORDER BY created_at DESC LIMIT 25`, [tid, mid]);
+      sig.forEach(x => { if (x.rid) idSet.add(x.rid);
+        const isNot = (x.tip === "not" || x.tip === "takip" || !x.tip);
+        const ik = x.tip === "rakip" ? "🏷️" : x.tip === "risk" ? "⚠️" : x.tip === "firsat" ? "✨" : x.tip === "teklif_talep" ? "📩" : "📝";
+        const takip = x.detay && (x.detay.takip_tarihi || x.tip === "takip");
+        push(x.ts, isNot ? "not" : x.tip, ik, (isNot ? "Not — " : (x.tip + " — ")) + String(x.ozet || "").slice(0, 130), takip ? "· takip" : null, x.rid, { sid: x.id, sozet: x.ozet || "", stakip: (x.detay && x.detay.takip_tarihi) || null, skapandi: !!(x.detay && x.detay.kapandi) }); });  /* MUSTERI_HATIRLATMA_DUZENLE_V1 */
+      // aksiyon
+      const AKS = { GITTIM: "Gidildi olarak işaretlendi", PLANLA: "Ziyaret planlandı", ILET: "İletildi", ATA: "Sorumlu atandı", SUSTUR: "Susturuldu", GERI_AL: "Geri alındı", NOT: "📝 Aksiyon" };
+      const aks = await q(`SELECT olusturma_ts ts, rapor, tur, aktor_id::text aid, gerekce_metin, hedef_rep::text hr, eski_rep::text er
+          FROM saha_musteri_aksiyon WHERE tenant_id=$1 AND musteri_id=$2 ORDER BY olusturma_ts DESC LIMIT 20`, [tid, mid]);
+      aks.forEach(a => { if (a.aid) idSet.add(a.aid); if (a.hr) idSet.add(a.hr); if (a.er) idSet.add(a.er);
+        push(a.ts, "aksiyon", "⚙️", AKS[a.tur] || a.tur, a.gerekce_metin ? String(a.gerekce_metin).slice(0, 100) : (a.rapor || null), a.aid); });
+      // teklif
+      const tek = await q(`SELECT created_at ts, marka, ebat, adet, toplam_tutar, durum FROM saha_teklif
+          WHERE tenant_id=$1 AND musteri_id=$2 ORDER BY created_at DESC LIMIT 15`, [tid, mid]);
+      tek.forEach(t => push(t.ts, "teklif", "📄", "Teklif — " + [t.marka, t.ebat].filter(Boolean).join(" ") + (t.adet ? " ×" + t.adet : ""), (t.toplam_tutar != null ? Number(t.toplam_tutar).toLocaleString("tr-TR") + " ₺" : "") + (t.durum ? " · " + t.durum : ""), null));
+      // rakip fiyatı
+      const rak = await q(`SELECT created_at ts, rakip_marka, ebat, rakip_fiyat, rep_id::text rid FROM saha_rakip_teklif
+          WHERE tenant_id=$1 AND musteri_id=$2 ORDER BY created_at DESC LIMIT 12`, [tid, mid]);
+      rak.forEach(r => { if (r.rid) idSet.add(r.rid); push(r.ts, "rakip", "🏷️", "Rakip fiyatı — " + [r.rakip_marka, r.ebat].filter(Boolean).join(" ") + (r.rakip_fiyat != null ? " " + Number(r.rakip_fiyat).toLocaleString("tr-TR") + " ₺" : ""), "sahadan", r.rid); });
+      // alım (son 15; kodla)
+      let alim = [];
+      if (kod) alim = await q(`SELECT fatura_tarihi ts, marka, ebat, miktar, satir_tutar FROM bi_satis_faturalari
+          WHERE tenant_id::text=$1::text AND musteri_kodu=$2 ORDER BY fatura_tarihi DESC LIMIT 15`, [tid, kod]);
+      alim.forEach(a => push(a.ts, "alim", "💰", "Alım — " + [a.marka, a.ebat].filter(Boolean).join(" ") + (a.miktar != null ? " ×" + a.miktar : ""), (a.satir_tutar != null ? Number(a.satir_tutar).toLocaleString("tr-TR") + " ₺" : null), null));
+      // isim çözümü
+      const nameMap = {};
+      const ids = [...idSet].filter(Boolean);
+      if (ids.length) { const u = await q(`SELECT id::text id, COALESCE(full_name,email,'—') ad FROM users WHERE id::text = ANY($1)`, [ids]); u.forEach(x => nameMap[x.id] = x.ad); }
+      ev.forEach(e => { if (e.kim) e.kim = nameMap[e.kim] || null; });
+      // sayaçlar (gerçek toplam)
+      const cnt = async (sql, p) => { const r = await q(sql, p); return r[0] ? Number(r[0].n) : 0; };
+      const sayac = {
+        ziyaret: await cnt(`SELECT COUNT(*) n FROM saha_ziyaret WHERE tenant_id=$1 AND musteri_id=$2 AND durum='TAMAMLANDI'`, [tid, mid]),
+        not: await cnt(`SELECT COUNT(*) n FROM saha_sinyal WHERE tenant_id=$1 AND musteri_id=$2`, [tid, mid]),
+        teklif: await cnt(`SELECT COUNT(*) n FROM saha_teklif WHERE tenant_id=$1 AND musteri_id=$2`, [tid, mid]),
+        rakip: await cnt(`SELECT COUNT(*) n FROM saha_rakip_teklif WHERE tenant_id=$1 AND musteri_id=$2`, [tid, mid]),
+        alim: kod ? await cnt(`SELECT COUNT(*) n FROM bi_satis_faturalari WHERE tenant_id::text=$1::text AND musteri_kodu=$2`, [tid, kod]) : 0
+      };
+      // açık takipler (saha_sinyal tip=takip veya detay.takip_tarihi, kapanmamış)
+      const tkp = await q(`SELECT created_at ts, ozet, rep_id::text rid, detay FROM saha_sinyal
+          WHERE tenant_id=$1 AND musteri_id=$2 AND (tip='takip' OR detay ? 'takip_tarihi')
+            AND COALESCE((detay->>'kapandi')::boolean, false) = false ORDER BY created_at DESC LIMIT 10`, [tid, mid]);
+      const takip = tkp.map(x => ({ ts: (x.ts instanceof Date ? x.ts.toISOString() : x.ts), ozet: x.ozet, kim: x.rid ? (nameMap[x.rid] || null) : null, takip_tarihi: x.detay && x.detay.takip_tarihi || null }));
+      // EKG (12 ay): aylık ciro + ziyaret/not günleri + slip ayı
+      let ekgAy = [];
+      if (kod) ekgAy = await q(`SELECT to_char(date_trunc('month',fatura_tarihi),'YYYY-MM') ay, SUM(satir_tutar)::numeric ciro
+          FROM bi_satis_faturalari WHERE tenant_id::text=$1::text AND musteri_kodu=$2 AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '12 months') GROUP BY 1 ORDER BY 1`, [tid, kod]);
+      const ekg = {
+        aylar: ekgAy.map(x => ({ ay: x.ay, ciro: Number(x.ciro) || 0 })),
+        ziyaret: ziy.filter(z => z.ts).map(z => (z.ts instanceof Date ? z.ts.toISOString() : z.ts)).slice(0, 30),
+        isaret: ev.filter(e => (e.tip === "not" || e.tip === "rakip")).map(e => ({ ts: e.ts, tip: e.tip })).slice(0, 20)
+      };
+      // ── kural-tabanlı özet cümlesi ──
+      const tipAd = M.tip === "TICARI" ? "filo" : M.tip === "TUKETICI" ? "toptan" : "";
+      const durAd = { aktif: "kendi temposunda alıyor", soguyor: "soğuyor", pasif: "pasifleşti" }[M.durum] || null;
+      const sonAlim = alim[0];
+      const sonZiy = ziy[0];
+      const acikTakip = takip.length;
+      const sonRakip = rak[0];
+      const ay = (d) => { if (!d) return null; const dd = new Date(d); return isNaN(dd) ? null : ["Oca","Şub","Mar","Nis","May","Haz","Tem","Ağu","Eyl","Eki","Kas","Ara"][dd.getMonth()]; };
+      const gunFark = (d) => { if (!d) return null; const dd = new Date(d); return isNaN(dd) ? null : Math.floor((Date.now() - dd.getTime()) / 86400000); };
+      let cumle = [];
+      const rit = M.ritim != null ? Number(M.ritim) : null;
+      if (kod && sonAlim) {
+        if (rit != null && M.guven === "yuksek") cumle.push(`Yaklaşık ${rit % 1 ? rit.toFixed(1) : rit} ayda bir alan bir ${tipAd || "müşteri"}.`);
+        else cumle.push(`${tipAd ? tipAd[0].toUpperCase() + tipAd.slice(1) : "Müşteri"}.`);
+        if (M.durum === "soguyor" || M.durum === "pasif") {
+          cumle.push(`Son alım ${ay(sonAlim.ts) || "?"}'da — kendi temposunu aştı, ${durAd}.`);
+        } else if (M.durum === "aktif") {
+          cumle.push(`Düzenli alıyor, son alım ${ay(sonAlim.ts) || "?"}.`);
+        }
+      } else if (kod && !sonAlim) {
+        cumle.push(`ERP'ye bağlı ama son 12 ayda alım görünmüyor.`);
+      } else {
+        cumle.push(`ERP eşleşmesi yok — alım/ciro verisi yok.`);
+      }
+      if (acikTakip) cumle.push(`${acikTakip} açık takip var.`);
+      else if (sonRakip && gunFark(sonRakip.ts) != null && gunFark(sonRakip.ts) <= 120) cumle.push(`Sahada rakip fiyatı görülmüş (${ay(sonRakip.ts)}).`);
+      if (sayac.ziyaret === 0 && kod && sonAlim) cumle.push(`Uygulamada hiç ziyaret kaydı yok.`);
+      else if (sonZiy) cumle.push(`Son ziyaret ${gunFark(sonZiy.ts) != null ? gunFark(sonZiy.ts) + " gün önce" : "—"}.`);
+      const ozet = cumle.join(" ");
+
+      ev.sort((a, b) => (b.ts || "").localeCompare(a.ts || ""));
+      sayac.toplam = sayac.ziyaret + sayac.not + sayac.teklif + sayac.rakip + sayac.alim;
+      sendJson(response, 200, {
+        musteri: { id: M.id, firma: M.firma, tip: M.tip, kod: kod || null, sorumlu: M.rid ? (nameMap[M.rid] || null) : null,
+                   durum: M.durum || null, ritim: rit, recency_ay: M.recency_ay != null ? Number(M.recency_ay) : null, guven: M.guven || null },
+        ozet, sayac, takip, ekg, olaylar: ev.slice(0, 50)
+      });
+      return;
+    }
+
+    // ── MUSTERI_OLAYLAR_V1 — not / takip yaz ──
+    if (method === "POST" && (m = path.match(new RegExp(`^/api/saha/musteriler/(${SAHA_UUID_RE})/not$`)))) {
+      const session = await requireSahaAccess(request);
+      if (!(await _sahaScopeGuard(session, m[1]))) { sendJson(response, 404, { error: "Müşteri bulunamadı." }); return; }  /* YETKI_FAZ3B */
+      const tid = session.tenantId, uid = session.userId, mid = m[1];
+      const b = await readJson(request);
+      const metin = (b.metin || b.ozet || "").toString().trim();
+      if (!metin) { sendJson(response, 400, { error: "Not metni gerekli." }); return; }
+      const neden = (b.neden || "").toString().slice(0, 40) || null;              // rakip/fiyat/stok/tahsilat/ilişki/mevsim
+      const takipTarihi = (b.takip_tarihi || "").toString().slice(0, 10) || null;  // YYYY-MM-DD opsiyonel
+      const cr = await query(`SELECT id FROM saha_musteri WHERE tenant_id=$1 AND id=$2 AND aktif=true`, [tid, mid]);
+      if (!cr.rowCount) { sendJson(response, 404, { error: "Müşteri bulunamadı." }); return; }
+      const tip = takipTarihi ? "takip" : "not";
+      const detay = {}; if (neden) detay.neden = neden; if (takipTarihi) detay.takip_tarihi = takipTarihi;
+      const onem = neden === "rakip" || neden === "tahsilat" ? 2 : 1;
+      const ins = await query(`INSERT INTO saha_sinyal (tenant_id,tip,onem,ozet,detay,kaynak_tip,rep_id,musteri_id,ham_metin)
+          VALUES ($1,$2,$3,$4,$5::jsonb,'saha_not',$6,$7,$8) RETURNING id`,
+        [tid, tip, onem, metin.slice(0, 400), JSON.stringify(detay), uid, mid, metin]);
+      try {
+        await query(`INSERT INTO saha_musteri_aksiyon (tenant_id,musteri_id,rapor,tur,aktor_id,aktor_rol,gerekce_metin)
+            VALUES ($1,$2,'not','NOT',$3,$4,$5)`, [tid, mid, uid, session.sahaRole || "rep", metin.slice(0, 200)]);
+      } catch (e) { console.error("[not aksiyon]", e && e.message); }
+      sendJson(response, 200, { ok: true, id: ins.rows[0] && ins.rows[0].id, tip });
+      return;
+    }
+
+    // ── MUSTERI_HATIRLATMA_DUZENLE_V1 — saha_sinyal (not/takip) düzenle: metin + takip tarihi + tamamla ──
+    if ((method === "PUT" || method === "PATCH") && (m = path.match(new RegExp(`^/api/saha/sinyal/(${SAHA_UUID_RE})$`)))) {
+      const session = await requireSahaAccess(request);
+      const tid = session.tenantId, uid = session.userId, sid = m[1];
+      const cur = await query(`SELECT id, musteri_id::text mid, tip, ozet, detay FROM saha_sinyal WHERE tenant_id=$1 AND id=$2`, [tid, sid]);
+      if (!cur.rowCount) { sendJson(response, 404, { error: "Kayıt bulunamadı." }); return; }
+      const row = cur.rows[0];
+      if (row.mid && !(await _sahaScopeGuard(session, row.mid))) { sendJson(response, 404, { error: "Kayıt bulunamadı." }); return; }
+      const b = await readJson(request);
+      const detay = (row.detay && typeof row.detay === "object") ? row.detay : {};
+      // tamamla (kapat) / geri aç
+      if (b.tamamla === true || b.kapandi === true) {
+        detay.kapandi = true; detay.kapatan = uid; detay.kapatma_ts = new Date().toISOString();
+      } else if (b.tamamla === false || b.kapandi === false) {
+        detay.kapandi = false; delete detay.kapatan; delete detay.kapatma_ts;
+      }
+      // metin
+      let ozet = row.ozet;
+      if (typeof b.metin === "string" || typeof b.ozet === "string") {
+        ozet = (b.metin != null ? b.metin : b.ozet).toString().trim().slice(0, 400);
+        if (!ozet) { sendJson(response, 400, { error: "Not metni boş olamaz." }); return; }
+      }
+      // takip tarihi (YYYY-MM-DD; boş → takibi kaldır)
+      let tip = row.tip;
+      if (b.takip_tarihi !== undefined) {
+        const t = (b.takip_tarihi || "").toString().slice(0, 10);
+        if (t) { detay.takip_tarihi = t; if (tip === "not" || !tip) tip = "takip"; }
+        else { delete detay.takip_tarihi; if (tip === "takip") tip = "not"; }
+      }
+      await query(`UPDATE saha_sinyal SET ozet=$3, detay=$4::jsonb, tip=$5 WHERE tenant_id=$1 AND id=$2`,
+        [tid, sid, ozet, JSON.stringify(detay), tip]);
+      try {
+        await query(`INSERT INTO saha_musteri_aksiyon (tenant_id,musteri_id,rapor,tur,aktor_id,aktor_rol,gerekce_metin)
+            VALUES ($1,$2,$3,'NOT',$4,$5,$6)`,
+          [tid, row.mid, detay.kapandi ? "hatirlatma-tamam" : "hatirlatma-guncelle", uid, session.sahaRole || "rep", String(ozet || "").slice(0, 200)]);
+      } catch (e) { console.error("[sinyal duzenle aksiyon]", e && e.message); }
+      sendJson(response, 200, { ok: true, id: sid, tip, kapandi: !!detay.kapandi });
       return;
     }
 
@@ -29051,9 +33146,10 @@ async function handleSahaApi(request, response, url, deps) {
         }
       }
       // VKN_ESLESME_V1 — kayit aninda: VKN girildiyse ve ERP kodu yoksa, SAP'te ayni VKN varsa OTOMATIK bagla
-      if (result.rows[0].vergi_no && !result.rows[0].musteri_kodu) {
+      if ((result.rows[0].vergi_no || result.rows[0].tc_no) && !result.rows[0].musteri_kodu) { /* KIMLIK_TC_MATCH_V1 */
         try {
-          const _mm = await query("SELECT musteri_kodu FROM master_musteri WHERE tenant_id::text=$1::text AND vergi_no=$2 ORDER BY toplam_ciro DESC NULLS LAST LIMIT 1", [session.tenantId, result.rows[0].vergi_no]);
+          const _kim = [result.rows[0].vergi_no, result.rows[0].tc_no].map(x => (x || "").replace(/\D/g, "")).filter(Boolean);
+          const _mm = await query("SELECT musteri_kodu FROM master_musteri WHERE tenant_id::text=$1::text AND (vergi_no = ANY($2) OR tc_no = ANY($2)) ORDER BY toplam_ciro DESC NULLS LAST LIMIT 1", [session.tenantId, _kim]);
           if (_mm.rowCount) {
             await query("UPDATE saha_musteri SET musteri_kodu=$3, updated_at=now() WHERE tenant_id=$1 AND id=$2", [session.tenantId, result.rows[0].id, _mm.rows[0].musteri_kodu]);
             result.rows[0].musteri_kodu = _mm.rows[0].musteri_kodu;
@@ -29067,12 +33163,12 @@ async function handleSahaApi(request, response, url, deps) {
     // ── Müşteri ERP'de VKN ile ara + bağla (manuel; sadece ERP'ye bağlı OLMAYAN müşteride) ──
     if (method === "POST" && (m = path.match(new RegExp(`^/api/saha/musteriler/(${SAHA_UUID_RE})/erp-eslestir$`)))) {
       const session = await requireSahaAccess(request);
-      const cur = await query("SELECT id, vergi_no, musteri_kodu FROM saha_musteri WHERE tenant_id=$1 AND id=$2", [session.tenantId, m[1]]);
+      const cur = await query("SELECT id, vergi_no, tc_no, musteri_kodu FROM saha_musteri WHERE tenant_id=$1 AND id=$2", [session.tenantId, m[1]]);
       if (!cur.rowCount) { sendJson(response, 404, { error: "Müşteri bulunamadı." }); return; }
       if (cur.rows[0].musteri_kodu) { sendJson(response, 200, { eslesti: false, mesaj: "Zaten ERP'ye bağlı." }); return; }
-      const vkn = cur.rows[0].vergi_no;
-      if (!vkn) { sendJson(response, 400, { error: "Bu müşteride VKN yok — önce vergi no girin." }); return; }
-      const mm = await query("SELECT musteri_kodu, musteri_adi FROM master_musteri WHERE tenant_id::text=$1::text AND vergi_no=$2 ORDER BY toplam_ciro DESC NULLS LAST LIMIT 1", [session.tenantId, vkn]);
+      const kimlikler = [cur.rows[0].vergi_no, cur.rows[0].tc_no].map(x => (x || "").replace(/\D/g, "")).filter(Boolean); /* KIMLIK_TC_MATCH_V1 */
+      if (!kimlikler.length) { sendJson(response, 400, { error: "Bu müşteride VKN/TC yok — önce vergi/TC no girin." }); return; }
+      const mm = await query("SELECT musteri_kodu, musteri_adi FROM master_musteri WHERE tenant_id::text=$1::text AND (vergi_no = ANY($2) OR tc_no = ANY($2)) ORDER BY toplam_ciro DESC NULLS LAST LIMIT 1", [session.tenantId, kimlikler]);
       if (!mm.rowCount) { sendJson(response, 200, { eslesti: false, mesaj: "Bu VKN ile SAP'te cari bulunamadı." }); return; }
       await query("UPDATE saha_musteri SET musteri_kodu=$3, updated_at=now() WHERE tenant_id=$1 AND id=$2", [session.tenantId, m[1], mm.rows[0].musteri_kodu]);
       sendJson(response, 200, { eslesti: true, musteri_kodu: mm.rows[0].musteri_kodu, erp_adi: mm.rows[0].musteri_adi });
@@ -29268,9 +33364,13 @@ async function handleSahaApi(request, response, url, deps) {
       if (!zv.rowCount) { sendJson(response, 404, { error: "Ziyaret bulunamadı." }); return; }
       try {
         await query(`INSERT INTO saha_ziyaret_gorulme (tenant_id, ziyaret_id, user_id)
-                     VALUES ($1,$2,$3) ON CONFLICT (ziyaret_id, user_id) DO NOTHING`,
+                     VALUES ($1,$2,$3) ON CONFLICT (ziyaret_id, user_id) DO UPDATE SET gorulme_at = now()`,  /* YORUM_GORULDU_V1 — son gorme */
           [session.tenantId, m[1], session.userId]);
       } catch (e) { console.error("[ziyaret gordum]", e && e.message); }
+      try {  /* ZIYARET_GORDUM_BILDIRIM_V1: bu ziyaretin okunmamis bildirimini de okundu isaretle */
+        await query(`UPDATE bi_bildirim SET okundu=true WHERE tenant_id=$1 AND user_id=$2 AND okundu=false AND tip='ziyaret' AND data->>'id'=$3`,
+          [session.tenantId, session.userId, m[1]]);
+      } catch (e) { console.error("[ziyaret gordum bildirim]", e && e.message); }
       const g = await query(`
         SELECT u.full_name AS ad, g.gorulme_at
           FROM saha_ziyaret_gorulme g JOIN users u ON u.id = g.user_id
@@ -29286,7 +33386,7 @@ async function handleSahaApi(request, response, url, deps) {
       let sql = `
         SELECT z.id, z.musteri_id, z.rep_id, z.rep_adi, z.tip, z.durum,
                z.planlanan_tarih, z.ziyaret_tarihi, z.checkin_at, z.checkin_lat, z.checkin_lng,
-               z.katilimci, z.notlar, z.detay, z.kaynak, z.created_at,
+               z.katilimci, left(z.notlar, 240) AS notlar, z.detay, z.kaynak, z.created_at, -- ZIYARET_LISTE_HAFIF_V1 (liste notu kisaltildi; detay tam kaydi ceker)
                m.firma, m.il, m.ilce, m.segment, m.durum AS musteri_durum, m.musteri_kodu,
                u.full_name AS rep_full_name, l.ad AS lokasyon_adi,
                COALESCE(fot.foto_sayisi, 0) AS foto_sayisi,
@@ -29309,7 +33409,7 @@ async function handleSahaApi(request, response, url, deps) {
       const _mid = url.searchParams.get("musteri_id");
       if (session.sahaRole === "rep" && !_mid) {
         params.push(session.userId);
-        sql += ` AND z.rep_id = $${params.length}`;
+        sql += ` AND (z.rep_id = $${params.length} OR EXISTS(SELECT 1 FROM saha_ziyaret_katilimci k WHERE k.ziyaret_id=z.id AND k.user_id=$${params.length}))`; // KATILIMCI_JOIN_V1
       } else if (url.searchParams.get("rep_id")) {
         params.push(url.searchParams.get("rep_id"));
         sql += ` AND z.rep_id = $${params.length}`;
@@ -29323,13 +33423,25 @@ async function handleSahaApi(request, response, url, deps) {
       const to = url.searchParams.get("to");
       if (from) { params.push(from); sql += ` AND COALESCE(z.ziyaret_tarihi, z.planlanan_tarih) >= $${params.length}`; }
       if (to)   { params.push(to);   sql += ` AND COALESCE(z.ziyaret_tarihi, z.planlanan_tarih) <= $${params.length}`; }
-      sql += ` ORDER BY COALESCE(z.ziyaret_tarihi, z.planlanan_tarih) DESC NULLS LAST, z.created_at DESC LIMIT 200`;
+      sql += ` ORDER BY COALESCE(z.ziyaret_tarihi, z.planlanan_tarih) DESC NULLS LAST, z.created_at DESC LIMIT 1000`; // ZIYARET_LIMIT_V1 (200->1000; tum repler gecmisi gorsun)
       const result = await query(sql, params);
       sendJson(response, 200, { ziyaretler: result.rows });
       return;
     }
 
     // ── Ziyaret oluştur: plan (planlanan_tarih) veya direkt kayıt (tamamla:true) ──
+    async function _syncZiyaretKatilimci(tenantId, ziyaretId, repId, katilimcilar) { // KATILIMCI_JOIN_V1
+      try {
+        const adlar = (Array.isArray(katilimcilar) ? katilimcilar : []).filter(function (x) { return typeof x === "string" && x.trim(); });
+        let uids = [];
+        if (adlar.length) {
+          const r = await pool.query("SELECT DISTINCT u.id FROM users u JOIN tenant_user_modules tum ON tum.user_id=u.id AND tum.module_id='saha' AND tum.tenant_id=$1 AND tum.active=true WHERE u.status<>'disabled' AND COALESCE(u.full_name,u.email)=ANY($2::text[]) AND u.id<>$3", [tenantId, adlar, repId]);
+          uids = r.rows.map(function (x) { return x.id; });
+        }
+        await pool.query("DELETE FROM saha_ziyaret_katilimci WHERE ziyaret_id=$1", [ziyaretId]);
+        if (uids.length) await pool.query("INSERT INTO saha_ziyaret_katilimci (tenant_id, ziyaret_id, user_id) SELECT $1,$2,x FROM unnest($3::uuid[]) x ON CONFLICT DO NOTHING", [tenantId, ziyaretId, uids]);
+      } catch (e) { console.error("[katilimci-join]", e && e.message); }
+    }
     if (method === "POST" && path === "/api/saha/ziyaretler") {
       const session = await requireSahaAccess(request);
       const p = await readJson(request);
@@ -29338,6 +33450,11 @@ async function handleSahaApi(request, response, url, deps) {
         [session.tenantId, p.musteri_id]);
       if (!mus.rowCount) { sendJson(response, 404, { error: "Müşteri bulunamadı." }); return; }
       const tamamla = p.tamamla === true;
+      // ZIYARET_TARIH_GUARD_V1 — tamamlanan ziyaret ileri (gelecek) tarihli olamaz (kirli veri korumasi)
+      if (tamamla) {
+        const _bugunTR = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+        if (String(p.ziyaret_tarihi || _bugunTR) > _bugunTR) { sendJson(response, 400, { error: "Ziyaret tarihi ileri (gelecek) tarihli olamaz." }); return; }
+      }
       // ⚠⚠ MUKERRER_V1 — AYNI KAYDI IKI KEZ YAZMA.
       //   Sistemde 35 mukerrer grup, 37 fazladan kayit vardi.
       //   HARUN BOZBAG: 1,16 saniye arayla iki kayit (cift tiklama).
@@ -29346,18 +33463,39 @@ async function handleSahaApi(request, response, url, deps) {
       //   ⚠ Eftal "silme butonu" istedi. Hakli — ama silme SEBEBI DURDURMAZ.
       //   Ayni rep + ayni musteri + ayni gun, son 3 dakika icinde kayit varsa:
       //   YENI KAYIT ACMA, MEVCUDU DONDUR. Kullanici icin fark yok; veri temiz kalir.
-      const _tarih = tamamla ? (p.ziyaret_tarihi || new Date().toISOString().slice(0, 10)) : null;
-      if (tamamla) {
+      const _tarih = tamamla ? (p.ziyaret_tarihi || new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' })) : null;
+      // MUKERRER_GUN_V1 — ayni musteriye ayni gun ikinci "tamamlandi" kaydini yonet.
+      //   <3 dk: gercek cift-tik -> mevcut kaydi dondur; yeni not doluysa mevcudu GUNCELLE (metin kaybi yok).
+      //   >3 dk ayni gun: sessiz kopya ACMA -> {mukerrer_gun:true, mevcut}; istemci sorar.
+      //   p.force_yeni===true -> baypas (gercek ikinci ziyaret).
+      const _force = p.force_yeni === true;
+      if (tamamla && !_force) {
         const _var = await query(`
-          SELECT * FROM saha_ziyaret
+          SELECT *, (created_at > now() - interval '3 minutes') AS _cift_tik
+            FROM saha_ziyaret
            WHERE tenant_id=$1 AND musteri_id=$2 AND rep_id=$3
              AND ziyaret_tarihi=$4 AND durum='TAMAMLANDI'
-             AND created_at > now() - interval '3 minutes'
            ORDER BY created_at DESC LIMIT 1`,
           [session.tenantId, p.musteri_id, session.userId, _tarih]);
         if (_var.rowCount) {
-          console.warn("[saha] mukerrer ziyaret engellendi:", session.userId, p.musteri_id, _tarih);
-          sendJson(response, 200, { ziyaret: _var.rows[0], asistan: null, mukerrer_engellendi: true });
+          const _mevcut = _var.rows[0];
+          if (_mevcut._cift_tik) {
+            const _yeniNot = p.notlar && String(p.notlar).trim();
+            if (_yeniNot && String(p.notlar).trim() !== String(_mevcut.notlar || "").trim()) {
+              const _u = await query(
+                `UPDATE saha_ziyaret SET notlar=$3, updated_at=now() WHERE tenant_id=$1 AND id=$2 RETURNING *`,
+                [session.tenantId, _mevcut.id, p.notlar]);
+              console.warn("[saha] mukerrer <3dk: mevcut not guncellendi:", session.userId, p.musteri_id, _tarih);
+              sendJson(response, 200, { ziyaret: _u.rows[0], asistan: null, mukerrer_engellendi: true, not_guncellendi: true });
+              return;
+            }
+            console.warn("[saha] mukerrer ziyaret engellendi (<3dk):", session.userId, p.musteri_id, _tarih);
+            sendJson(response, 200, { ziyaret: _mevcut, asistan: null, mukerrer_engellendi: true });
+            return;
+          }
+          delete _mevcut._cift_tik;
+          console.warn("[saha] mukerrer_gun uyarisi:", session.userId, p.musteri_id, _tarih);
+          sendJson(response, 200, { mukerrer_gun: true, mevcut: _mevcut });
           return;
         }
       }
@@ -29369,11 +33507,13 @@ async function handleSahaApi(request, response, url, deps) {
       `, [session.tenantId, p.musteri_id, session.userId, p.tip || mus.rows[0].tip,
           tamamla ? "TAMAMLANDI" : "PLANLANDI",
           p.planlanan_tarih || null,
-          tamamla ? (p.ziyaret_tarihi || new Date().toISOString().slice(0, 10)) : null,
+          tamamla ? (p.ziyaret_tarihi || new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' })) : null,
           p.katilimci || null, p.notlar || null,
           p.detay ? JSON.stringify(p.detay) : null, p.lokasyon_id || null]);
+      if (p.detay && Array.isArray(p.detay.katilimcilar)) _syncZiyaretKatilimci(session.tenantId, result.rows[0].id, session.userId, p.detay.katilimcilar); // KATILIMCI_JOIN_V1
       let _asistan = null;
       if (p.notlar) { try { const _zr = result.rows[0]; const _sg = await _extractIntent(p.notlar); const _ack = await _applyIntents(_sg, { tenantId: session.tenantId, repId: session.userId, musteriId: _zr.musteri_id, kaynakTip: "ziyaret", kaynakId: _zr.id, hamMetin: p.notlar }); _asistan = _ack && _ack.mesaj; } catch (e) {} }
+      try { sahaManagerIds(session.tenantId, session.userId).then(function (ids) { if (!ids.length) return; pool.query("SELECT firma FROM saha_musteri WHERE id=$1", [result.rows[0].musteri_id]).then(function (mr) { pushToUsers(session.tenantId, ids, "🚪 Yeni ziyaret", ((mr.rows[0] && mr.rows[0].firma) || "Müşteri") + " ziyaret edildi", { room: "saha", type: "ziyaret", id: result.rows[0].id }); }).catch(function () {}); }).catch(function () {}); } catch (e) {} /* PUSH_HOOKS_V3 */
       sendJson(response, 200, { ziyaret: result.rows[0], asistan: _asistan });
       return;
     }
@@ -29388,7 +33528,8 @@ async function handleSahaApi(request, response, url, deps) {
       const r = await query(`
         SELECT z.*, mu.firma, mu.il, mu.ilce, mu.tip AS musteri_tip,
                mu.sektorler, mu.tedarikci_markalar, mu.durum AS musteri_durum,
-               u.full_name AS rep_adi
+               u.full_name AS rep_adi,
+               (SELECT count(*) FROM saha_ziyaret_foto f WHERE f.ziyaret_id = z.id)::int AS foto_sayisi  /* ZIYARET_DETAY_FOTO_V1 */
           FROM saha_ziyaret z
           LEFT JOIN saha_musteri mu ON mu.id = z.musteri_id
           LEFT JOIN users u ON u.id = z.rep_id
@@ -29513,6 +33654,11 @@ async function handleSahaApi(request, response, url, deps) {
           SET checkin_at = now(), checkin_lat = $3, checkin_lng = $4, updated_at = now()
           WHERE tenant_id = $1 AND id = $2 RETURNING *
         `, [session.tenantId, m[1], p.lat ?? null, p.lng ?? null]);
+        try { /* ZIYARET_PIN_MUSTERI_V1 — "bu konumu musteri adresine kaydet" isaretliyse musteri pinini yaz */
+          if (p.pin_musteri && p.lat != null && p.lng != null && result.rows[0]) {
+            await pool.query("UPDATE saha_musteri SET lat=$3, lng=$4, updated_at=now() WHERE tenant_id=$1 AND id=$2", [session.tenantId, result.rows[0].musteri_id, p.lat, p.lng]);
+          }
+        } catch (e) { try { console.warn("checkin pin_musteri:", e.message); } catch (er) {} }
         // İLK check-in bugünkü başlangıç noktasını belirler (Asistan rota önerisi için).
         // Müşterinin şehri zaten kayıtlı — geocoding gerekmez. Sonraki check-in'ler
         // başlangıcı DEĞİŞTİRMEZ: başlangıç, gününe nereden başladığındır.
@@ -29592,6 +33738,7 @@ async function handleSahaApi(request, response, url, deps) {
       // typo fix would create a duplicate reminder, task and CEO signal.
       const _notAnalizEt = p.notlar && (action !== "guncelle" || _ilkKezNot);
       if (_notAnalizEt) { try { const _zr = result.rows[0]; const _sg = await _extractIntent(p.notlar); const _ack = await _applyIntents(_sg, { tenantId: session.tenantId, repId: session.userId, musteriId: _zr.musteri_id, kaynakTip: "ziyaret", kaynakId: _zr.id, hamMetin: p.notlar }); _asistan = _ack && _ack.mesaj; } catch (e) {} }
+      if (p.detay && Array.isArray(p.detay.katilimcilar)) _syncZiyaretKatilimci(session.tenantId, result.rows[0].id, own.rows[0].rep_id, p.detay.katilimcilar); // KATILIMCI_JOIN_V1
       sendJson(response, 200, { ziyaret: result.rows[0], asistan: _asistan, duzenlendi: action === "guncelle" && !_ilkKezNot });
       return;
     }
@@ -29628,6 +33775,33 @@ async function handleSahaApi(request, response, url, deps) {
         RETURNING id, mime, boyut, aciklama, created_at
       `, [session.tenantId, m[1], fotoMime, buf.length, buf, p.aciklama || null, session.userId]);
       sendJson(response, 200, { foto: result.rows[0] });
+      try { _rakipFotoCoz(session.tenantId, result.rows[0].id, m[1], session.userId, fotoMime, buf); } catch (e) {}  /* RAKIP_OCR_V1 */
+      return;
+    }
+
+    // ── Fotoğraftan rakip fiyat oku (mevcut fotoları yeniden tara) — RAKIP_OCR_BACKFILL_V1 ──
+    if (method === "POST" && (m = path.match(new RegExp(`^/api/saha/ziyaretler/(${SAHA_UUID_RE})/foto-oku$`)))) {
+      const session = await requireSahaAccess(request, ["manager", "admin"]);
+      const fr = await pool.query("SELECT id, mime, veri FROM saha_ziyaret_foto WHERE tenant_id=$1 AND ziyaret_id=$2 ORDER BY created_at", [session.tenantId, m[1]]);
+      if (!fr.rowCount) { sendJson(response, 200, { islenen_foto: 0, cikarilan_kalem: 0 }); return; }
+      await pool.query("DELETE FROM saha_rakip_teklif WHERE tenant_id=$1 AND ziyaret_id=$2 AND kaynak='FOTO'", [session.tenantId, m[1]]);
+      for (const f of fr.rows) { try { await _rakipFotoCoz(session.tenantId, f.id, m[1], session.userId, f.mime, f.veri); } catch (e) {} }
+      const cc = await pool.query("SELECT count(*)::int c FROM saha_rakip_teklif WHERE tenant_id=$1 AND ziyaret_id=$2 AND kaynak='FOTO'", [session.tenantId, m[1]]);
+      sendJson(response, 200, { islenen_foto: fr.rowCount, cikarilan_kalem: cc.rows[0].c });
+      return;
+    }
+
+    // ── Tekil foto sil (duzenleme) — ZIYARET_FOTO_SIL_V1 ──
+    if (method === "DELETE" && (m = path.match(new RegExp(`^/api/saha/ziyaretler/(${SAHA_UUID_RE})/foto/(${SAHA_UUID_RE})$`)))) {
+      const session = await requireSahaAccess(request);
+      const own = await query(`SELECT rep_id FROM saha_ziyaret WHERE tenant_id = $1 AND id = $2`, [session.tenantId, m[1]]);
+      if (!own.rowCount) { sendJson(response, 404, { error: "Ziyaret bulunamadı." }); return; }
+      if (session.sahaRole === "rep" && own.rows[0].rep_id !== session.userId) {
+        sendJson(response, 403, { error: "Sadece kendi ziyaretinizin fotoğrafını silebilirsiniz." }); return;
+      }
+      const del = await query(`DELETE FROM saha_ziyaret_foto WHERE tenant_id = $1 AND ziyaret_id = $2 AND id = $3 RETURNING id`, [session.tenantId, m[1], m[2]]);
+      if (!del.rowCount) { sendJson(response, 404, { error: "Fotoğraf bulunamadı." }); return; }
+      sendJson(response, 200, { ok: true, silinen: m[2] });
       return;
     }
 
@@ -29656,6 +33830,55 @@ async function handleSahaApi(request, response, url, deps) {
         "X-Content-Type-Options": "nosniff"
       });
       response.end(result.rows[0].veri);
+      return;
+    }
+
+    /* ZIYARET_EK_V1 — ziyarete dosya eki (her tip, 8MB). Sahiplik foto ile ayni: rep kendi ziyareti, manager/admin hepsi. */
+    if (method === "POST" && (m = path.match(new RegExp(`^/api/saha/ziyaretler/(${SAHA_UUID_RE})/ek$`)))) {
+      const session = await requireSahaAccess(request);
+      const own = await query(`SELECT rep_id FROM saha_ziyaret WHERE tenant_id = $1 AND id = $2`, [session.tenantId, m[1]]);
+      if (!own.rowCount) { sendJson(response, 404, { error: "Ziyaret bulunamadı." }); return; }
+      if (session.sahaRole === "rep" && own.rows[0].rep_id !== session.userId) { sendJson(response, 403, { error: "Sadece kendi ziyaretinize dosya ekleyebilirsiniz." }); return; }
+      await ensureZiyaretEk();
+      const body = await readJson(request, 12 * 1024 * 1024);
+      const _ad = String((body && body.dosya_adi) || "dosya").slice(0, 200);
+      const _mime = String((body && body.mime) || "application/octet-stream").slice(0, 120);
+      let _buf = null; try { _buf = Buffer.from(String((body && body.veri) || "").replace(/^data:[^;]+;base64,/, ""), "base64"); } catch (e) {}
+      if (!_buf || !_buf.length) { sendJson(response, 400, { error: "Dosya boş." }); return; }
+      if (_buf.length > 8 * 1024 * 1024) { sendJson(response, 413, { error: "Dosya 8MB sınırını aşıyor." }); return; }
+      const er = await query("INSERT INTO saha_ziyaret_ek (id,tenant_id,ziyaret_id,dosya_adi,mime,boyut,veri,yukleyen_id) VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7) RETURNING id, dosya_adi, mime, boyut, created_at", [session.tenantId, m[1], _ad, _mime, _buf.length, _buf, session.userId]);
+      sendJson(response, 201, { ek: er.rows[0] });
+      return;
+    }
+    /* ZIYARET_EK_V1 — ek listesi (veri HARIC) */
+    if (method === "GET" && (m = path.match(new RegExp(`^/api/saha/ziyaretler/(${SAHA_UUID_RE})/ekler$`)))) {
+      const session = await requireSahaAccess(request);
+      await ensureZiyaretEk();
+      const er = await query("SELECT id, dosya_adi, mime, boyut, created_at FROM saha_ziyaret_ek WHERE tenant_id=$1 AND ziyaret_id=$2 ORDER BY created_at ASC", [session.tenantId, m[1]]);
+      sendJson(response, 200, { ekler: er.rows });
+      return;
+    }
+    /* ZIYARET_EK_V1 — ek indir/goruntule */
+    if (method === "GET" && (m = path.match(new RegExp(`^/api/saha/ziyaretler/(${SAHA_UUID_RE})/ek/(${SAHA_UUID_RE})$`)))) {
+      const session = await requireSahaAccess(request);
+      await ensureZiyaretEk();
+      const er = await query("SELECT dosya_adi, mime, veri FROM saha_ziyaret_ek WHERE tenant_id=$1 AND ziyaret_id=$2 AND id=$3", [session.tenantId, m[1], m[2]]);
+      if (!er.rowCount) { sendJson(response, 404, { error: "Ek bulunamadı." }); return; }
+      const _e = er.rows[0];
+      response.writeHead(200, { "Content-Type": _e.mime || "application/octet-stream", "Content-Disposition": 'inline; filename="' + encodeURIComponent(_e.dosya_adi || "dosya") + '"', "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff" });
+      response.end(_e.veri);
+      return;
+    }
+    /* ZIYARET_EK_V1 — ek sil (rep kendi ziyareti, manager/admin hepsi) */
+    if (method === "DELETE" && (m = path.match(new RegExp(`^/api/saha/ziyaretler/(${SAHA_UUID_RE})/ek/(${SAHA_UUID_RE})$`)))) {
+      const session = await requireSahaAccess(request);
+      const own = await query(`SELECT rep_id FROM saha_ziyaret WHERE tenant_id = $1 AND id = $2`, [session.tenantId, m[1]]);
+      if (!own.rowCount) { sendJson(response, 404, { error: "Ziyaret bulunamadı." }); return; }
+      if (session.sahaRole === "rep" && own.rows[0].rep_id !== session.userId) { sendJson(response, 403, { error: "Sadece kendi ziyaretinizin ekini silebilirsiniz." }); return; }
+      await ensureZiyaretEk();
+      const del = await query("DELETE FROM saha_ziyaret_ek WHERE tenant_id=$1 AND ziyaret_id=$2 AND id=$3 RETURNING id", [session.tenantId, m[1], m[2]]);
+      if (!del.rowCount) { sendJson(response, 404, { error: "Ek bulunamadı." }); return; }
+      sendJson(response, 200, { ok: true, silinen: m[2] });
       return;
     }
 
@@ -30060,7 +34283,7 @@ async function handleSahaApi(request, response, url, deps) {
         // ── BAYILIK_V2: ikame maliyeti KADEME SIRASI ─────────────────────
         let _tedarik = null, _sonAlis = null, _ikameKaynak = "yok";
         try {
-          _tedarik = (await _bayilikMi(pool, session.tenantId, k.marka)) ? "bayilik" : "net_alim";
+          _tedarik = (await _bayilikMiSaha(pool, session.tenantId, k.marka)) ? "bayilik" : "net_alim";
 
           if (_tedarik === "bayilik" && _iskPct != null && _netMaliyet != null) {
             // KADEME 1 — tesvik satiri VAR. liste x (1-tesvik). EN GUNCEL TEMEL.
@@ -30073,7 +34296,7 @@ async function handleSahaApi(request, response, url, deps) {
             //     = liste - tesvik). Yani maliyeti BILIYORUZ; sadece biraz bayat.
             //     Bunu ekranda ACIKCA soyluyoruz -- gizlemiyoruz.
             if (_tedarik === "net_alim") { _iskPct = null; _tesvik_kademe = null; _tesvik_eslesen = null; }
-            _sonAlis = await _sonAlisFiyati(pool, session.tenantId, k.kalem_kodu);
+            _sonAlis = await _sonAlisFiyatiSaha(pool, session.tenantId, k.kalem_kodu);
             if (_sonAlis) {
               _netMaliyet = _sonAlis.fiyat;
               _ikameKaynak = "son_alis";
@@ -30108,7 +34331,7 @@ async function handleSahaApi(request, response, url, deps) {
               "       COUNT(*)::int AS n " +
               " FROM bi_satis_faturalari " +
               " WHERE tenant_id=$1::text AND ebat=$2 AND upper(marka)=upper($3) " +
-              "   AND grup_adi LIKE 'LASTIK%' AND birim_fiyat > 0 " +
+              "   AND grup_adi LIKE evren_desen(tenant_id) AND birim_fiyat > 0 " +
               // IADE_V1: miktar<0 = iade/alacak dekontu. SATIS DEGIL.
               //   Araliga ve "en ucuz musteri"ye karismasin.
               "   AND miktar > 0 " +
@@ -30131,7 +34354,7 @@ async function handleSahaApi(request, response, url, deps) {
                 "  (array_agg(fatura_tarihi ORDER BY birim_fiyat DESC))[1] AS en_pahali_tarih " +
                 " FROM bi_satis_faturalari " +
                 " WHERE tenant_id=$1::text AND ebat=$2 AND upper(marka)=upper($3) " +
-                "   AND grup_adi LIKE 'LASTIK%' AND birim_fiyat >= $4 " +
+                "   AND grup_adi LIKE evren_desen(tenant_id) AND birim_fiyat >= $4 " +
                 "   AND fatura_tarihi >= date_trunc('year', CURRENT_DATE)",
                 [session.tenantId, k.ebat, k.marka, _esik]);
 
@@ -30140,7 +34363,7 @@ async function handleSahaApi(request, response, url, deps) {
                 "SELECT musteri_adi, birim_fiyat, fatura_tarihi, fatura_no, miktar, satis_temsilcisi " +
                 " FROM bi_satis_faturalari " +
                 " WHERE tenant_id=$1::text AND ebat=$2 AND upper(marka)=upper($3) " +
-                "   AND grup_adi LIKE 'LASTIK%' AND birim_fiyat > 0 AND birim_fiyat < $4 " +
+                "   AND grup_adi LIKE evren_desen(tenant_id) AND birim_fiyat > 0 AND birim_fiyat < $4 " +
                 "   AND fatura_tarihi >= date_trunc('year', CURRENT_DATE) " +
                 " ORDER BY birim_fiyat ASC LIMIT 50",
                 [session.tenantId, k.ebat, k.marka, _esik]);
@@ -30186,7 +34409,7 @@ async function handleSahaApi(request, response, url, deps) {
               "     AND fatura_tarihi >= date_trunc('year', CURRENT_DATE)), " +
               "alis AS ( " +
               "  SELECT SUM(miktar*birim_fiyat_kdv_haric)/NULLIF(SUM(miktar),0) AS ag_fiyat, " +
-              "         SUM(miktar*vade_gun)/NULLIF(SUM(miktar),0) AS ag_vade, " +
+              "         SUM(miktar*vade_gun) FILTER (WHERE vade_gun IS NOT NULL)/NULLIF(SUM(miktar) FILTER (WHERE vade_gun IS NOT NULL),0) AS ag_vade, " +
               "         SUM(miktar) AS adet " +
               "    FROM bi_tedarikci_faturalari " +
               "   WHERE tenant_id=$1::uuid AND kalem_kodu=$2 AND birim_fiyat_kdv_haric>0 " +
@@ -30221,8 +34444,43 @@ async function handleSahaApi(request, response, url, deps) {
           }
         } catch (e) { console.error('[teklif_v2] analiz:', e && e.message); }
 
+        // SON10_ALIS_V1 — son 10 alan musteri + bu yil alis min/medyan/max
+        let _sonAlanlar = null, _kendiAlis = null;
+        try {
+          if (k.ebat && k.marka) {
+            const _s10 = await pool.query(
+              "SELECT musteri_adi, ROUND(birim_fiyat) AS fiyat, fatura_tarihi FROM (" +
+              "  SELECT DISTINCT ON (musteri_adi) musteri_adi, birim_fiyat, fatura_tarihi" +
+              "    FROM bi_satis_faturalari" +
+              "   WHERE tenant_id=$1::text AND ebat=$2 AND upper(marka)=upper($3)" +
+              "     AND grup_adi LIKE evren_desen(tenant_id) AND birim_fiyat>0 AND miktar>0" +
+              "     AND fatura_tarihi >= date_trunc('year', CURRENT_DATE)" +
+              "   ORDER BY musteri_adi, fatura_tarihi DESC) q" +
+              " ORDER BY fatura_tarihi DESC LIMIT 10",
+              [session.tenantId, k.ebat, k.marka]);
+            if (_s10.rowCount) _sonAlanlar = _s10.rows.map(function (x) {
+              return { musteri: x.musteri_adi, fiyat: _num(x.fiyat), tarih: x.fatura_tarihi };
+            });
+          }
+          if (k.kalem_kodu) {
+            const _ad = await pool.query(
+              "SELECT ROUND(MIN(birim_fiyat_kdv_haric)) AS mn," +
+              "  ROUND(percentile_cont(0.5) WITHIN GROUP (ORDER BY birim_fiyat_kdv_haric)::numeric) AS med," +
+              "  ROUND(MAX(birim_fiyat_kdv_haric)) AS mx, COUNT(*)::int AS n" +
+              " FROM bi_tedarikci_faturalari" +
+              " WHERE tenant_id=$1::uuid AND kalem_kodu=$2 AND birim_fiyat_kdv_haric>0 AND miktar>0" +
+              "   AND fatura_tarihi >= date_trunc('year', CURRENT_DATE)",
+              [session.tenantId, k.kalem_kodu]);
+            const a2 = _ad.rows[0];
+            if (a2 && Number(a2.n) > 0) _kendiAlis = {
+              min: _num(a2.mn), medyan: _num(a2.med), max: _num(a2.mx),
+              alis_adedi: Number(a2.n), donem: 'bu_yil'
+            };
+          }
+        } catch (e) { console.error('[son10_alis]', e && e.message); }
+
         kalemler.push({ kalem_sira: k.kalem_sira, marka: k.marka, model: k.model, ebat: k.ebat, adet: k.adet, notlar: k.notlar, talep_fiyat: talep, mevcut_stok: stok, birim_maliyet: maliyet, liste_fiyati: _liste, iskonto_pct: _iskPct, net_maliyet: _netMaliyet, marj_pct: marj, kar_adet: _karAdet, fiyat_durumu: _fiyatDurumu, eticaret: eticaret, marka_araligi: marka_araligi, saha_teklifler: saha,
-          kendi_satis: _kendi, agirlikli: _agir,
+          kendi_satis: _kendi, agirlikli: _agir, son_alanlar: _sonAlanlar, kendi_alis: _kendiAlis,  /* SON10_ALIS_V1 */
           // SEZON_V1 — seffaflik: hangi tesvik kademesi uygulandi?
           tesvik: {
             sezon: _tesvik_sezon, arac_tipi: _tesvik_arac,
@@ -30375,6 +34633,8 @@ async function handleSahaApi(request, response, url, deps) {
           (p.ziyaret_id ? 'ZIYARET' : (['TELEFON','WHATSAPP','EMAIL','DIGER'].includes(String(p.kaynak||'').toUpperCase()) ? String(p.kaynak).toUpperCase() : 'DIGER')),
           _vd.gun, _vd.turu]);
       const teklifId = hdr.rows[0].id;
+      try { sahaManagerIds(session.tenantId, session.userId).then(function (ids) { if (!ids.length) return; pool.query("SELECT firma FROM saha_musteri WHERE id=$1", [p.musteri_id]).then(function (mr) { var fn = (mr.rows[0] && mr.rows[0].firma) || "Müşteri"; pushToUsers(session.tenantId, ids, "🧾 Yeni teklif", fn + (ilk.marka ? " — " + ilk.marka : "") + (toplamTutar ? " · ₺" + Math.round(toplamTutar).toLocaleString("tr-TR") : ""), { room: "saha", type: "teklif_yeni", id: teklifId }); }).catch(function () {}); }).catch(function () {}); } catch (e) {} /* PUSH_HOOKS_V3 */
+      kaydetOlay({ tenantId: session.tenantId, kullanici: session.userId, oda: "teklif", bolum: "olustur", tip: "teklif_olustur", refId: teklifId, payload: { musteri_id: p.musteri_id, kategori: ilk.kategori || null, marka: ilk.marka || null, adet: lines.reduce(function (s, l) { return s + l.adet; }, 0), toplam: toplamTutar, liste: ilk.listeFiyati || null, birim: ilk.birim != null ? ilk.birim : null, talep: ilk.talep_fiyat != null ? Number(ilk.talep_fiyat) : null, ek_iskonto: ilk.ekIsk > 0 ? ilk.ekIsk : null, stok: ilk.mevcut_stok != null ? Number(ilk.mevcut_stok) : null, kaynak: p.ziyaret_id ? "ZIYARET" : "DIGER" } }); /* TEKLIF_OLAY_V1 */
       // TEKLIF_TALEP_STOK_V1 — talep fiyatı + mevcut stok snapshot (header, first line)
       await query('UPDATE saha_teklif SET talep_fiyat=$2, mevcut_stok=$3 WHERE id=$1',
         [teklifId, ilk.talep_fiyat != null ? Number(ilk.talep_fiyat) : (ilk.birim != null ? ilk.birim : null),
@@ -30501,24 +34761,29 @@ async function handleSahaApi(request, response, url, deps) {
         sendJson(response, 200, { teklif: result.rows[0] }); return;
 
       } else if (p.action === "gonder") {
-        // ── Gönder: TASLAK → threshold check → ONAY_BEKLIYOR or ONAYLANDI ──
+        // ── Gönder: TASLAK → ONAY_BEKLIYOR (FULL_CONTROL_V1 — kademe/oto-onay KALDIRILDI) ──
+        //   HER teklif "Gönder"de yöneticilere düşer; HERHANGİ bir yönetici (müdür/admin) onaylar.
+        //   Eşik yok, oto-onay yok, müdür/GM ayrımı yok — tek akış.
         if (eski.durum !== "TASLAK") {
           sendJson(response, 400, { error: "Sadece taslak teklifler gönderilebilir." }); return;
         }
-        const ayarRes2 = await query(`SELECT oto_onay_max, mudur_max FROM saha_iskonto_ayar WHERE tenant_id = $1 LIMIT 1`, [session.tenantId]);
-        const otoMax   = Number(ayarRes2.rows[0]?.oto_onay_max ?? 2);
-        const mudurMax2 = Number(ayarRes2.rows[0]?.mudur_max   ?? 5);
-        const ekIsk2   = Number(eski.musteri_ek_iskonto_pct ?? 0);
-        let yeniDurum2, yeniOnayS2;
-        if (ekIsk2 <= otoMax)    { yeniDurum2 = "ONAYLANDI";     yeniOnayS2 = null; }
-        else if (ekIsk2 <= mudurMax2) { yeniDurum2 = "ONAY_BEKLIYOR"; yeniOnayS2 = "MUDUR"; }
-        else                     { yeniDurum2 = "ONAY_BEKLIYOR"; yeniOnayS2 = "GM"; }
         result = await query(`
-          UPDATE saha_teklif SET durum = $3, onay_seviyesi = $4, updated_at = now()
+          UPDATE saha_teklif SET durum = 'ONAY_BEKLIYOR', onay_seviyesi = 'MUDUR', updated_at = now()
           WHERE tenant_id = $1 AND id = $2 RETURNING *
-        `, [session.tenantId, m[1], yeniDurum2, yeniOnayS2]);
+        `, [session.tenantId, m[1]]);
         await query(`INSERT INTO saha_teklif_log (teklif_id,alan,eski_deger,yeni_deger,degistiren_kullanici) VALUES ($1,$2,$3,$4,$5)`,
-          [m[1], 'Durum', 'TASLAK', yeniDurum2, session.userId]);
+          [m[1], 'Durum', 'TASLAK', 'ONAY_BEKLIYOR', session.userId]);
+        // FULL_CONTROL_V1 — teklifi TÜM yöneticilere (müdür/admin) ANLIK bildir + inbox; dokun→teklife git
+        try {
+          const _tk = result.rows[0];
+          sahaManagerIds(session.tenantId, session.userId).then(function (ids) {
+            if (!ids.length) return;
+            pool.query("SELECT firma FROM saha_musteri WHERE id=$1", [_tk.musteri_id]).then(function (mr) {
+              const fn = (mr.rows[0] && mr.rows[0].firma) || "Müşteri";
+              pushToUsers(session.tenantId, ids, "✅ Onay bekleyen teklif", fn + (_tk.marka ? " — " + _tk.marka : "") + (_tk.toplam_tutar ? " · ₺" + Math.round(Number(_tk.toplam_tutar)).toLocaleString("tr-TR") : ""), { room: "saha", type: "teklif_onay", id: _tk.id });
+            }).catch(function () {});
+          }).catch(function () {});
+        } catch (e) {}
 
       } else if (p.action === "sun") {
         // ── Sun: ONAYLANDI → SUNULDU (rep presents to customer) ──
@@ -30569,6 +34834,70 @@ async function handleSahaApi(request, response, url, deps) {
         await query(`INSERT INTO saha_teklif_log (teklif_id,alan,eski_deger,yeni_deger,degistiren_kullanici) VALUES ($1,$2,$3,$4,$5)`,
           [m[1], 'Durum', 'ONAY_BEKLIYOR', `TASLAK${p.not ? ' — Red: ' + p.not : ''}`, session.userId]);
 
+      } else if (p.action === "revize") {  // TEKLIF_REVIZE_V1
+        // Yeni sürüm: orijinal DEĞIŞMEZ; kalemleriyle birlikte yeni TASLAK kopya açılır (bağlı).
+        const REVIZE_OK = ["ONAY_BEKLIYOR", "ONAYLANDI", "SUNULDU", "KAYBEDILDI"];
+        if (!REVIZE_OK.includes(eski.durum)) {
+          sendJson(response, 400, { error: `"${eski.durum}" durumundaki teklif revize edilemez. (Revize yalnızca onay bekleyen, onaylanan, sunulan veya kaybedilen tekliflerde.)` }); return;
+        }
+        const _kok = eski.kok_teklif_id || eski.id;
+        const _revRes = await query(
+          `SELECT COALESCE(MAX(revizyon_no), 1) + 1 AS next FROM saha_teklif WHERE tenant_id = $1 AND (id = $2 OR kok_teklif_id = $2)`,
+          [session.tenantId, _kok]);
+        const _revNo = Number(_revRes.rows[0].next) || 2;
+        // Başlık: jsonb ile birebir kopya; yalnız durum/sahip/sonuç alanları sıfırlanır.
+        const _yeni = await query(`
+          INSERT INTO saha_teklif
+          SELECT (jsonb_populate_record(NULL::saha_teklif,
+            to_jsonb(t)
+            || jsonb_build_object(
+                 'id', gen_random_uuid(),
+                 'durum', 'TASLAK',
+                 'created_by', $3::uuid,
+                 'created_at', now(),
+                 'updated_at', now(),
+                 'ziyaret_id', NULL,
+                 'iskonto_talep_id', NULL,
+                 'sonuc_tarihi', NULL,
+                 'kayip_nedeni', NULL,
+                 'rakip_marka', NULL,
+                 'rakip_model', NULL,
+                 'rakip_fiyat', NULL,
+                 'onay_seviyesi', NULL,
+                 'kok_teklif_id', $4::uuid,
+                 'revizyon_no', $5::int
+               )
+          )).*
+          FROM saha_teklif t
+          WHERE t.tenant_id = $1 AND t.id = $2
+          RETURNING *
+        `, [session.tenantId, m[1], session.userId, _kok, _revNo]);
+        const _yeniId = _yeni.rows[0].id;
+        // Kalemleri kopyala (onay alanları sıfırlanır)
+        await query(`
+          INSERT INTO saha_teklif_kalem
+          SELECT (jsonb_populate_record(NULL::saha_teklif_kalem,
+            to_jsonb(k)
+            || jsonb_build_object(
+                 'id', gen_random_uuid(),
+                 'teklif_id', $2::uuid,
+                 'onay_durumu', 'BEKLIYOR',
+                 'onaylayan_iskonto_pct', NULL,
+                 'onaylayan_id', NULL,
+                 'onay_tarihi', NULL,
+                 'onay_notu', NULL,
+                 'created_at', now()
+               )
+          )).*
+          FROM saha_teklif_kalem k
+          WHERE k.teklif_id = $1
+        `, [m[1], _yeniId]);
+        await query(`INSERT INTO saha_teklif_log (teklif_id,alan,eski_deger,yeni_deger,degistiren_kullanici) VALUES ($1,$2,$3,$4,$5)`,
+          [_yeniId, 'Revize (kaynak)', `${eski.durum} · ${String(m[1]).slice(-6)}`, `Rev.${_revNo} yeni taslak`, session.userId]);
+        await query(`INSERT INTO saha_teklif_log (teklif_id,alan,eski_deger,yeni_deger,degistiren_kullanici) VALUES ($1,$2,$3,$4,$5)`,
+          [m[1], 'Revize edildi', eski.durum, `Rev.${_revNo} taslağı oluşturuldu (${String(_yeniId).slice(-6)})`, session.userId]);
+        sendJson(response, 200, { teklif: _yeni.rows[0], revizyon_no: _revNo, kaynak_id: m[1] });
+        return;
       } else {
         // ── Düzenleme: sadece TASLAK teklifler düzenlenebilir ──
         if (eski.durum !== "TASLAK") {
@@ -30814,6 +35143,97 @@ async function handleSahaApi(request, response, url, deps) {
     }
 
     // ── Eşleştirilmemiş liste: öneri bile olmayan saha_musteri kayıtları ──
+    // KIMLIK_BULK_V1 — rep self-service toplu VKN/TC backfill (kapsam-duyarli)
+    if (method === "GET" && path === "/api/saha/kimlik/eslesmemis-export") {
+      const session = await requireSahaAccess(request);
+      const p = [session.tenantId];
+      let scopeF = "";
+      if (session.sahaRole === "rep") { p.push(session.userId); scopeF = " AND sm.sorumlu_rep::text=$" + p.length + "::text"; }
+      else { scopeF = _sahaScopeSql(session, p, "sm"); }
+      const r = await query(
+        "SELECT sm.id::text AS saha_id, sm.firma, COALESCE(sm.il,'') AS il, COALESCE(sm.ilce,'') AS ilce, COALESCE(u.full_name,'') AS sorumlu, COALESCE(sm.vergi_no,'') AS vkn, COALESCE(sm.tc_no,'') AS tc " +
+        "FROM saha_musteri sm LEFT JOIN users u ON u.id=sm.sorumlu_rep " +
+        "WHERE sm.tenant_id=$1 AND sm.aktif=true AND sm.musteri_kodu IS NULL" + scopeF + " ORDER BY sm.firma", p);
+      const satirlar = r.rows.map(x => ({ saha_id: x.saha_id, Firma: x.firma, Il: x.il, Ilce: x.ilce, Sorumlu: x.sorumlu, VKN: x.vkn, TC: x.tc }));
+      if (!satirlar.length) satirlar.push({ saha_id: "", Firma: "", Il: "", Ilce: "", Sorumlu: "", VKN: "", TC: "" });
+      const ws = XLSX.utils.json_to_sheet(satirlar, { header: ["saha_id","Firma","Il","Ilce","Sorumlu","VKN","TC"] });
+      ws["!cols"] = [{ wch:38 },{ wch:34 },{ wch:12 },{ wch:14 },{ wch:20 },{ wch:16 },{ wch:14 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Eslesmemis");
+      const buffer = XLSX.write(wb, { bookType: "xlsx", type: "buffer" });
+      response.writeHead(200, {
+        "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": 'attachment; filename="eslesmemis-vkn-doldur.xlsx"',
+        "Cache-Control": "no-store"
+      });
+      response.end(buffer);
+      return;
+    }
+
+    if (method === "POST" && path === "/api/saha/kimlik/vkn-backfill") {  /* KIMLIK_BULK_V1 */
+      const session = await requireSahaAccess(request);
+      const body = await readJson(request);
+      const apply = body.apply === true;
+      const dg = v => String(v == null ? "" : v).split("").filter(c => c >= "0" && c <= "9").join("");
+      const isUuid = v => /^[0-9a-f-]{36}$/i.test(v);
+      let ham;
+      try {
+        const buffer = Buffer.from(String(body.fileBase64 || ""), "base64");
+        const wb = XLSX.read(buffer, { type: "buffer", cellFormula: false, cellStyles: false, cellHTML: false });
+        ham = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "" });
+      } catch (e) { sendJson(response, 400, { error: "Excel okunamadi: " + (e && e.message) }); return; }
+      const items = [];
+      for (const row of ham) {
+        const sid = String(row.saha_id || row.SAHA_ID || row.Saha_id || "").trim();
+        if (!isUuid(sid)) continue;
+        const vkn = dg(row.VKN != null ? row.VKN : row.vkn);
+        const tc = dg(row.TC != null ? row.TC : row.tc);
+        if (!vkn && !tc) continue;
+        items.push({ sid, vkn, tc });
+      }
+      const sonuc = { girilen: items.length, eslesir: 0, belirsiz: 0, erp_yok: 0, zaten_kodlu: 0, kapsam_disi: 0, atlanan: ham.length - items.length, ornekler: [] };
+      if (!items.length) { sendJson(response, 200, Object.assign(sonuc, { apply })); return; }
+      const ids = items.map(x => x.sid);
+      const pv = [session.tenantId, ids];
+      let scopeF2 = "";
+      if (session.sahaRole === "rep") { pv.push(session.userId); scopeF2 = " AND sm.sorumlu_rep::text=$" + pv.length + "::text"; }
+      else { scopeF2 = _sahaScopeSql(session, pv, "sm"); }
+      const own = await query("SELECT sm.id::text AS id, sm.firma, sm.musteri_kodu FROM saha_musteri sm WHERE sm.tenant_id=$1 AND sm.id=ANY($2::uuid[]) AND sm.aktif=true" + scopeF2, pv);
+      const ownMap = new Map(own.rows.map(x => [x.id, x]));
+      const uygula = [], yalniz = [];
+      for (const it of items) {
+        const row = ownMap.get(it.sid);
+        if (!row) { sonuc.kapsam_disi++; continue; }
+        if (row.musteri_kodu) { sonuc.zaten_kodlu++; continue; }
+        const kim = [it.vkn, it.tc].filter(Boolean);
+        const mm = await query("SELECT DISTINCT musteri_kodu FROM master_musteri WHERE tenant_id::text=$1::text AND (vergi_no=ANY($2::text[]) OR tc_no=ANY($2::text[]))", [session.tenantId, kim]);
+        const kodlar = mm.rows.map(x => x.musteri_kodu).filter(Boolean);
+        if (kodlar.length === 0) { sonuc.erp_yok++; yalniz.push(it); if (sonuc.ornekler.length < 25) sonuc.ornekler.push({ firma: row.firma, no: it.vkn || it.tc, durum: "ERP'de yok" }); continue; }
+        if (kodlar.length > 1) { sonuc.belirsiz++; yalniz.push(it); if (sonuc.ornekler.length < 25) sonuc.ornekler.push({ firma: row.firma, no: it.vkn || it.tc, durum: "belirsiz (" + kodlar.length + " kod)" }); continue; }
+        const kod = kodlar[0];
+        const g = await query("SELECT 1 FROM saha_kimlik_duzeltme d WHERE d.saha_id=$1 AND d.faz IN ('AYIR','AYIR2','REDDET') AND d.eski_musteri_kodu=$2 LIMIT 1", [it.sid, kod]);
+        if (g.rowCount) { sonuc.belirsiz++; yalniz.push(it); if (sonuc.ornekler.length < 25) sonuc.ornekler.push({ firma: row.firma, no: it.vkn || it.tc, durum: "insan reddetti — baglanmadi" }); continue; }
+        sonuc.eslesir++; uygula.push({ sid: it.sid, vkn: it.vkn, tc: it.tc, kod, firma: row.firma });
+        if (sonuc.ornekler.length < 25) sonuc.ornekler.push({ firma: row.firma, no: it.vkn || it.tc, durum: "baglanacak -> " + kod });
+      }
+      if (!apply) { sendJson(response, 200, Object.assign(sonuc, { apply: false })); return; }
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        for (const u of uygula) {
+          await client.query("UPDATE saha_musteri SET musteri_kodu=$3, vergi_no=COALESCE(NULLIF($4,''),vergi_no), tc_no=COALESCE(NULLIF($5,''),tc_no), updated_at=now() WHERE tenant_id=$1 AND id=$2 AND musteri_kodu IS NULL", [session.tenantId, u.sid, u.kod, u.vkn, u.tc]);
+          await client.query("INSERT INTO saha_kimlik_duzeltme (faz,saha_id,eski_musteri_kodu,eski_aktif,yeni_musteri_kodu,yeni_aktif,eski_vergi_no,eski_tc_no,saha_firma,gerekce) VALUES ('ESLESTIR',$1,NULL,true,$2,true,$3,$4,$5,$6)", [u.sid, u.kod, u.vkn || null, u.tc || null, u.firma, "excel backfill rep=" + session.userId]);
+        }
+        for (const y of yalniz) {
+          await client.query("UPDATE saha_musteri SET vergi_no=COALESCE(NULLIF($3,''),vergi_no), tc_no=COALESCE(NULLIF($4,''),tc_no), updated_at=now() WHERE tenant_id=$1 AND id=$2 AND musteri_kodu IS NULL", [session.tenantId, y.sid, y.vkn, y.tc]);
+        }
+        await client.query("COMMIT");
+      } catch (e) { await client.query("ROLLBACK").catch(() => {}); client.release(); sendJson(response, 500, { error: "Uygulama hatasi: " + (e && e.message) }); return; }
+      client.release();
+      sendJson(response, 200, Object.assign(sonuc, { apply: true, uygulanan: uygula.length, kimlik_yazilan: yalniz.length }));
+      return;
+    }
+
     if (method === "GET" && path === "/api/saha/eslestirilmemis") {
       const session = await requireSahaAccess(request, ["manager", "admin"]);
       const q = (url.searchParams.get("q") || "").trim();
@@ -31033,14 +35453,14 @@ async function handleSahaApi(request, response, url, deps) {
       const r = await pool.query(
         `SELECT m.id, m.firma, m.il, m.ilce, m.notlar,
                 (SELECT count(*) FROM saha_ziyaret z WHERE z.musteri_id=m.id) AS ziyaret_sayisi,
-                c.firma AS oneri_firma, c.il AS oneri_il,
+                c.id AS oneri_id, c.kayit_kaynagi AS oneri_kaynak, c.firma AS oneri_firma, c.il AS oneri_il, /* KONTROL_ONERI_ID_V1 */
                 round(similarity(m.firma, c.firma)::numeric, 2) AS oneri_skor
            FROM saha_musteri m
            LEFT JOIN LATERAL (
-             SELECT x.firma, x.il
+             SELECT x.id, x.firma, x.il, x.kayit_kaynagi
                FROM saha_musteri x
               WHERE x.tenant_id=m.tenant_id AND x.aktif=true AND x.id<>m.id
-                AND x.kayit_kaynagi<>'EXCEL_IMPORT_KONTROL'
+                AND similarity(m.firma, x.firma) >= 0.4 /* KONTROL_FIX_V1: çöp eşik + kardeş şube görünür */
               ORDER BY similarity(m.firma, x.firma) DESC
               LIMIT 1
            ) c ON true
@@ -31196,6 +35616,14 @@ async function handleSahaApi(request, response, url, deps) {
         sendJson(response, 400, { error: "Geçerli ids gerekli." }); return;
       }
       // musteri_kodu null'a çek — ERP bağlantısı kaldırılır
+      // KIMLIK_AUTOLINK_GUARD_V1 — reddi kalici kil: eski kodu logla ki batch geri baglamasin
+      await query(
+        `INSERT INTO saha_kimlik_duzeltme (faz, saha_id, eski_musteri_kodu, eski_aktif, yeni_musteri_kodu, yeni_aktif, eski_vergi_no, eski_tc_no, saha_firma, gerekce)
+         SELECT 'REDDET', sm.id, sm.musteri_kodu, sm.aktif, NULL, sm.aktif, sm.vergi_no, sm.tc_no, sm.firma, 'app mukerrer-reddet: autolink guard'
+           FROM saha_musteri sm
+          WHERE sm.tenant_id = $1 AND sm.id = ANY($2::uuid[]) AND sm.musteri_kodu IS NOT NULL`,
+        [session.tenantId, ids]
+      );
       await query(
         `UPDATE saha_musteri SET musteri_kodu = NULL, updated_at = now()
          WHERE tenant_id = $1 AND id = ANY($2::uuid[]) AND aktif = true`,
@@ -31363,12 +35791,12 @@ async function handleSahaApi(request, response, url, deps) {
       const tip = url.searchParams.get("tip");
       const params = [session.tenantId, from, to];
       let tipSql = "";
-      if (tip) { params.push(tip); tipSql = ` AND z.tip = $${params.length}`; }
+      if (tip) { params.push(tip); tipSql = ` AND m.tip = $${params.length}`; }  /* RAPOR_R2B_OZET: Kural 2 musteri segmenti m.tip */
       let repSql = "";
       if (session.sahaRole === "rep") { params.push(session.userId); repSql = ` AND z.rep_id = $${params.length}`; }
       const result = await query(`
         SELECT COUNT(*) FILTER (WHERE z.durum = 'TAMAMLANDI') AS toplam_ziyaret,
-               COUNT(DISTINCT z.musteri_id) FILTER (WHERE z.durum = 'TAMAMLANDI') AS benzersiz_nokta,
+               COUNT(DISTINCT z.musteri_id) FILTER (WHERE z.durum = 'TAMAMLANDI' AND m.aktif = true) AS benzersiz_nokta,  /* RAPOR_R2B_OZET: kapsam payi aktif ile sinirli (>100% engeli) */
                COUNT(*) FILTER (WHERE z.durum = 'PLANLANDI') AS planlanan,
                COUNT(*) FILTER (WHERE z.durum = 'TAMAMLANDI' AND m.durum = 'YENI_NOKTA') AS yeni_nokta,
                COUNT(*) FILTER (WHERE z.durum = 'TAMAMLANDI' AND m.durum IN ('PASIF_NOKTA','ESKI_NOKTA','RISKLI_NOKTA')) AS pasif_riskli
@@ -31379,12 +35807,20 @@ async function handleSahaApi(request, response, url, deps) {
       const gunluk = await query(`
         SELECT COALESCE(z.ziyaret_tarihi, z.planlanan_tarih) AS tarih,
                COUNT(*) FILTER (WHERE z.durum = 'TAMAMLANDI') AS ziyaret
-        FROM saha_ziyaret z
+        FROM saha_ziyaret z LEFT JOIN saha_musteri m ON m.id = z.musteri_id  /* RAPOR_R2B_OZET */
         WHERE z.tenant_id = $1 AND COALESCE(z.ziyaret_tarihi, z.planlanan_tarih) BETWEEN $2 AND $3
           ${tipSql}${repSql}
         GROUP BY 1 ORDER BY 1
       `, params);
-      sendJson(response, 200, { ozet: result.rows[0], gunluk: gunluk.rows });
+      let portfoy = 0;  /* RAPOR_COVERAGE_V1: kapsam paydasi */
+      try {
+        let pfSql = `SELECT count(*)::int AS n FROM saha_musteri_kanon m WHERE m.tenant_id::text=$1::text`;  /* RAPOR_R2B_OZET: Kural 3 payda kanon view (aktif=true) */
+        const pfP = [session.tenantId];
+        if (tip) { pfP.push(tip); pfSql += ` AND m.tip=$${pfP.length}`; }
+        if (session.sahaRole === "rep") { pfP.push(session.userId); pfSql += ` AND m.sorumlu_rep::text=$${pfP.length}::text`; }  /* RAPOR_R2B_OZET */
+        portfoy = (await query(pfSql, pfP)).rows[0].n;
+      } catch (e) {}
+      sendJson(response, 200, { ozet: { ...result.rows[0], portfoy }, gunluk: gunluk.rows });
       return;
     }
 
@@ -31442,29 +35878,848 @@ async function handleSahaApi(request, response, url, deps) {
       return;
     }
 
+    if (method === "GET" && path === "/api/saha/rapor/ziyaret-ciro") {  /* ZIYARET_CIRO_V1 */
+      const session = await requireSahaDept(request, "ciro");  /* IZIN_SAHADEPT_V1 */
+      const from = url.searchParams.get("from") || "1900-01-01";
+      const to   = url.searchParams.get("to")   || "2999-12-31";
+      const tip  = url.searchParams.get("tip");
+      const tipOk = tip && ["TUKETICI", "TICARI"].includes(tip);
+      if (session.sahaRole === "rep") {
+        const p = [session.tenantId, from, to, session.userId];
+        let tipSql = "";
+        if (tipOk) { p.push(tip); tipSql = ` AND m.tip=$${p.length}`; }
+        const r = await query(`
+          WITH vis AS (
+            SELECT z.musteri_id, COUNT(*) ziyaret
+              FROM saha_ziyaret z
+             WHERE z.tenant_id=$1 AND z.durum='TAMAMLANDI' AND z.ziyaret_tarihi BETWEEN $2 AND $3 AND z.rep_id=$4
+             GROUP BY z.musteri_id
+          )
+          SELECT m.id, m.firma, m.tip, m.musteri_kodu, v.ziyaret,
+                 COALESCE((SELECT SUM(f.satir_tutar) FROM bi_satis_faturalari f
+                            WHERE f.tenant_id::text=$1::text AND f.musteri_kodu=m.musteri_kodu
+                              AND f.fatura_tarihi BETWEEN $2 AND $3),0)::numeric AS ciro
+            FROM vis v JOIN saha_musteri m ON m.id=v.musteri_id
+           WHERE 1=1${tipSql}
+           ORDER BY ciro DESC, v.ziyaret DESC`, p);
+        let ziyaret = 0, ciro = 0, eslesen = 0, alan = 0;
+        for (const x of r.rows) { ziyaret += Number(x.ziyaret) || 0; ciro += Number(x.ciro) || 0; if (x.musteri_kodu) { eslesen++; if (Number(x.ciro) > 0) alan++; } }
+        const benzersiz = r.rows.length;
+        sendJson(response, 200, { rol: "rep", ozet: {
+          ziyaret, benzersiz, eslesen, eslesmemis: benzersiz - eslesen, ciro,
+          ciro_ziyaret: ziyaret ? Math.round(ciro / ziyaret) : 0,
+          alan, donusum: eslesen ? Math.round(1000 * alan / eslesen) / 10 : null
+        }, musteriler: r.rows });
+        return;
+      }
+      // yönetici — ekip matrisi
+      const p = [session.tenantId, from, to];
+      let tipSql = "", portTip = "";
+      if (tipOk) { p.push(tip); tipSql = ` AND m.tip=$${p.length}`; portTip = ` AND tip=$${p.length}`; }
+      const r = await query(`
+        WITH vis AS (
+          SELECT z.rep_id, z.musteri_id, COUNT(*) ziyaret
+            FROM saha_ziyaret z
+           WHERE z.tenant_id=$1 AND z.durum='TAMAMLANDI' AND z.ziyaret_tarihi BETWEEN $2 AND $3
+           GROUP BY z.rep_id, z.musteri_id
+        ),
+        enr AS (
+          SELECT v.rep_id, v.ziyaret, m.musteri_kodu, m.tip,  /* CIRO_SEG_SRV_V1 */
+                 COALESCE((SELECT SUM(f.satir_tutar) FROM bi_satis_faturalari f
+                            WHERE f.tenant_id::text=$1::text AND f.musteri_kodu=m.musteri_kodu
+                              AND f.fatura_tarihi BETWEEN $2 AND $3),0)::numeric ciro
+            FROM vis v JOIN saha_musteri m ON m.id=v.musteri_id
+           WHERE 1=1${tipSql}
+        ),
+        port AS (
+          SELECT sorumlu_rep rep_id, COUNT(*) portfoy FROM saha_musteri_kanon
+           WHERE tenant_id::text=$1::text${portTip} GROUP BY sorumlu_rep  /* RAPOR_R2B_CIRO: kanon aktif portfoy (Kural 3) */
+        )
+        SELECT COALESCE(u.full_name, u.email, 'Bilinmiyor') rep, e.rep_id,
+               SUM(e.ziyaret)::int ziyaret, COUNT(*)::int benzersiz,
+               COUNT(*) FILTER (WHERE e.musteri_kodu IS NOT NULL)::int eslesen,
+               COUNT(*) FILTER (WHERE e.ciro>0)::int alan,
+               SUM(e.ciro)::numeric ciro, MAX(pt.portfoy)::int portfoy,
+               SUM(e.ziyaret) FILTER (WHERE e.tip='TUKETICI')::int tuketici_z,  /* CIRO_SEG_SRV_V1 */
+               SUM(e.ziyaret) FILTER (WHERE e.tip='TICARI')::int ticari_z,
+               (SELECT tum.permissions_json->>'saha_tip' FROM tenant_user_modules tum
+                  WHERE tum.user_id=e.rep_id AND tum.tenant_id=$1 AND tum.module_id='saha' LIMIT 1) AS saha_tip
+          FROM enr e LEFT JOIN users u ON u.id=e.rep_id LEFT JOIN port pt ON pt.rep_id=e.rep_id
+         GROUP BY e.rep_id, u.full_name, u.email
+         ORDER BY ciro DESC NULLS LAST`, p);
+      const repler = r.rows.map((x) => {
+        const ziyaret = Number(x.ziyaret) || 0, ciro = Number(x.ciro) || 0, benzersiz = Number(x.benzersiz) || 0, eslesen = Number(x.eslesen) || 0, alan = Number(x.alan) || 0, portfoy = Number(x.portfoy) || 0;
+        return { rep: x.rep, rep_id: x.rep_id, ziyaret, benzersiz, eslesen, ciro,
+                 saha_tip: x.saha_tip, tuketici_z: Number(x.tuketici_z) || 0, ticari_z: Number(x.ticari_z) || 0,  /* CIRO_SEG_SRV_V1 */
+                 kapsam: portfoy ? Math.round(1000 * benzersiz / portfoy) / 10 : null,
+                 ciro_ziyaret: ziyaret ? Math.round(ciro / ziyaret) : 0,
+                 donusum: eslesen ? Math.round(1000 * alan / eslesen) / 10 : null };
+      });
+      /* RAPOR_R1A — yonetici "Toplam etki ciro": rep satirlarini toplamak ortak musteriyi MUKERRER sayar (gercegi asar). Distinct-musteri gercek toplam. */
+      const _tq = await query(`
+        WITH vis AS (SELECT DISTINCT z.musteri_id FROM saha_ziyaret z WHERE z.tenant_id=$1 AND z.durum='TAMAMLANDI' AND z.ziyaret_tarihi BETWEEN $2 AND $3),
+             cust AS (SELECT DISTINCT m.musteri_kodu FROM vis v JOIN saha_musteri m ON m.id=v.musteri_id WHERE m.musteri_kodu IS NOT NULL${tipSql})
+        SELECT COALESCE(SUM((SELECT SUM(f.satir_tutar) FROM bi_satis_faturalari f WHERE f.tenant_id::text=$1::text AND f.musteri_kodu=c.musteri_kodu AND f.fatura_tarihi BETWEEN $2 AND $3)),0)::numeric total,
+               COUNT(*)::int musteri FROM cust c`, p);
+      const toplam_etki_ciro = Number(_tq.rows[0] && _tq.rows[0].total) || 0, toplam_musteri = Number(_tq.rows[0] && _tq.rows[0].musteri) || 0;
+      sendJson(response, 200, { rol: "yonetici", repler, toplam_etki_ciro, toplam_musteri });
+      return;
+    }
+
+    if (method === "GET" && path === "/api/saha/rapor/risk-saha") {  /* RISK_SAHA_V1 */
+      const session = await requireSahaDept(request, "risk");  /* IZIN_SAHADEPT_V1 */
+      const tip = url.searchParams.get("tip");
+      const tipOk = tip && ["TUKETICI", "TICARI"].includes(tip);
+      const p = [session.tenantId];
+      let tipSql = "";
+      if (tipOk) { p.push(tip); tipSql = ` AND m.tip=$${p.length}`; }
+      let repSql = "";
+      if (session.sahaRole === "rep") { p.push(session.userId); repSql = ` AND m.sorumlu_rep=$${p.length}`; }
+      const r = await query(`
+        WITH risk AS (  /* NET_GECIKMIS_RISKSAHA_V1 brut->net; limit son-export */
+          SELECT r.muhatap_kodu,
+                 COALESCE(g.net_gecikmis,0)::numeric AS vadesi_gecmis,
+                 r.limit_asimi
+            FROM (SELECT muhatap_kodu, MAX(COALESCE(limit_asimi, 0))::numeric AS limit_asimi
+                    FROM bi_musteri_risk
+                   WHERE tenant_id::text = $1::text AND COALESCE(musteri_mi, true) = true
+                   GROUP BY muhatap_kodu) r
+            JOIN v_net_gecikmis_musteri g ON g.muhatap_kodu = r.muhatap_kodu AND g.tenant_id::text = $1::text
+           WHERE g.net_gecikmis > 0
+        )
+        SELECT m.id, m.firma, m.tip, m.musteri_kodu,
+               rk.vadesi_gecmis AS overdue,
+               (rk.limit_asimi > 0) AS limit_asan,
+               COALESCE(u.full_name, u.email, 'Atanmamış') AS rep, m.sorumlu_rep AS rep_id,
+               (SELECT tum.permissions_json->>'saha_tip' FROM tenant_user_modules tum
+                  WHERE tum.user_id = m.sorumlu_rep AND tum.tenant_id = m.tenant_id AND tum.module_id = 'saha' LIMIT 1) AS saha_tip,
+               (SELECT MAX(z.ziyaret_tarihi) FROM saha_ziyaret z
+                  WHERE z.tenant_id = m.tenant_id AND z.musteri_id = m.id AND z.durum = 'TAMAMLANDI') AS son_ziyaret
+          FROM saha_musteri m
+          JOIN risk rk ON rk.muhatap_kodu = m.musteri_kodu
+          LEFT JOIN users u ON u.id = m.sorumlu_rep
+         WHERE m.tenant_id::text = $1::text AND m.aktif = true AND m.musteri_kodu IS NOT NULL${tipSql}${repSql}  /* RISK_SAHA_FIX1 */
+         ORDER BY rk.vadesi_gecmis DESC`, p);
+      const now = Date.now();
+      const musteriler = r.rows.map((x) => {
+        let gun = null;
+        if (x.son_ziyaret) { const dd = new Date(x.son_ziyaret); if (!isNaN(dd)) gun = Math.max(0, Math.floor((now - dd.getTime()) / 86400000)); }
+        return { id: x.id, firma: x.firma, tip: x.tip, musteri_kodu: x.musteri_kodu,
+                 overdue: Number(x.overdue) || 0, limit: x.limit_asan ? 1 : 0,
+                 rep: x.rep, rep_id: x.rep_id, saha_tip: x.saha_tip, gun };
+      });
+      sendJson(response, 200, { rol: session.sahaRole === "rep" ? "rep" : "yonetici", musteriler });
+      return;
+    }
+
+    if (method === "GET" && path === "/api/saha/rapor/sabah-rotam") {  /* SABAH_ROTAM_V1 */
+      const session = await requireSahaDept(request, "rotam");  /* IZIN_SAHADEPT_V1 */
+      const tid = session.tenantId, uid = session.userId;
+      if (session.sahaRole !== "rep" || session.moduleRole === "viewer") {  /* SABAH_ROTAM_MGR_V1 SABAH_ROTAM_VIEWER_V1 SABAH_ROTAM_VIEWER_V2 — rep dışı + viewer → pano */
+        const vc = await query(`SELECT rep_id::text rid,
+                 COUNT(*) FILTER (WHERE durum='PLANLANDI' AND COALESCE(ziyaret_tarihi, planlanan_tarih)=CURRENT_DATE)::int plan,  /* RAPOR_R1A */
+                 COUNT(*) FILTER (WHERE durum='TAMAMLANDI' AND ziyaret_tarihi=CURRENT_DATE)::int yapilan
+            FROM saha_ziyaret WHERE tenant_id::text=$1::text AND rep_id IS NOT NULL GROUP BY rep_id`, [tid]);
+        const rp = await query(`SELECT u.id::text rid, COALESCE(u.full_name, u.email, '—') ad,
+                 (SELECT tum.permissions_json->>'saha_tip' FROM tenant_user_modules tum WHERE tum.user_id=u.id AND tum.tenant_id::text=$1::text AND tum.module_id='saha' LIMIT 1) saha_tip
+            FROM users u WHERE u.id IN (SELECT DISTINCT sorumlu_rep FROM saha_musteri WHERE tenant_id::text=$1::text AND aktif=true AND sorumlu_rep IS NOT NULL)`, [tid]);
+        const _cp = [tid]; const _cuScope = _sahaScopeSql(session, _cp, "m");  /* RAPOR_R1A — yonetici veri kapsami */
+        const cu = await query(`
+          WITH risk AS (SELECT muhatap_kodu, net_gecikmis::numeric vg FROM v_net_gecikmis_musteri WHERE tenant_id::text=$1::text AND net_gecikmis>0),  /* NET_GECIKMIS_ROTAM_V1 */
+               ciro AS (SELECT musteri_id, ciro_12ay yil FROM saha_musteri_kanon WHERE tenant_id::text=$1::text),  /* RAPOR_R2B_ROTAM: kanon ciro_12ay */
+               son AS (SELECT musteri_id, son_ziyaret mx FROM saha_musteri_kanon WHERE tenant_id::text=$1::text),  /* RAPOR_R2B_ROTAM: kanon son_ziyaret */
+               tek AS (SELECT musteri_id, COUNT(*) c FROM saha_teklif WHERE tenant_id::text=$1::text AND COALESCE(durum,'') NOT IN ('KAZANILDI','KAYBEDILDI','IPTAL','REDDEDILDI','KAPANDI') GROUP BY musteri_id),
+               plani AS (SELECT DISTINCT musteri_id FROM saha_ziyaret WHERE tenant_id::text=$1::text AND durum='PLANLANDI' AND COALESCE(ziyaret_tarihi, planlanan_tarih)=CURRENT_DATE)  /* RAPOR_R1A */
+          SELECT m.id::text id, m.firma, m.il, m.ilce, m.sorumlu_rep::text rid,
+                 COALESCE(r.vg,0)::numeric overdue, COALESCE(c.yil,0)::numeric ciro, COALESCE(t.c,0)::int teklif, s.mx son,
+                 (p.musteri_id IS NOT NULL) planned_today
+            FROM saha_musteri m
+            LEFT JOIN risk r ON r.muhatap_kodu=m.musteri_kodu
+            LEFT JOIN ciro c ON c.musteri_id=m.id  /* RAPOR_R2B_ROTAM */
+            LEFT JOIN son s ON s.musteri_id=m.id
+            LEFT JOIN tek t ON t.musteri_id=m.id
+            LEFT JOIN plani p ON p.musteri_id=m.id
+           WHERE m.tenant_id::text=$1::text AND m.aktif=true AND m.musteri_kodu IS NOT NULL${_cuScope}`, _cp);  /* RAPOR_R1A */
+        const now = Date.now();
+        const skorOf = (overdue, gun, ciro, teklif) => {
+          const risk = Math.min(35, (overdue / 1e6) * 1.6), ihmal = Math.min(28, (gun === null ? 60 : gun) / 2.2), deger = Math.min(22, (ciro / 1e6) * 0.28), firsat = Math.min(15, teklif * 6);
+          return Math.round(risk + ihmal + deger + firsat);
+        };
+        const repMap = {}; for (const r of rp.rows) repMap[r.rid] = { ad: r.ad, saha_tip: r.saha_tip };
+        const vcMap = {}; for (const v of vc.rows) vcMap[v.rid] = { plan: v.plan || 0, yapilan: v.yapilan || 0 };
+        const ekipMap = {};
+        for (const rid in repMap) ekipMap[rid] = { rid, oneri: 0, skip: null };
+        const kritik = [];
+        for (const x of cu.rows) {
+          let gun = null; if (x.son) { const d = new Date(x.son); if (!isNaN(d)) gun = Math.max(0, Math.floor((now - d.getTime()) / 86400000)); }
+          const overdue = Number(x.overdue) || 0, ciro = Number(x.ciro) || 0, teklif = Number(x.teklif) || 0;
+          const skor = skorOf(overdue, gun, ciro, teklif);
+          const rid = x.rid;
+          if (rid) { const e = ekipMap[rid] || (ekipMap[rid] = { rid, oneri: 0, skip: null }); if (skor >= 40) e.oneri++; if (!x.planned_today && (!e.skip || skor > e.skip.s)) e.skip = { f: x.firma, s: skor, id: x.id }; }
+          if (skor >= 55 && !x.planned_today) kritik.push({ id: x.id, firma: x.firma, il: x.il, ilce: x.ilce, skor, rid, overdue, gun });
+        }
+        kritik.sort((a, b) => b.skor - a.skor);
+        const kritikTop = kritik.slice(0, 12).map((k) => ({ id: k.id, firma: k.firma, il: k.il, ilce: k.ilce, skor: k.skor, overdue: k.overdue, gun: k.gun, rep: k.rid ? (repMap[k.rid] ? repMap[k.rid].ad : null) : null }));
+        const ekip = Object.values(ekipMap).map((e) => { const r = repMap[e.rid] || {}, v = vcMap[e.rid] || {}; return { rep: r.ad || "—", rep_id: e.rid, saha_tip: r.saha_tip || null, plan: v.plan || 0, yapilan: v.yapilan || 0, oneri: e.oneri, skip: e.skip }; })
+          .sort((a, b) => ((b.skip ? b.skip.s : 0) - (a.skip ? a.skip.s : 0)));
+        const toplam = { plan: ekip.reduce((s2, e) => s2 + e.plan, 0), yapilan: ekip.reduce((s2, e) => s2 + e.yapilan, 0), oneri: ekip.reduce((s2, e) => s2 + e.oneri, 0), kritik: kritik.length, sahipsiz: kritik.filter((k) => !k.rid).length };
+        sendJson(response, 200, { rol: "yonetici", toplam, ekip, kritik: kritikTop });
+        return;
+      }
+      const bs = await query(`SELECT lat, lng, ad, kaynak FROM saha_rep_baslangic WHERE tenant_id::text=$1::text AND rep_id::text=$2::text LIMIT 1`, [tid, uid]);
+      const sg = await query(`SELECT checkin_lat AS lat, checkin_lng AS lng FROM saha_ziyaret WHERE tenant_id::text=$1::text AND rep_id::text=$2::text AND checkin_lat IS NOT NULL ORDER BY ziyaret_tarihi DESC NULLS LAST LIMIT 1`, [tid, uid]);
+      const r = await query(`
+        WITH risk AS (
+          SELECT muhatap_kodu, net_gecikmis::numeric vg  /* NET_GECIKMIS_ROTAM_V2 */
+            FROM v_net_gecikmis_musteri WHERE tenant_id::text=$1::text AND net_gecikmis > 0
+        )
+        SELECT m.id, m.firma, m.tip, m.il, m.ilce, m.musteri_kodu, m.telefon,
+               COALESCE(m.lat, (SELECT z.checkin_lat FROM saha_ziyaret z WHERE z.musteri_id=m.id AND z.checkin_lat IS NOT NULL ORDER BY z.ziyaret_tarihi DESC LIMIT 1)) AS lat,
+               COALESCE(m.lng, (SELECT z.checkin_lng FROM saha_ziyaret z WHERE z.musteri_id=m.id AND z.checkin_lng IS NOT NULL ORDER BY z.ziyaret_tarihi DESC LIMIT 1)) AS lng,
+               COALESCE((SELECT rk.vg FROM risk rk WHERE rk.muhatap_kodu=m.musteri_kodu), 0)::numeric AS overdue,
+               (SELECT k.son_ziyaret FROM saha_musteri_kanon k WHERE k.tenant_id::text=$1::text AND k.musteri_id=m.id) AS son_ziyaret,  /* RAPOR_R2B_ROTAM */
+               COALESCE((SELECT k.ciro_12ay FROM saha_musteri_kanon k WHERE k.tenant_id::text=$1::text AND k.musteri_id=m.id), 0)::numeric AS ciro,  /* RAPOR_R2B_ROTAM */
+               COALESCE((SELECT COUNT(*) FROM saha_teklif t WHERE t.tenant_id::text=$1::text AND t.musteri_id=m.id AND COALESCE(t.durum,'') NOT IN ('KAZANILDI','KAYBEDILDI','IPTAL','REDDEDILDI','KAPANDI')), 0)::int AS teklif,
+               (SELECT MIN(COALESCE(z.ziyaret_tarihi, z.planlanan_tarih)) FROM saha_ziyaret z WHERE z.tenant_id::text=$1::text AND z.musteri_id=m.id AND z.rep_id::text=$2::text AND z.durum='PLANLANDI' AND COALESCE(z.ziyaret_tarihi, z.planlanan_tarih) >= CURRENT_DATE) AS plan_tarihi  /* RAPOR_R1A */
+          FROM saha_musteri m
+         WHERE m.tenant_id::text=$1::text AND m.aktif=true AND m.sorumlu_rep::text=$2::text AND m.musteri_kodu IS NOT NULL`, [tid, uid]);
+      const now = Date.now();
+      const bugunStr = new Date(now).toISOString().slice(0, 10);
+      const duraklar = r.rows.map((x) => {
+        let gun = null;
+        if (x.son_ziyaret) { const d = new Date(x.son_ziyaret); if (!isNaN(d)) gun = Math.max(0, Math.floor((now - d.getTime()) / 86400000)); }
+        const overdue = Number(x.overdue) || 0, ciro = Number(x.ciro) || 0, teklif = Number(x.teklif) || 0;
+        const risk = Math.min(35, (overdue / 1e6) * 1.6), ihmal = Math.min(28, (gun === null ? 60 : gun) / 2.2), deger = Math.min(22, (ciro / 1e6) * 0.28), firsat = Math.min(15, teklif * 6);
+        const planBugun = x.plan_tarihi ? (new Date(x.plan_tarihi).toISOString().slice(0, 10) === bugunStr) : false;
+        return { id: x.id, firma: x.firma, tip: x.tip, il: x.il, ilce: x.ilce, telefon: x.telefon || null,
+                 lat: x.lat != null ? Number(x.lat) : null, lng: x.lng != null ? Number(x.lng) : null,
+                 overdue, ciro, teklif, gun, skor: Math.round(risk + ihmal + deger + firsat),
+                 plan_tarihi: x.plan_tarihi || null, plan_bugun: planBugun };
+      });
+      sendJson(response, 200, { rol: "rep", baslangic: bs.rows[0] || null, oneri_baslangic: sg.rows[0] || null, duraklar });
+      return;
+    }
+
+    if (method === "POST" && path === "/api/saha/rep-baslangic") {  /* SABAH_ROTAM_V1 */
+      const session = await requireSahaAccess(request);
+      let raw = ""; for await (const ch of request) raw += ch;
+      let body = {}; try { body = raw ? JSON.parse(raw) : {}; } catch (e) { sendJson(response, 400, { error: "gecersiz govde" }); return; }
+      const lat = Number(body.lat), lng = Number(body.lng);
+      if (!isFinite(lat) || !isFinite(lng)) { sendJson(response, 400, { error: "lat/lng gerekli" }); return; }
+      await query(`INSERT INTO saha_rep_baslangic (tenant_id, rep_id, lat, lng, ad, kaynak, updated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, now())
+        ON CONFLICT (tenant_id, rep_id) DO UPDATE SET lat=EXCLUDED.lat, lng=EXCLUDED.lng, ad=EXCLUDED.ad, kaynak=EXCLUDED.kaynak, updated_at=now()`,
+        [session.tenantId, session.userId, lat, lng, (body.ad || null), (body.kaynak || "checkin")]);
+      sendJson(response, 200, { ok: true, baslangic: { lat, lng, ad: body.ad || null, kaynak: body.kaynak || "checkin" } });
+      return;
+    }
+
+    if (method === "GET" && path === "/api/saha/rapor/portfoy") {  /* PORTFOY_V1 */
+      const session = await requireSahaAccess(request);
+      const tid = session.tenantId, uid = session.userId, rol = session.sahaRole;
+      const p = [tid];
+      let repF = "", tipF = "";
+      if (rol === "rep") { p.push(uid); repF = ` AND m.sorumlu_rep::text=$${p.length}::text`; }
+      else { repF = _sahaScopeSql(session, p, "m"); }  /* YETKI_FAZ3C — yonetici veri kapsami (kendi/bolge/bolum; tumu/admin -> filtre yok) */
+      const _tip = url.searchParams.get("tip");
+      if (_tip === "TUKETICI" || _tip === "TICARI") { p.push(_tip); tipF = ` AND m.tip=$${p.length}`; }
+      /* RAPOR_R2B_PORTFOY — kanon view (saha_musteri_kanon); ciro_12ay/son_ziyaret/saglik/ritim/recency tek tanim. Sayi ayni. */
+      const r = await query(`
+        SELECT m.musteri_id::text id, m.firma, m.il, m.ilce, m.tip, m.segment,
+               m.musteri_kodu, m.sorumlu_rep::text rid,
+               m.ciro_12ay ciro, m.ciro_12ay_tekil ciro_t, m.son_ziyaret son,  /* RAPOR_B2_DEDUP */
+               m.saglik durum, m.saglik_guven guven, m.ritim, m.recency_ay
+          FROM saha_musteri_kanon m
+         WHERE m.tenant_id::text=$1::text${repF}${tipF}`, p);
+      const nm = await query(`SELECT u.id::text id, COALESCE(u.full_name,u.email,'—') ad
+          FROM users u JOIN tenant_users tu ON tu.user_id=u.id WHERE tu.tenant_id::text=$1::text`, [tid]);
+      const nameMap = {}; for (const x of nm.rows) nameMap[x.id] = x.ad;
+      const now = Date.now();
+      const gunOf = (mx) => { if (!mx) return null; const d = new Date(mx); return isNaN(d) ? null : Math.max(0, Math.floor((now - d.getTime()) / 86400000)); };
+      const rows = r.rows;
+      const say = { aktif: 0, soguyor: 0, pasif: 0, alim_yok: 0 };
+      let riskCiro = 0, aktifCiro = 0;
+      const bandDefs = [["0-3 ay", 0, 3], ["3-6 ay", 3, 6], ["6-12 ay", 6, 12], ["12+ ay", 12, 100000]];
+      const band = {}; bandDefs.forEach(([k]) => band[k] = { etiket: k, n: 0, ciro: 0 });
+      const liste = [], repMap = {};
+      for (const x of rows) {
+        const d = x.durum || null, ciro = Number(x.ciro) || 0, ciroT = Number(x.ciro_t) || 0;  /* RAPOR_B2_DEDUP */
+        if (!d) { say.alim_yok++; continue; }
+        say[d] = (say[d] || 0) + 1;
+        if (d === "aktif") aktifCiro += ciroT; else riskCiro += ciroT;  /* RAPOR_B2_DEDUP */
+        const rc = Number(x.recency_ay);
+        if (Number.isFinite(rc)) { const bd = bandDefs.find(([, lo, hi]) => rc >= lo && rc < hi) || bandDefs[bandDefs.length - 1]; band[bd[0]].n++; band[bd[0]].ciro += ciroT;  /* RAPOR_B2_DEDUP */ }
+        if (d === "soguyor" || d === "pasif") {
+          liste.push({ id: x.id, firma: x.firma, il: x.il, tip: x.tip, segment: x.segment || null, ciro, gun: gunOf(x.son), durum: d, guven: x.guven, ritim: x.ritim != null ? Number(x.ritim) : null, recency: Number.isFinite(rc) ? rc : null, rep: x.rid ? (nameMap[x.rid] || null) : null, rep_id: x.rid || null });
+          if (rol !== "rep" && x.rid) { const g = repMap[x.rid] || (repMap[x.rid] = { rep_id: x.rid, rep: nameMap[x.rid] || "—", soguyor: 0, pasif: 0, risk_ciro: 0 }); g[d]++; g.risk_ciro += ciroT;  /* RAPOR_B2_DEDUP */ }
+        }
+      }
+      liste.sort((a, b) => b.ciro - a.ciro);
+      const temsilci = Object.values(repMap).sort((a, b) => b.risk_ciro - a.risk_ciro);
+      sendJson(response, 200, {
+        rol: rol === "rep" ? "rep" : "yonetici",
+        ozet: { toplam: rows.length, alimli: say.aktif + say.soguyor + say.pasif, aktif: say.aktif, soguyor: say.soguyor, pasif: say.pasif, alim_yok: say.alim_yok, risk_ciro: riskCiro, aktif_ciro: aktifCiro },
+        bantlar: bandDefs.map(([k]) => band[k]),
+        liste: liste.slice(0, 300), liste_toplam: liste.length,
+        temsilci
+      });
+      return;
+    }
+
+    if (method === "GET" && path === "/api/saha/rapor/ziyaret-analiz") {  /* ZIYARET_ANALIZ_V1 */
+      const session = await requireSahaAccess(request);
+      const tid = session.tenantId, uid = session.userId, rol = session.sahaRole;
+      const _dt = (k, def) => { const v = (url.searchParams.get(k) || "").slice(0, 10); return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : def; };
+      const to = _dt("to", new Date().toISOString().slice(0, 10));
+      const from = _dt("from", new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10));
+      function _scope(pp) { if (rol === "rep") { pp.push(uid); return " AND m.sorumlu_rep::text=$" + pp.length + "::text"; } return _sahaScopeSql(session, pp, "m"); }
+      const p1 = [tid, from, to]; const sc1 = _scope(p1);
+      const q1 = await query(`
+        SELECT z.musteri_id::text id, COUNT(*)::int vc, MAX(z.ziyaret_tarihi) son,
+               m.firma, COALESCE(m.il,'—') il, m.tip, m.sorumlu_rep::text rid, m.musteri_kodu,
+               COALESCE(c.yil,0)::numeric ciro
+          FROM saha_ziyaret z JOIN saha_musteri m ON m.id=z.musteri_id
+          LEFT JOIN (SELECT musteri_kodu, SUM(satir_tutar) yil FROM bi_satis_faturalari
+                      WHERE tenant_id::text=$1::text AND fatura_tarihi >= CURRENT_DATE - INTERVAL '365 days'
+                      GROUP BY musteri_kodu) c ON c.musteri_kodu=m.musteri_kodu
+         WHERE z.tenant_id::text=$1::text AND z.durum='TAMAMLANDI'
+           AND z.ziyaret_tarihi BETWEEN $2 AND $3 AND m.aktif=true${sc1}
+         GROUP BY z.musteri_id, m.firma, m.il, m.tip, m.sorumlu_rep, m.musteri_kodu, c.yil`, p1);
+      const p2 = [tid, from, to]; const sc2 = _scope(p2);
+      const q2 = await query(`
+        WITH firsts AS (SELECT musteri_id, MIN(ziyaret_tarihi) ilk FROM saha_ziyaret
+                         WHERE tenant_id::text=$1::text AND durum='TAMAMLANDI' GROUP BY musteri_id)
+        SELECT f.musteri_id::text id, f.ilk, m.firma, COALESCE(m.il,'—') il, m.sorumlu_rep::text rid
+          FROM firsts f JOIN saha_musteri m ON m.id=f.musteri_id
+         WHERE f.ilk BETWEEN $2 AND $3 AND m.aktif=true${sc2}
+         ORDER BY f.ilk DESC`, p2);
+      const p3 = [tid, from, to]; const sc3 = _scope(p3);
+      const q3 = await query(`
+        SELECT to_char(date_trunc('week', z.ziyaret_tarihi),'YYYY-MM-DD') w, COUNT(*)::int c
+          FROM saha_ziyaret z JOIN saha_musteri m ON m.id=z.musteri_id
+         WHERE z.tenant_id::text=$1::text AND z.durum='TAMAMLANDI'
+           AND z.ziyaret_tarihi BETWEEN $2 AND $3 AND m.aktif=true${sc3}
+         GROUP BY 1 ORDER BY 1`, p3);
+      const p4 = [tid, from, to]; const sc4 = _scope(p4);
+      const q4 = await query(`
+        WITH ord AS (
+          SELECT z.ziyaret_tarihi t,
+                 LAG(z.ziyaret_tarihi) OVER (PARTITION BY z.musteri_id ORDER BY z.ziyaret_tarihi) prev
+            FROM saha_ziyaret z JOIN saha_musteri m ON m.id=z.musteri_id
+           WHERE z.tenant_id::text=$1::text AND z.durum='TAMAMLANDI' AND m.aktif=true${sc4})
+        SELECT ROUND(AVG(t - prev) FILTER (WHERE prev IS NOT NULL))::int kadans,
+               COUNT(*) FILTER (WHERE prev IS NOT NULL AND (t - prev) >= 120 AND t BETWEEN $2 AND $3)::int reaktivasyon
+          FROM ord`, p4);
+      const nm = await query(`SELECT u.id::text id, COALESCE(u.full_name,u.email,'—') ad
+          FROM users u JOIN tenant_users tu ON tu.user_id=u.id WHERE tu.tenant_id::text=$1::text`, [tid]);
+      const nameMap = {}; for (const x of nm.rows) nameMap[x.id] = x.ad;
+      const rows = q1.rows;
+      const toplamZiyaret = rows.reduce((a, x) => a + Number(x.vc), 0);
+      const musteri = rows.length;
+      const ort = musteri ? Math.round(toplamZiyaret / musteri * 10) / 10 : 0;
+      const b1 = rows.filter(x => x.vc === 1).length, b23 = rows.filter(x => x.vc >= 2 && x.vc <= 3).length, b4 = rows.filter(x => x.vc >= 4).length;
+      const alimYok = rows.filter(x => Number(x.ciro) <= 0);
+      const ilMap = {}; for (const x of rows) { const g = ilMap[x.il] || (ilMap[x.il] = { il: x.il, ziyaret: 0, musteri: 0 }); g.ziyaret += Number(x.vc); g.musteri++; }
+      const il = Object.values(ilMap).map(g => ({ ...g, ort: g.musteri ? Math.round(g.ziyaret / g.musteri * 10) / 10 : 0 })).sort((a, b) => b.ziyaret - a.ziyaret);
+      let temsilci = [];
+      if (rol !== "rep") {
+        const rm = {};
+        for (const x of rows) { const rid = x.rid; if (!rid) continue; const g = rm[rid] || (rm[rid] = { rep_id: rid, rep: nameMap[rid] || "—", ziyaret: 0, musteri: 0, yeni: 0 }); g.ziyaret += Number(x.vc); g.musteri++; }
+        for (const y of q2.rows) { const rid = y.rid; if (rid && rm[rid]) rm[rid].yeni++; }
+        temsilci = Object.values(rm).sort((a, b) => b.ziyaret - a.ziyaret);
+      }
+      const mapRow = (x) => ({ firma: x.firma, il: x.il, vc: Number(x.vc), rep: x.rid ? (nameMap[x.rid] || null) : null });
+      const yiMap = {}; for (const y of q2.rows) { const _il = y.il || "—"; yiMap[_il] = (yiMap[_il] || 0) + 1; }
+      const yeniIl = Object.entries(yiMap).map(([_il, n]) => ({ il: _il, n })).sort((a, b) => b.n - a.n);
+      sendJson(response, 200, {
+        rol: rol === "rep" ? "rep" : "yonetici", from, to,
+        ozet: { ziyaret: toplamZiyaret, musteri, ort, yeni: q2.rows.length, alim_yok: alimYok.length,
+                kadans: (q4.rows[0] && q4.rows[0].kadans) || null, reaktivasyon: (q4.rows[0] && q4.rows[0].reaktivasyon) || 0 },
+        siklik: { b1, b23, b4 },
+        il: il.slice(0, 25),
+        temsilci,
+        trend: q3.rows,
+        yeni_liste: q2.rows.slice(0, 100).map(y => ({ firma: y.firma, il: y.il, ilk: y.ilk, rep: y.rid ? (nameMap[y.rid] || null) : null })),
+        yeni_il: yeniIl,
+        cok_ziyaret: rows.slice().sort((a, b) => b.vc - a.vc).slice(0, 20).map(mapRow),
+        tek_ziyaret: rows.filter(x => x.vc === 1).slice(0, 100).map(mapRow),
+        alim_yok_liste: alimYok.slice().sort((a, b) => b.vc - a.vc).slice(0, 100).map(mapRow)
+      });
+      return;
+    }
+    if (method === "GET" && path === "/api/saha/rapor/kapsam") {  /* KAPSAM_V1 */
+      const session = await requireSahaAccess(request);
+      const tid = session.tenantId, uid = session.userId, rol = session.sahaRole;
+      const gun = Math.max(1, Math.min(365, parseInt(url.searchParams.get("gun") || "90", 10) || 90));
+      const from90 = new Date(Date.now() - (gun - 1) * 86400000).toISOString().slice(0, 10);
+      const p = [tid, from90];
+      let repF = "", tipF = "";
+      if (rol === "rep") { p.push(uid); repF = ` AND m.sorumlu_rep::text=$${p.length}::text`; }
+      else { repF = _sahaScopeSql(session, p, "m"); }  /* YETKI_FAZ3C — yonetici veri kapsami (kendi/bolge/bolum; tumu/admin -> filtre yok) */
+      const _tip = url.searchParams.get("tip");
+      if (_tip === "TUKETICI" || _tip === "TICARI") { p.push(_tip); tipF = ` AND m.tip=$${p.length}`; }
+      const r = await query(`
+        WITH vis AS (
+          SELECT DISTINCT musteri_id FROM saha_ziyaret
+           WHERE tenant_id::text=$1::text AND durum='TAMAMLANDI' AND ziyaret_tarihi >= $2
+        ),
+        ciro AS (
+          SELECT musteri_kodu, SUM(satir_tutar)::numeric yil FROM bi_satis_faturalari
+           WHERE tenant_id::text=$1::text AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '365 days')
+           GROUP BY musteri_kodu
+        ),
+        son AS (
+          SELECT musteri_id, MAX(ziyaret_tarihi) mx FROM saha_ziyaret
+           WHERE tenant_id::text=$1::text AND durum='TAMAMLANDI' GROUP BY musteri_id
+        ),
+        mute AS (
+          SELECT DISTINCT ON (musteri_id) musteri_id, tur, gerekce, gerekce_metin, aktor_id, olusturma_ts
+            FROM saha_musteri_aksiyon
+           WHERE tenant_id::text=$1::text AND rapor='kapsam' AND tur IN ('SUSTUR','GERI_AL')
+           ORDER BY musteri_id, olusturma_ts DESC
+        ),
+        vis12 AS (SELECT musteri_id, COUNT(*) c FROM saha_ziyaret WHERE tenant_id::text=$1::text AND durum='TAMAMLANDI' AND ziyaret_tarihi >= (CURRENT_DATE - INTERVAL '365 days') GROUP BY musteri_id)
+        SELECT m.id::text id, m.firma, m.il, m.ilce, m.tip, m.sorumlu_rep::text rid, m.musteri_kodu,
+               (m.musteri_kodu IS NOT NULL) matched,
+               COALESCE(c.yil,0)::numeric ciro,
+               (v.musteri_id IS NOT NULL) visited,
+               s.mx son,
+               (mu.musteri_id IS NOT NULL AND mu.tur='SUSTUR') muted,
+               mu.gerekce, mu.gerekce_metin, mu.aktor_id::text mute_by, mu.olusturma_ts mute_ts,
+               COALESCE(vis12.c,0)::int vc12, sg.durum saglik, sg.guven sguven  /* KAPSAM_SAGLIK_V1 */
+          FROM saha_musteri m
+          LEFT JOIN ciro c ON c.musteri_kodu=m.musteri_kodu
+          LEFT JOIN vis v ON v.musteri_id=m.id
+          LEFT JOIN son s ON s.musteri_id=m.id
+          LEFT JOIN mute mu ON mu.musteri_id=m.id
+          LEFT JOIN vis12 ON vis12.musteri_id=m.id
+          LEFT JOIN saha_musteri_saglik sg ON sg.tenant_id=$1::text AND sg.musteri_kodu=m.musteri_kodu  /* KAPSAM_SAGLIK_V1 */
+         WHERE m.tenant_id::text=$1::text AND m.aktif=true${repF}${tipF}`, p);
+      const nm = await query(`SELECT u.id::text id, COALESCE(u.full_name,u.email,'—') ad
+          FROM users u JOIN tenant_users tu ON tu.user_id=u.id WHERE tu.tenant_id::text=$1::text`, [tid]);
+      const nameMap = {}; for (const x of nm.rows) nameMap[x.id] = x.ad;
+      const now = Date.now();
+      const gunOf = (mx) => { if (!mx) return null; const d = new Date(mx); return isNaN(d) ? null : Math.max(0, Math.floor((now - d.getTime()) / 86400000)); };
+      const isBeyaz = (x) => x.matched && Number(x.ciro) > 0 && !x.visited && !x.muted;
+      const rows = r.rows;
+      /* RAPOR_R2B_KAPSAM — Kural 6 dedup: ayni musteri_kodu ciro'yu toplamlarda MUKERRER saymasin. _ciroD yalniz TOPLAMLARDA kullanilir. */
+      { const _seenK = new Set(); for (const x of rows) { const _k = x.musteri_kodu; x._ciroD = (_k && _seenK.has(_k)) ? 0 : (Number(x.ciro) || 0); if (_k) _seenK.add(_k); } }
+      const portfoy = rows.length;
+      const ulasilan = rows.filter(x => x.visited).length;
+      const beyaz = rows.filter(isBeyaz).sort((a, b) => Number(b.ciro) - Number(a.ciro));
+      const eslesmemisAll = rows.filter(x => !x.matched);
+      const eslesmemis = eslesmemisAll.filter(x => !x.visited && !x.muted);
+      const susturulan = rows.filter(x => x.muted);
+      const beyazCiro = beyaz.reduce((a, x) => a + (x._ciroD || 0), 0);  /* RAPOR_R2B_KAPSAM dedup */
+      const cityMap = {};
+      for (const x of rows) { const il = x.il || "—"; const g = cityMap[il] || (cityMap[il] = { il, portfoy: 0, ulasilan: 0, beyaz_ciro: 0 }); g.portfoy++; if (x.visited) g.ulasilan++; if (isBeyaz(x)) g.beyaz_ciro += (x._ciroD || 0); }
+      const sehir = Object.values(cityMap).sort((a, b) => b.beyaz_ciro - a.beyaz_ciro).slice(0, 25).map(g => ({ ...g, kapsam: g.portfoy ? Math.round(g.ulasilan / g.portfoy * 100) : 0 }));
+      const segMap = {};
+      for (const x of rows) { const sg = (x.tip === "TUKETICI" || x.tip === "TICARI") ? x.tip : "DIGER"; const g = segMap[sg] || (segMap[sg] = { seg: sg, portfoy: 0, ulasilan: 0, beyaz_ciro: 0 }); g.portfoy++; if (x.visited) g.ulasilan++; if (isBeyaz(x)) g.beyaz_ciro += (x._ciroD || 0); }
+      const segment = Object.values(segMap).map(g => ({ ...g, kapsam: g.portfoy ? Math.round(g.ulasilan / g.portfoy * 100) : 0 }));
+      let temsilci = [];
+      if (rol !== "rep") {
+        const rm = {};
+        for (const x of rows) { const rid = x.rid; if (!rid) continue; const g = rm[rid] || (rm[rid] = { rep_id: rid, rep: nameMap[rid] || "—", portfoy: 0, ulasilan: 0, beyaz_sayi: 0, beyaz_ciro: 0 }); g.portfoy++; if (x.visited) g.ulasilan++; if (isBeyaz(x)) { g.beyaz_sayi++; g.beyaz_ciro += (x._ciroD || 0); } }
+        temsilci = Object.values(rm).map(g => ({ ...g, kapsam: g.portfoy ? Math.round(g.ulasilan / g.portfoy * 100) : 0 })).sort((a, b) => b.beyaz_ciro - a.beyaz_ciro);
+      }
+      const mapRow = (x) => ({ id: x.id, firma: x.firma, il: x.il, tip: x.tip, ciro: Number(x.ciro) || 0, gun: gunOf(x.son), rep: x.rid ? (nameMap[x.rid] || null) : null, rep_id: x.rid || null, tk: { vc: Number(x.vc12) || 0, durum: x.saglik || null, guven: x.sguven || null } });  /* KAPSAM_SAGLIK_V1 */
+      sendJson(response, 200, {
+        rol: rol === "rep" ? "rep" : "yonetici", gun,
+        ozet: { portfoy, ulasilan, kapsam: portfoy ? Math.round(ulasilan / portfoy * 100) : 0, beyaz_sayi: beyaz.length, beyaz_ciro: beyazCiro, eslesmemis_sayi: eslesmemisAll.length },
+        sehir, segment, temsilci,
+        beyaz: beyaz.slice(0, 300).map(mapRow), beyaz_toplam: beyaz.length,
+        eslesmemis: eslesmemis.slice(0, 200).map(mapRow), eslesmemis_toplam: eslesmemis.length,
+        hepsi: rows.slice().sort((a, b) => Number(b.ciro) - Number(a.ciro)).slice(0, 1000).map(x => ({ ...mapRow(x), durum: x.muted ? "susturuldu" : !x.matched ? "eslesmemis" : x.visited ? "ulasildi" : "beyaz" })), hepsi_toplam: rows.length,
+        susturulan: (rol !== "rep" ? susturulan : susturulan.filter(x => x.mute_by === uid)).slice(0, 100).map(x => ({ id: x.id, firma: x.firma, il: x.il, gerekce: x.gerekce, gerekce_metin: x.gerekce_metin, mute_by: x.mute_by ? (nameMap[x.mute_by] || "—") : "—", mute_ts: x.mute_ts }))
+      });
+      return;
+    }
+
+    if (method === "GET" && path === "/api/saha/rapor/kapsam-export") {  /* KAPSAM_V1 */
+      const session = await requireSahaAccess(request);
+      const tid = session.tenantId, uid = session.userId, rol = session.sahaRole;
+      const gun = Math.max(1, Math.min(365, parseInt(url.searchParams.get("gun") || "90", 10) || 90));
+      const from90 = new Date(Date.now() - (gun - 1) * 86400000).toISOString().slice(0, 10);
+      const p = [tid, from90];
+      let repF = "", tipF = "";
+      if (rol === "rep") { p.push(uid); repF = ` AND m.sorumlu_rep::text=$${p.length}::text`; }
+      else { repF = _sahaScopeSql(session, p, "m"); }  /* YETKI_FAZ3C — yonetici veri kapsami (kendi/bolge/bolum; tumu/admin -> filtre yok) */
+      const _tip = url.searchParams.get("tip");
+      if (_tip === "TUKETICI" || _tip === "TICARI") { p.push(_tip); tipF = ` AND m.tip=$${p.length}`; }
+      const r = await query(`
+        WITH vis AS (SELECT DISTINCT musteri_id FROM saha_ziyaret WHERE tenant_id::text=$1::text AND durum='TAMAMLANDI' AND ziyaret_tarihi >= $2),
+             ciro AS (SELECT musteri_kodu, SUM(satir_tutar)::numeric yil FROM bi_satis_faturalari WHERE tenant_id::text=$1::text AND fatura_tarihi >= (CURRENT_DATE - INTERVAL '365 days') GROUP BY musteri_kodu),
+             son AS (SELECT musteri_id, MAX(ziyaret_tarihi) mx FROM saha_ziyaret WHERE tenant_id::text=$1::text AND durum='TAMAMLANDI' GROUP BY musteri_id),
+             mute AS (SELECT DISTINCT ON (musteri_id) musteri_id, tur FROM saha_musteri_aksiyon WHERE tenant_id::text=$1::text AND rapor='kapsam' AND tur IN ('SUSTUR','GERI_AL') ORDER BY musteri_id, olusturma_ts DESC)
+        SELECT m.firma, m.il, m.ilce, m.tip, m.musteri_kodu, m.sorumlu_rep::text rid,
+               (m.musteri_kodu IS NOT NULL) matched, COALESCE(c.yil,0)::numeric ciro,
+               (v.musteri_id IS NOT NULL) visited, s.mx son, (mu.musteri_id IS NOT NULL AND mu.tur='SUSTUR') muted
+          FROM saha_musteri m
+          LEFT JOIN ciro c ON c.musteri_kodu=m.musteri_kodu
+          LEFT JOIN vis v ON v.musteri_id=m.id LEFT JOIN son s ON s.musteri_id=m.id LEFT JOIN mute mu ON mu.musteri_id=m.id
+         WHERE m.tenant_id::text=$1::text AND m.aktif=true${repF}${tipF}
+         ORDER BY COALESCE(c.yil,0) DESC`, p);
+      const nm = await query(`SELECT u.id::text id, COALESCE(u.full_name,u.email,'—') ad FROM users u JOIN tenant_users tu ON tu.user_id=u.id WHERE tu.tenant_id::text=$1::text`, [tid]);
+      const nameMap = {}; for (const x of nm.rows) nameMap[x.id] = x.ad;
+      const now = Date.now();
+      const durumOf = (x) => x.muted ? "susturuldu" : !x.matched ? "eslesmemis" : x.visited ? "ulasildi" : "beyaz_alan";
+      const esc = (s2) => { s2 = (s2 == null ? "" : String(s2)); return /[";\n]/.test(s2) ? '"' + s2.replace(/"/g, '""') + '"' : s2; };
+      const lines = ["Firma;Il;Ilce;Segment;MusteriKodu;YillikCiro12Ay;SonZiyaretGun;Sorumlu;Durum"];
+      for (const x of r.rows) {
+        const g = x.son ? Math.max(0, Math.floor((now - new Date(x.son).getTime()) / 86400000)) : "";
+        lines.push([esc(x.firma), esc(x.il), esc(x.ilce), esc(x.tip || ""), esc(x.musteri_kodu || ""), Math.round(Number(x.ciro) || 0), g, esc(x.rid ? (nameMap[x.rid] || "") : ""), durumOf(x)].join(";"));
+      }
+      const csv = "﻿" + lines.join("\n");
+      response.writeHead(200, { "Content-Type": "text/csv; charset=utf-8", "Content-Disposition": 'attachment; filename="kapsam-beyaz-alan.csv"' });
+      response.end(csv);
+      return;
+    }
+
+    if (method === "POST" && path === "/api/saha/musteri-aksiyon") {  /* KAPSAM_V1 */
+      const session = await requireSahaAccess(request);
+      const tid = session.tenantId, uid = session.userId, rol = session.sahaRole;
+      let raw = ""; for await (const ch of request) raw += ch;
+      let b = {}; try { b = raw ? JSON.parse(raw) : {}; } catch (e) { sendJson(response, 400, { error: "gecersiz govde" }); return; }
+      const musteri_id = b.musteri_id, tur = String(b.tur || "").toUpperCase();
+      const TUR = ["GITTIM", "PLANLA", "ILET", "ATA", "SUSTUR", "GERI_AL", "NOT"];
+      if (!musteri_id || !TUR.includes(tur)) { sendJson(response, 400, { error: "musteri_id ve gecerli tur gerekli" }); return; }
+      const mm = await query(`SELECT id, tip, sorumlu_rep::text rid FROM saha_musteri WHERE tenant_id::text=$1::text AND id=$2`, [tid, musteri_id]);
+      if (!mm.rowCount) { sendJson(response, 404, { error: "musteri yok" }); return; }
+      const mus = mm.rows[0];
+      if (rol === "rep" && mus.rid && mus.rid !== uid) { sendJson(response, 403, { error: "bu musteri sizin degil" }); return; }
+      if ((tur === "ATA" || tur === "ILET") && rol === "rep") { sendJson(response, 403, { error: "bu islem yonetici yetkisi" }); return; }
+      const bugunTR = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+      let ziyaret_id = null, hedef_rep = null;
+      if (tur === "GITTIM") {
+        const zi = await query(`INSERT INTO saha_ziyaret (tenant_id,musteri_id,rep_id,tip,durum,planlanan_tarih,ziyaret_tarihi,notlar,detay,created_by) VALUES ($1,$2,$3,$4,'TAMAMLANDI',NULL,$5,$6,'{"kaynak":"KAPSAM_GITTIM"}'::jsonb,$3) RETURNING id`, [tid, musteri_id, uid, mus.tip || null, bugunTR, "Kapsam raporu: geç kayıt (gittim)"]);
+        ziyaret_id = zi.rows[0].id;
+      } else if (tur === "PLANLA") {
+        const zi = await query(`INSERT INTO saha_ziyaret (tenant_id,musteri_id,rep_id,tip,durum,planlanan_tarih,ziyaret_tarihi,notlar,detay,created_by) VALUES ($1,$2,$3,$4,'PLANLANDI',$5,NULL,$6,'{"kaynak":"KAPSAM_PLANLA"}'::jsonb,$3) RETURNING id`, [tid, musteri_id, uid, mus.tip || null, bugunTR, "Kapsam raporu: planlandı"]);
+        ziyaret_id = zi.rows[0].id;
+      } else if (tur === "ILET") {
+        hedef_rep = mus.rid || b.hedef_rep || null;
+        if (!hedef_rep) { sendJson(response, 400, { error: "iletilecek sorumlu temsilci yok — once ata" }); return; }
+        const zi = await query(`INSERT INTO saha_ziyaret (tenant_id,musteri_id,rep_id,tip,durum,planlanan_tarih,ziyaret_tarihi,notlar,detay,created_by) VALUES ($1,$2,$3,$4,'PLANLANDI',$5,NULL,$6,'{"kaynak":"KAPSAM_ILET"}'::jsonb,$7) RETURNING id`, [tid, musteri_id, hedef_rep, mus.tip || null, bugunTR, "Kapsam: yöneticiden iletildi", uid]);
+        ziyaret_id = zi.rows[0].id;
+      } else if (tur === "ATA") {
+        hedef_rep = b.hedef_rep || null;
+        if (!hedef_rep) { sendJson(response, 400, { error: "hedef_rep gerekli" }); return; }
+        await query(`UPDATE saha_musteri SET sorumlu_rep=$3 WHERE tenant_id::text=$1::text AND id=$2`, [tid, musteri_id, hedef_rep]);
+      }
+      await query(`INSERT INTO saha_musteri_aksiyon (tenant_id,musteri_id,rapor,tur,aktor_id,aktor_rol,gerekce,gerekce_metin,hedef_rep,ziyaret_id) VALUES ($1,$2,'kapsam',$3,$4,$5,$6,$7,$8,$9)`,
+        [tid, musteri_id, tur, uid, rol, (b.gerekce || null), (b.gerekce_metin || null), hedef_rep, ziyaret_id]);
+      sendJson(response, 200, { ok: true, tur, ziyaret_id, hedef_rep });
+      return;
+    }
+
+    if (method === "GET" && path === "/api/saha/rapor/ziyaret-etki") {  /* ZIYARET_ETKI_V1 */
+      const session = await requireSahaAccess(request);   /* rep + yonetici */
+      const tid = session.tenantId, uid = session.userId, rol = session.sahaRole;
+      const _tip = url.searchParams.get("tip");
+      const tipOk = _tip === "TUKETICI" || _tip === "TICARI";
+      // Anchor = en son fatura tarihi (donuk ERP feed'i notrler).
+      const anc = await query(`SELECT MAX(fatura_tarihi)::date d FROM bi_satis_faturalari WHERE tenant_id::text=$1::text`, [tid]);
+      const veriSonu = (anc.rows[0] && anc.rows[0].d) ? new Date(anc.rows[0].d) : new Date();
+      const dstr = (dt) => new Date(dt).toISOString().slice(0, 10);
+      const shift = (dt, days) => { const dd = new Date(dt); dd.setUTCDate(dd.getUTCDate() + days); return dd; };
+      const d0 = veriSonu;                    // veri sonu
+      const h2Start = shift(d0, -179);        // H2 (son) = [h2Start, d0]
+      const h1Start = shift(d0, -359);        // H1 (onceki) = [h1Start, h2Start)
+      const yilStart = shift(d0, -364);       // ziyaret sikligi: son ~12 ay
+      const p = [tid, dstr(h1Start), dstr(h2Start), dstr(d0), dstr(yilStart)];
+      let tipF = "";
+      if (tipOk) { p.push(_tip); tipF = ` AND m.tip=$${p.length}`; }
+      let repF = "";
+      if (rol === "rep") { p.push(uid); repF = ` AND m.sorumlu_rep::text=$${p.length}::text`; }
+      else { repF = _sahaScopeSql(session, p, "m"); }  /* YETKI_FAZ3C — yonetici veri kapsami (kendi/bolge/bolum; tumu/admin -> filtre yok) */
+      const r = await query(`
+        WITH cust AS (
+          SELECT m.id, m.musteri_kodu FROM saha_musteri m
+           WHERE m.tenant_id::text=$1::text AND m.aktif=true AND m.musteri_kodu IS NOT NULL${tipF}${repF}
+        ),
+        h1 AS (SELECT musteri_kodu, SUM(satir_tutar)::numeric v FROM bi_satis_faturalari
+               WHERE tenant_id::text=$1::text AND fatura_tarihi >= $2 AND fatura_tarihi < $3 GROUP BY musteri_kodu),
+        h2 AS (SELECT musteri_kodu, SUM(satir_tutar)::numeric v FROM bi_satis_faturalari
+               WHERE tenant_id::text=$1::text AND fatura_tarihi >= $3 AND fatura_tarihi <= $4 GROUP BY musteri_kodu),
+        vis AS (SELECT musteri_id, COUNT(*) c FROM saha_ziyaret
+                WHERE tenant_id::text=$1::text AND durum='TAMAMLANDI' AND ziyaret_tarihi >= $5 GROUP BY musteri_id),
+        vev AS (SELECT DISTINCT musteri_id FROM saha_ziyaret WHERE tenant_id::text=$1::text AND durum='TAMAMLANDI')
+        SELECT c.id::text id, COALESCE(h1.v,0)::numeric h1, COALESCE(h2.v,0)::numeric h2,
+               COALESCE(vis.c,0)::int vc, (vev.musteri_id IS NOT NULL) ever
+          FROM cust c
+          LEFT JOIN h1 ON h1.musteri_kodu=c.musteri_kodu
+          LEFT JOIN h2 ON h2.musteri_kodu=c.musteri_kodu
+          LEFT JOIN vis ON vis.musteri_id=c.id
+          LEFT JOIN vev ON vev.musteri_id=c.id`, p);
+      const rows = r.rows.map((x) => ({ h1: Number(x.h1) || 0, h2: Number(x.h2) || 0, vc: Number(x.vc) || 0, ever: !!x.ever }));
+      const matched = rows.length;
+      const ziyaretEdilmis = rows.filter((x) => x.vc > 0).length;  /* RAPOR_R1A — son 12 ay (ever/tum-zaman degil) */
+      const bucketOf = (vc) => vc === 0 ? 0 : vc <= 3 ? 1 : vc <= 8 ? 2 : 3;
+      const defs = [
+        { etiket: "Hiç ziyaret", aralik: "0" },
+        { etiket: "Seyrek", aralik: "1–3" },
+        { etiket: "Orta", aralik: "4–8" },
+        { etiket: "Sık", aralik: "9+" }
+      ];
+      const r1 = (n) => Math.round(n * 10) / 10;
+      const gruplar = defs.map((dfn, i) => {
+        const grp = rows.filter((x) => bucketOf(x.vc) === i);
+        const taban = grp.filter((x) => x.h1 > 0);
+        const geri = taban.filter((x) => x.h2 > 0).length;
+        const ortCiro = taban.length ? Math.round(taban.reduce((a, x) => a + x.h1 + x.h2, 0) / taban.length) : 0;  /* RAPOR_R1A — 12 ay (h1+h2), "yillik" durust */
+        return { i, etiket: dfn.etiket, aralik: dfn.aralik, n: grp.length, taban: taban.length,
+                 geri, retention: taban.length ? r1(100 * geri / taban.length) : null, ort_ciro: ortCiro };
+      });
+      const allTaban = rows.filter((x) => x.h1 > 0);
+      const allGeri = allTaban.filter((x) => x.h2 > 0).length;
+      const ihmal = gruplar[0];  // hiç ziyaret cebi
+      sendJson(response, 200, {
+        rol: rol === "rep" ? "rep" : "yonetici",
+        donem: {
+          veri_sonu: dstr(d0),
+          yil: [dstr(yilStart), dstr(d0)],
+          h1: [dstr(h1Start), dstr(shift(h2Start, -1))],
+          h2: [dstr(h2Start), dstr(d0)]
+        },
+        kapsam: { matched, ziyaret_edilmis: ziyaretEdilmis, pct: matched ? r1(100 * ziyaretEdilmis / matched) : 0 },
+        ozet: {
+          genel_retention: allTaban.length ? r1(100 * allGeri / allTaban.length) : null,
+          taban_toplam: allTaban.length,
+          ihmal_n: ihmal.n, ihmal_retention: ihmal.retention, ihmal_ort_ciro: ihmal.ort_ciro
+        },
+        gruplar
+      });
+      return;
+    }
+
     if (method === "GET" && path === "/api/saha/rapor/rep-performans") {
       const session = await requireSahaAccess(request, ["manager", "admin"]);
       const qs = new URL(request.url, "http://x").searchParams;
       const from = qs.get("from") || "1970-01-01";
       const to   = qs.get("to")   || "2999-12-31";
-      const result = await query(`
-        SELECT COALESCE(u.full_name, z.rep_adi, 'Bilinmiyor') AS rep,
+      const result = await query(`/* RAPOR_SEGMENT_V1 */
+        SELECT z.rep_id,
+               COALESCE(u.full_name, z.rep_adi, 'Bilinmiyor') AS rep,
                COUNT(*) FILTER (WHERE z.durum = 'TAMAMLANDI'
                  AND z.ziyaret_tarihi >= $2::date AND z.ziyaret_tarihi <= $3::date) AS ziyaret,
                COUNT(DISTINCT z.musteri_id) FILTER (WHERE z.durum = 'TAMAMLANDI'
-                 AND z.ziyaret_tarihi >= $2::date AND z.ziyaret_tarihi <= $3::date) AS benzersiz_musteri
-        FROM saha_ziyaret z LEFT JOIN users u ON u.id = z.rep_id
+                 AND z.ziyaret_tarihi >= $2::date AND z.ziyaret_tarihi <= $3::date) AS benzersiz_musteri,
+               COUNT(*) FILTER (WHERE z.durum = 'TAMAMLANDI'
+                 AND z.ziyaret_tarihi >= $2::date AND z.ziyaret_tarihi <= $3::date AND m.tip = 'TUKETICI') AS tuketici_z,
+               COUNT(*) FILTER (WHERE z.durum = 'TAMAMLANDI'
+                 AND z.ziyaret_tarihi >= $2::date AND z.ziyaret_tarihi <= $3::date AND m.tip = 'TICARI') AS ticari_z,
+               (SELECT tum.permissions_json->>'saha_tip' FROM tenant_user_modules tum
+                  WHERE tum.user_id = z.rep_id AND tum.tenant_id = z.tenant_id AND tum.module_id = 'saha' LIMIT 1) AS saha_tip
+        FROM saha_ziyaret z
+        LEFT JOIN users u ON u.id = z.rep_id
+        LEFT JOIN saha_musteri m ON m.id = z.musteri_id
         WHERE z.tenant_id = $1
-        GROUP BY z.tenant_id, z.rep_id, 1
+        GROUP BY z.tenant_id, z.rep_id, COALESCE(u.full_name, z.rep_adi, 'Bilinmiyor')
         HAVING COUNT(*) FILTER (WHERE z.durum = 'TAMAMLANDI'
                  AND z.ziyaret_tarihi >= $2::date AND z.ziyaret_tarihi <= $3::date) > 0
-        ORDER BY 2 DESC
+        ORDER BY ziyaret DESC
       `, [session.tenantId, from, to]);
       sendJson(response, 200, { repler: result.rows });
       return;
     }
 
     // ── Harita: per-city visit + teklif + satış aggregates ──
+    if (method === "GET" && path === "/api/saha/tr-geo") { /* HARITA_GEO_V1 */
+      await requireSahaAccess(request, ["rep","manager","admin"]);
+      try {
+        const geo = await readFile("/app/tr-cities.json", "utf8");
+        response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "max-age=86400", ...HTML_SECURITY_HEADERS });
+        response.end(geo);
+      } catch (e) { sendJson(response, 404, { error: "il haritasi bulunamadi (tr-cities.json mount edilmemis olabilir)" }); }
+      return;
+    }
+
+    if (method === "GET" && path === "/api/saha/harita-il-metrikler") { /* HARITA_GEO_V1 */
+      const session = await requireSahaAccess(request, ["manager","admin"]);
+      const gsp = new URL(request.url, "http://x").searchParams;
+      const gFrom = gsp.get("from") || null, gTo = gsp.get("to") || null;
+      const T = session.tenantId;
+      let iller = [], krb = null;
+      try {
+        const r = await query(
+          "WITH cs AS (SELECT musteri_kodu, MAX(sehir) sehir FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND sehir IS NOT NULL AND sehir<>'' GROUP BY musteri_kodu),"
+          + " cb AS (SELECT musteri_kodu, MIN(LEAST(tedarikci_bakiye,0)) borc FROM bi_cari_bakiye WHERE tenant_id::text=$1 GROUP BY musteri_kodu),"
+          + " risk AS (SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, COALESCE(hesap_bakiyesi,0) bakiye, GREATEST(COALESCE(vadesi_gecmis,0),0) vg, COALESCE(toplam_risk,0) net_risk, COALESCE(NULLIF(TRIM(grup),''),'') grup FROM bi_musteri_risk WHERE tenant_id::text=$1 AND musteri_mi ORDER BY muhatap_kodu, export_date DESC),"
+          + " il_risk AS (SELECT cs.sehir il, SUM(GREATEST(r.vg+COALESCE(cb.borc,0),0)) net_gecikmis, SUM(GREATEST(r.bakiye,0)) bakiye, SUM(GREATEST(r.net_risk,0)) net_risk FROM risk r JOIN cs ON cs.musteri_kodu=r.muhatap_kodu LEFT JOIN cb ON cb.musteri_kodu=r.muhatap_kodu WHERE r.grup NOT ILIKE '%TEDAR%' GROUP BY cs.sehir),"
+          + " il_satis AS (SELECT sehir il, SUM(satir_tutar) ciro, SUM(miktar) adet FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND sehir IS NOT NULL AND sehir<>'' AND grup_adi = ANY(evren_gruplar(tenant_id)) AND ($2::date IS NULL OR fatura_tarihi BETWEEN $2 AND $3) GROUP BY sehir)," /* HARITA_LASTIK_ONLY_V1 — ciro/adet yalnızca lastik */
+          + " il_tip AS (SELECT sehir il, SUM(satir_tutar) FILTER (WHERE grup_adi='LASTIK TUKETICI') ciro_tuketici, SUM(satir_tutar) FILTER (WHERE grup_adi='LASTIK TICARI') ciro_ticari FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND sehir IS NOT NULL AND sehir<>'' AND ($2::date IS NULL OR fatura_tarihi BETWEEN $2 AND $3) GROUP BY sehir)" /* HARITA_TICARI_GRUP_V1 */
+          + " SELECT COALESCE(s.il, k.il) il, COALESCE(s.ciro,0)::numeric ciro, COALESCE(s.adet,0)::numeric adet,"
+          + " COALESCE(t.ciro_tuketici,0)::numeric ciro_tuketici, COALESCE(t.ciro_ticari,0)::numeric ciro_ticari,"
+          + " COALESCE(k.net_gecikmis,0)::numeric net_gecikmis, COALESCE(k.bakiye,0)::numeric bakiye, COALESCE(k.net_risk,0)::numeric net_risk"
+          + " FROM il_satis s FULL JOIN il_risk k ON k.il=s.il LEFT JOIN il_tip t ON t.il=COALESCE(s.il,k.il) WHERE COALESCE(s.il,k.il) IS NOT NULL", [T, gFrom, gTo]); /* HARITA_ILMETRIK_V2 */
+        iller = r.rows.map(x => ({ il: x.il, ciro: Number(x.ciro||0), adet: Number(x.adet||0), ciro_tuketici: Number(x.ciro_tuketici||0), ciro_ticari: Number(x.ciro_ticari||0), net_gecikmis: Number(x.net_gecikmis||0), bakiye: Number(x.bakiye||0), net_risk: Number(x.net_risk||0) })); /* HARITA_ILMETRIK_V3 */
+        const kr = await query("SELECT SUM(GREATEST(COALESCE(hesap_bakiyesi,0),0)) bakiye FROM (SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, hesap_bakiyesi FROM bi_musteri_risk WHERE tenant_id::text=$1 AND musteri_mi ORDER BY muhatap_kodu, export_date DESC) z", [T]);  /* NET_GECIKMIS_HARITAKRB_V1 */
+        const kn = await query("SELECT COALESCE(SUM(net_gecikmis),0) overdue FROM v_net_gecikmis_musteri WHERE tenant_id::text=$1", [T]);
+        const kb = Number(kr.rows[0] && kr.rows[0].bakiye || 0), ko = Number(kn.rows[0] && kn.rows[0].overdue || 0);
+        krb = kb > 0 ? ko / kb : null;
+      } catch (e) { console.error("[il-metrikler]", e && e.message); sendJson(response, 500, { error: "metrik alinamadi" }); return; }
+      sendJson(response, 200, { krb_gecikme_orani: krb, iller });
+      return;
+    }
+
+    if (method === "GET" && path === "/api/saha/harita-il-saha") { /* HARITA_ILSAHA_V1 — il basina musteri + ziyaret + kapsam (Firsat/Kapsam mercekleri) */
+      const session = await requireSahaAccess(request, ["manager","admin"]);
+      const sp = new URL(request.url, "http://x").searchParams;
+      const f = sp.get("from") || null, t = sp.get("to") || null;
+      const tip = ["TUKETICI","TICARI"].includes(sp.get("tip")) ? sp.get("tip") : null;
+      const T = session.tenantId;
+      try {
+        const r = await query(
+          "SELECT sm.il il,"
+          + " COUNT(DISTINCT sm.id)::int musteri,"
+          + " COUNT(DISTINCT sm.id) FILTER (WHERE sm.tip='TUKETICI')::int musteri_tuk,"
+          + " COUNT(DISTINCT sm.id) FILTER (WHERE sm.tip='TICARI')::int musteri_tic,"
+          + " COUNT(z.id) FILTER (WHERE z.durum='TAMAMLANDI' AND ($2::date IS NULL OR z.ziyaret_tarihi BETWEEN $2 AND $3))::int ziyaret,"
+          + " COUNT(DISTINCT sm.id) FILTER (WHERE EXISTS (SELECT 1 FROM saha_ziyaret zz WHERE zz.musteri_id=sm.id AND zz.tenant_id=sm.tenant_id AND zz.durum='TAMAMLANDI' AND ($2::date IS NULL OR zz.ziyaret_tarihi BETWEEN $2 AND $3)))::int ziyaret_edilen"
+          + " FROM saha_musteri sm LEFT JOIN saha_ziyaret z ON z.musteri_id=sm.id AND z.tenant_id=sm.tenant_id"
+          + " WHERE sm.tenant_id=$1 AND sm.aktif=true AND sm.il IS NOT NULL AND sm.il<>'' AND ($4::text IS NULL OR sm.tip=$4)"
+          + " GROUP BY sm.il", [T, f, t, tip]);
+        const iller = r.rows.map(x => {
+          const m = Number(x.musteri||0), ze = Number(x.ziyaret_edilen||0);
+          return { il: x.il, musteri: m, musteri_tuk: Number(x.musteri_tuk||0), musteri_tic: Number(x.musteri_tic||0), ziyaret: Number(x.ziyaret||0), ziyaret_edilen: ze, kapsam_pct: m > 0 ? Math.round(ze / m * 100) : 0 };
+        });
+        sendJson(response, 200, { iller });
+      } catch (e) { console.error("[il-saha]", e && e.message); sendJson(response, 500, { error: "il-saha alinamadi" }); }
+      return;
+    }
+    if (method === "GET" && path === "/api/saha/harita-il-cariler") { /* HARITA_IL_CARILER_V1 — il tile drill-down: cari kırılımı */
+      const session = await requireSahaAccess(request, ["manager","admin"]);
+      const sp = new URL(request.url, "http://x").searchParams;
+      const il = (sp.get("il") || "").trim();
+      const metrik = sp.get("metrik") === "bakiye" ? "bakiye" : sp.get("metrik") === "net_risk" ? "net_risk" : "net_gecikmis";
+      if (!il) { sendJson(response, 400, { error: "il zorunlu" }); return; }
+      const T = session.tenantId;
+      try {
+        const r = await query(
+          "WITH cs AS (SELECT musteri_kodu, MAX(sehir) sehir FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND sehir IS NOT NULL AND sehir<>'' GROUP BY musteri_kodu),"
+          + " cb AS (SELECT musteri_kodu, MIN(LEAST(tedarikci_bakiye,0)) borc FROM bi_cari_bakiye WHERE tenant_id::text=$1 GROUP BY musteri_kodu),"
+          + " risk AS (SELECT DISTINCT ON (muhatap_kodu) muhatap_kodu, COALESCE(hesap_bakiyesi,0) bakiye, GREATEST(COALESCE(vadesi_gecmis,0),0) vg, COALESCE(toplam_risk,0) net_risk, COALESCE(NULLIF(TRIM(grup),''),'') grup FROM bi_musteri_risk WHERE tenant_id::text=$1 AND musteri_mi ORDER BY muhatap_kodu, export_date DESC)"
+          + " SELECT * FROM ("
+          + "   SELECT r.muhatap_kodu musteri_kodu,"
+          + "     COALESCE((SELECT musteri_adi FROM master_musteri WHERE tenant_id=$1::uuid AND musteri_kodu=r.muhatap_kodu LIMIT 1),"
+          + "              (SELECT firma FROM saha_musteri WHERE tenant_id=$1::uuid AND musteri_kodu=r.muhatap_kodu AND aktif=true LIMIT 1),"
+          + "              r.muhatap_kodu) firma,"
+          + "     GREATEST(r.vg+COALESCE(cb.borc,0),0)::numeric net_gecikmis, GREATEST(r.bakiye,0)::numeric bakiye, GREATEST(r.net_risk,0)::numeric net_risk"
+          + "   FROM risk r JOIN cs ON cs.musteri_kodu=r.muhatap_kodu LEFT JOIN cb ON cb.musteri_kodu=r.muhatap_kodu"
+          + "   WHERE r.grup NOT ILIKE '%TEDAR%' AND cs.sehir ILIKE $2"
+          + " ) q WHERE q." + metrik + " > 0 ORDER BY q." + metrik + " DESC LIMIT 200",
+          [T, il]);
+        const cariler = r.rows.map(x => ({ musteri_kodu: x.musteri_kodu, firma: x.firma, net_gecikmis: Number(x.net_gecikmis||0), bakiye: Number(x.bakiye||0), net_risk: Number(x.net_risk||0) }));
+        const toplam = cariler.reduce((s, x) => s + Number(x[metrik]||0), 0);
+        sendJson(response, 200, { il, metrik, toplam, cariler });
+      } catch (e) { console.error("[il-cariler]", e && e.message); sendJson(response, 500, { error: "cari listesi alinamadi" }); }
+      return;
+    }
+
+    if (method === "GET" && path === "/api/saha/harita-il-ozet") { /* HARITA_IL_OZET_V1 */
+      const session = await requireSahaAccess(request, ["manager","admin"]);
+      const il = (new URL(request.url, "http://x").searchParams.get("il") || "").trim();
+      const ilSp = new URL(request.url, "http://x").searchParams; const iFrom = ilSp.get("from") || null, iTo = ilSp.get("to") || null; /* HARITA_DONEM_V1 */
+      const iTip = ["TUKETICI","TICARI"].includes(ilSp.get("tip")) ? ilSp.get("tip") : null; /* HARITA_TIP_V1 — üst segment sürer */
+      if (!il) { sendJson(response, 400, { error: "il zorunlu" }); return; }
+      const zi = (await query("SELECT COUNT(*) FILTER (WHERE z.durum='TAMAMLANDI' AND ($3::date IS NULL OR z.ziyaret_tarihi BETWEEN $3 AND $4))::int ziyaret, COUNT(DISTINCT sm.id)::int musteri FROM saha_musteri sm LEFT JOIN saha_ziyaret z ON z.musteri_id=sm.id AND z.tenant_id=sm.tenant_id WHERE sm.tenant_id=$1 AND sm.il ILIKE $2 AND sm.aktif=true AND ($5::text IS NULL OR sm.tip=$5)", [session.tenantId, il, iFrom, iTo, iTip])).rows[0];
+      const tk = (await query("SELECT COUNT(*)::int toplam, COUNT(*) FILTER (WHERE t.durum='KAZANILDI')::int kazan, COUNT(*) FILTER (WHERE t.durum='KAYBEDILDI')::int kayip FROM saha_teklif t JOIN saha_musteri sm ON sm.id=t.musteri_id WHERE t.tenant_id=$1 AND sm.il ILIKE $2 AND ($3::date IS NULL OR t.created_at::date BETWEEN $3 AND $4) AND ($5::text IS NULL OR sm.tip=$5)", [session.tenantId, il, iFrom, iTo, iTip])).rows[0];
+      let satisAdet = 0, satisCiro = 0;
+      try {
+        const gruplar = iTip === "TUKETICI" ? ["LASTIK TUKETICI"] : iTip === "TICARI" ? ["LASTIK TICARI"] : ["LASTIK TUKETICI","LASTIK TICARI"]; /* HARITA_TIP_V1 */
+        const sr = (await query("SELECT COALESCE(SUM(miktar),0)::numeric adet, COALESCE(SUM(satir_tutar),0)::numeric ciro FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND sehir ILIKE $2 AND grup_adi = ANY($5) AND ($3::date IS NULL OR fatura_tarihi BETWEEN $3 AND $4)", [session.tenantId, il, iFrom, iTo, gruplar])).rows[0]; /* HARITA_LASTIK_ONLY_V1 */
+        satisAdet = Number(sr.adet); satisCiro = Number(sr.ciro);
+      } catch (e) { console.error("[il-ozet satis]", e && e.message); }
+      sendJson(response, 200, { il, musteri: Number(zi.musteri||0), ziyaret: Number(zi.ziyaret||0), teklif: Number(tk.toplam||0), kazan: Number(tk.kazan||0), kayip: Number(tk.kayip||0), satis_adet: satisAdet, satis_ciro: satisCiro });
+      return;
+    }
+
+    if (method === "GET" && path === "/api/saha/harita-musteri-brief") { /* HARITA_BRIEF_V1 */
+      const session = await requireSahaAccess(request, ["manager","admin"]);
+      const bid = (new URL(request.url, "http://x").searchParams.get("id") || "");
+      if (!bid) { sendJson(response, 400, { error: "id zorunlu" }); return; }
+      const mr = (await query("SELECT firma, il, ilce, durum FROM saha_musteri WHERE tenant_id=$1 AND id=$2", [session.tenantId, bid])).rows[0];
+      if (!mr) { sendJson(response, 404, { error: "musteri yok" }); return; }
+      const nt = (await query("SELECT z.ziyaret_tarihi, COALESCE(u.full_name, z.rep_adi, '?') rep, z.notlar FROM saha_ziyaret z LEFT JOIN users u ON u.id=z.rep_id WHERE z.tenant_id=$1 AND z.musteri_id=$2 AND z.durum='TAMAMLANDI' AND z.notlar IS NOT NULL AND z.notlar<>'' ORDER BY z.ziyaret_tarihi DESC NULLS LAST LIMIT 15", [session.tenantId, bid])).rows;
+      if (!nt.length) { sendJson(response, 200, { brief: "Bu musteride not girilmis ziyaret yok - ozet icin once saha notu gerekiyor.", aksiyonlar: [], not_sayisi: 0 }); return; }
+      const notMetni = nt.map(n => "[" + (n.ziyaret_tarihi ? new Date(n.ziyaret_tarihi).toLocaleDateString("tr-TR") : "?") + "] " + n.rep + ": " + String(n.notlar).slice(0, 300)).join("\n");
+      const bprompt = "Sen bu firmanın (lastik distributoru) saha analistisin. Asagida \"" + (mr.firma || "") + "\" musterisinin son ziyaret notlari var. Bu notlardan kisa, yonetici icin bir DURUM OZETI cikar.\n\nZIYARET NOTLARI:\n" + notMetni + "\n\nSadece gecerli JSON dondur (markdown yok):\n{\"ozet\":\"3-4 cumle: bu musteride ne oluyor - iliski, fiyat/rakip baskisi, firsat/risk, son durum\",\"aksiyonlar\":[\"somut aksiyon\"]}\nAksiyon en fazla 3, notlardaki gercek gozlemlere dayansin.";
+      try {
+        const aiMsg = await anthropic.messages.create({ model: "claude-sonnet-4-6", max_tokens: 700, messages: [{ role: "user", content: bprompt }] });
+        let parsed = null;
+        try { const raw = (aiMsg.content[0] && aiMsg.content[0].text || "").replace(/^```json\s*/m,"").replace(/^```\s*/m,"").replace(/\n?```\s*$/,"").trim(); parsed = JSON.parse(raw); } catch (_) {}
+        if (parsed && parsed.ozet) { sendJson(response, 200, { brief: parsed.ozet, aksiyonlar: Array.isArray(parsed.aksiyonlar) ? parsed.aksiyonlar.slice(0,3) : [], not_sayisi: nt.length }); }
+        else { sendJson(response, 200, { brief: (aiMsg.content[0] && aiMsg.content[0].text) || "Ozet olusturulamadi.", aksiyonlar: [], not_sayisi: nt.length }); }
+      } catch (e) { console.error("[harita-brief]", e && e.message); sendJson(response, 500, { error: "AI ozeti alinamadi" }); }
+      return;
+    }
+
+    if (method === "GET" && path === "/api/saha/harita-musteri-ozet") { /* HARITA_MUSTERI_OZET_V1 */
+      const session = await requireSahaAccess(request, ["rep","manager","admin"]);
+      const osp = new URL(request.url, "http://x").searchParams;
+      const oid = osp.get("id") || "";
+      const oFrom = osp.get("from") || null, oTo = osp.get("to") || null; /* HARITA_DONEM_V1 */
+      if (!oid) { sendJson(response, 400, { error: "id zorunlu" }); return; }
+      const mrow = (await query("SELECT firma, musteri_kodu FROM saha_musteri WHERE tenant_id=$1 AND id=$2", [session.tenantId, oid])).rows[0];
+      if (!mrow) { sendJson(response, 404, { error: "musteri yok" }); return; }
+      const kod = mrow.musteri_kodu || null;
+      const zi = (await query("SELECT COUNT(*)::int n, MAX(ziyaret_tarihi)::text son FROM saha_ziyaret WHERE tenant_id=$1 AND musteri_id=$2 AND durum='TAMAMLANDI' AND ($3::date IS NULL OR ziyaret_tarihi BETWEEN $3 AND $4)", [session.tenantId, oid, oFrom, oTo])).rows[0];
+      const tk = (await query("SELECT COUNT(*)::int toplam, COUNT(*) FILTER (WHERE durum='KAZANILDI')::int kazan, COUNT(*) FILTER (WHERE durum='KAYBEDILDI')::int kayip FROM saha_teklif WHERE tenant_id=$1 AND musteri_id=$2 AND ($3::date IS NULL OR created_at::date BETWEEN $3 AND $4)", [session.tenantId, oid, oFrom, oTo])).rows[0];
+      let satisAdet = 0, satisCiro = 0;
+      if (kod) {
+        try {
+          const sr = (await query("SELECT COALESCE(SUM(miktar),0)::numeric adet, COALESCE(SUM(satir_tutar),0)::numeric ciro FROM bi_satis_faturalari WHERE tenant_id::text=$1 AND musteri_kodu=$2 AND grup_adi = ANY(evren_gruplar(tenant_id)) AND ($3::date IS NULL OR fatura_tarihi BETWEEN $3 AND $4)", [session.tenantId, kod, oFrom, oTo])).rows[0]; /* HARITA_LASTIK_ONLY_V1 */
+          satisAdet = Number(sr.adet); satisCiro = Number(sr.ciro);
+        } catch (e) { console.error("[harita-ozet satis]", e && e.message); }
+      }
+      sendJson(response, 200, { firma: mrow.firma, musteri_kodu: kod, ziyaret: Number(zi.n||0), son_ziyaret: zi.son || null, teklif: Number(tk.toplam||0), kazan: Number(tk.kazan||0), kayip: Number(tk.kayip||0), satis_adet: satisAdet, satis_ciro: satisCiro });
+      return;
+    }
+
+    if (method === "GET" && path === "/api/saha/harita-checkinler") { /* HARITA_CHECKIN_V1 — her ziyaret check-in noktasi (~100m dedup); cok-lokasyon firmalar haritada ayri pinler */
+      const session = await requireSahaAccess(request, ["rep","manager","admin"]);
+      const sp = new URL(request.url, "http://x").searchParams;
+      const tip = ["TUKETICI","TICARI"].includes(sp.get("tip")) ? sp.get("tip") : null;
+      const binds = [session.tenantId];
+      let repW = "";
+      if (session.sahaRole === "rep") { binds.push(session.userId); repW = " AND z.rep_id = $" + binds.length; }
+      let tipW = "";
+      if (tip) { binds.push(tip); tipW = " AND m.tip = $" + binds.length; }
+      try {
+        const r = await query(
+          "SELECT m.id musteri_id, m.firma, m.tip, m.il, m.ilce,"
+          + " round(z.checkin_lat::numeric,3)::float8 lat, round(z.checkin_lng::numeric,3)::float8 lng,"
+          + " MAX(z.ziyaret_tarihi) son, COUNT(*)::int adet"
+          + " FROM saha_ziyaret z JOIN saha_musteri m ON m.id = z.musteri_id"
+          + " WHERE z.tenant_id = $1 AND z.checkin_lat IS NOT NULL" + repW + tipW
+          + " GROUP BY m.id, m.firma, m.tip, m.il, m.ilce, round(z.checkin_lat::numeric,3), round(z.checkin_lng::numeric,3)",
+          binds);
+        sendJson(response, 200, { noktalar: r.rows });
+      } catch (e) { console.error("[harita-checkin]", e && e.message); sendJson(response, 500, { error: "checkin noktalari alinamadi" }); }
+      return;
+    }
+
+    if (method === "GET" && path === "/api/saha/harita-musteriler") { /* HARITA_MUSTERI_V1 */
+      const session = await requireSahaAccess(request, ["rep","manager","admin"]);
+      const hsp = new URL(request.url, "http://x").searchParams;
+      const hTip = hsp.get("tip") || "";
+      const hb = [session.tenantId, session.userId];  /* HARITA_MUS_BENIM_V1 — $2 = benim */
+      let tipW = "";
+      if (hTip === "TUKETICI" || hTip === "TICARI") { hb.push(hTip); tipW = " AND m.tip = $" + hb.length; }
+      const hr = await query( /* HARITA_MUSTERI_V2 */
+        "SELECT m.id, m.firma, m.tip, m.durum, m.il, m.ilce, (m.sorumlu_rep = $2) AS benim,"  /* HARITA_MUS_BENIM_V1 */
+        + " COALESCE(m.lat, ci.lat) AS lat, COALESCE(m.lng, ci.lng) AS lng,"
+        + " (m.lat IS NULL) AS ziyaret_konum, COALESCE(u.full_name, u.email) AS rep"
+        + " FROM saha_musteri m"
+        + " LEFT JOIN LATERAL (SELECT z.checkin_lat AS lat, z.checkin_lng AS lng FROM saha_ziyaret z WHERE z.tenant_id = m.tenant_id AND z.musteri_id = m.id AND z.checkin_lat IS NOT NULL ORDER BY z.checkin_at DESC NULLS LAST LIMIT 1) ci ON true"
+        + " LEFT JOIN users u ON u.id = m.sorumlu_rep"
+        + " WHERE m.tenant_id = $1 AND m.aktif = true AND COALESCE(m.lat, ci.lat) IS NOT NULL" + tipW
+        + " ORDER BY m.firma LIMIT 5000", hb);
+      sendJson(response, 200, { musteriler: hr.rows });
+      return;
+    }
+
     if (method === "GET" && path === "/api/saha/harita") {
       const session = await requireSahaAccess(request, ["rep","manager","admin"]);
       const hParams  = new URL(request.url, "http://x").searchParams;
@@ -31572,7 +36827,8 @@ async function handleSahaApi(request, response, url, deps) {
 
     // ── AI: Müşteri not özeti ──
     if (method === "GET" && (m = path.match(new RegExp(`^/api/saha/ai/musteri-ozeti/(${SAHA_UUID_RE})$`)))) {
-      const session = await requireSahaAccess(request, ["manager", "admin"]);
+      const session = await requireSahaAccess(request);
+      if (!_sahaCap(session, "musterikart")) { sendJson(response, 403, { error: "yetki yok" }); return; }  /* YETKI_FAZ1 */
       const musteriId = m[1];
       const [musteriRes, notlarRes, teklifRes] = await Promise.all([
         query(`SELECT firma, il, ilce, durum, tip FROM saha_musteri WHERE id=$1 AND tenant_id=$2`, [musteriId, session.tenantId]),
@@ -31616,7 +36872,7 @@ async function handleSahaApi(request, response, url, deps) {
       const notMetni = notlar.map(n =>
         `[${n.ziyaret_tarihi ? new Date(n.ziyaret_tarihi).toLocaleDateString("tr-TR") : "?"}] ${n.rep}: ${n.notlar.slice(0, 300)}`
       ).join("\n");
-      const prompt = `Sen KRB Rot Balans'ın (lastik distribütörü) müşteri analiz asistanısın.
+      const prompt = `Sen bu firmanın (lastik distribütörü) müşteri analiz asistanısın.
 
 Müşteri: ${musteri.firma}
 Konum: ${[musteri.il, musteri.ilce].filter(Boolean).join(", ") || "—"}
@@ -31659,8 +36915,51 @@ Respond ONLY with a JSON object. No markdown. No code blocks. Just valid JSON:
     }
 
     // ── AI: Saha Sesi (çok katmanlı + dönem karşılaştırma) ──
+    /* SAHA_SOR_V1 — bağlamsal sohbet: her metrik/müşteride "sor/konuş"; cevap + saha_sinyal öğrenme izi */
+    if (method === "POST" && path === "/api/saha/ai/sor") {
+      const session = await requireSahaAccess(request);
+      let body = {};
+      try { body = await readJson(request); } catch (e) { body = {}; }
+      const soru = (body.soru == null ? "" : String(body.soru)).trim().slice(0, 2000);
+      if (!soru) { sendJson(response, 400, { error: "Soru boş." }); return; }
+      const baglam   = (body.baglam == null ? "" : String(body.baglam)).slice(0, 6000);
+      const ekran    = (body.ekran == null ? "" : String(body.ekran)).slice(0, 60);
+      const hedefTip = (body.hedef_tip == null ? "" : String(body.hedef_tip)).slice(0, 40);
+      const hedefRef = (body.hedef_ref == null ? "" : String(body.hedef_ref)).slice(0, 120);
+      const gecmis   = Array.isArray(body.gecmis) ? body.gecmis.slice(-6) : [];
+      const SYS = "Sen " + ((session&&session.tenantName)||"KRB") + " saha satış zekâsının asistanısın. Rep'in açık olduğu ekrandaki metrik/müşteri BAĞLAMINI bilerek konuşursun. Kurallar: kısa ve net (2-5 cümle), doğal Türkçe, satışçıya yol gösteren ton; SAYI UYDURMA — yalnız verilen bağlamı ve genel ticari mantığı kullan; bağlamda olmayan bir veriyi sorarsa 'bu veri elimde yok' de; abartma/vaat yok, suçlayıcı dil yok. Uygunsa tek somut sonraki adım öner.";
+      const msgs = [];
+      msgs.push({ role: "user", content: "BAĞLAM (" + (ekran || "portfoyum") + (hedefTip ? " · " + hedefTip : "") + "):\n" + (baglam || "(bağlam verilmedi)") });
+      msgs.push({ role: "assistant", content: "Bağlamı aldım, sorunu bekliyorum." });
+      for (const g of gecmis) { if (g && g.rol && g.metin) msgs.push({ role: g.rol === "user" ? "user" : "assistant", content: String(g.metin).slice(0, 2000) }); }
+      msgs.push({ role: "user", content: soru });
+      let cevap = "";
+      try {
+        const m = await anthropic.messages.create({ model: "claude-haiku-4-5-20251001", max_tokens: 600, system: SYS, messages: msgs });  /* haiku = maliyet düşük; bağlamlı kısa Q&A için yeterli */
+        cevap = (m.content || []).map(function (c) { return c.text || ""; }).join("").trim();
+      } catch (e) {
+        sendJson(response, 502, { error: "Asistan yanıt veremedi." }); return;
+      }
+      if (!cevap) cevap = "Şu an bir yanıt üretemedim, tekrar dener misin?";
+      // öğrenme izi — saha_sinyal (kaynak_tip='ekran_sor'); müşteri bağlamında musteri_id çöz
+      try {
+        let mid = null;
+        if (hedefTip === "musteri" && hedefRef) {
+          try { const r = await query("SELECT id FROM saha_musteri WHERE tenant_id=$1 AND (id::text=$2 OR musteri_kodu=$2) LIMIT 1", [session.tenantId, hedefRef]); mid = (r.rows[0] && r.rows[0].id) || null; } catch (e) {}
+        }
+        await query("INSERT INTO saha_sinyal (tenant_id,tip,onem,ozet,detay,kaynak_tip,rep_id,musteri_id,ham_metin) VALUES ($1,'soru',1,$2,$3::jsonb,'ekran_sor',$4,$5,$6)",
+          [session.tenantId, soru.slice(0, 300), JSON.stringify({ ekran: ekran, hedef_tip: hedefTip, hedef_ref: hedefRef, soru: soru, cevap: cevap.slice(0, 1500) }), session.userId, mid, soru]);
+      } catch (e) { try { console.error("[ai/sor sinyal]", e && e.message); } catch (er) {} }
+      sendJson(response, 200, { cevap: cevap });
+      return;
+    }
+
     if (method === "GET" && path === "/api/saha/ai/saha-sesi") {
-      const session = await requireSahaAccess(request, ["manager", "admin"]);
+      const session = await requireSahaAccess(request);  /* SAHASESI_CAP_V1 — rep de kullanir; kapsam cap ile sinirli */
+      const _ssDep = Array.isArray(session.permissions && session.permissions.departments) ? session.permissions.departments : [];
+      const _ssAdmin = session.sahaRole === "admin";
+      const _canTum = _ssAdmin || _ssDep.includes("sahasesi-tum");
+      const _canTemsilci = _ssAdmin || _ssDep.includes("sahasesi-temsilci");
       const qs = new URL(request.url, "http://x").searchParams;
       const kapsam = qs.get("kapsam") || "tum";
       const sehir  = qs.get("sehir")  || null;
@@ -31686,9 +36985,10 @@ Respond ONLY with a JSON object. No markdown. No code blocks. Just valid JSON:
       // Build scope filters (shared between current + prior queries)
       const baseParams = [session.tenantId];
       const scopeWhere = ["z.tenant_id = $1","z.durum = 'TAMAMLANDI'","z.notlar IS NOT NULL","z.notlar != ''"];
+      if (!_canTum) { baseParams.push(session.userId); scopeWhere.push(`z.rep_id = $${baseParams.length}`); }  /* SAHASESI_CAP_V1 — yetkisiz = yalniz kendi ziyaretleri */
       if (kapsam === "sehir"    && sehir)  { baseParams.push(sehir);  scopeWhere.push(`sm.il = $${baseParams.length}`); }
-      if (kapsam === "temsilci" && repId)  { baseParams.push(repId);  scopeWhere.push(`z.rep_id = $${baseParams.length}`); }
-      if (kapsam === "musteri"  && mustId) { baseParams.push(mustId); scopeWhere.push(`z.musteri_id = $${baseParams.length}`); }
+      if (kapsam === "temsilci" && repId && _canTemsilci)  { baseParams.push(repId);  scopeWhere.push(`z.rep_id = $${baseParams.length}`); }  /* SAHASESI_CAP_V1 */
+      if (kapsam === "musteri") { const _mids = (qs.get("musteri_ids") || mustId || "").split(",").map(x => x.trim()).filter(Boolean); if (_mids.length) { baseParams.push(_mids); scopeWhere.push(`z.musteri_id = ANY($${baseParams.length}::uuid[])`); } }  /* SAHASESI_MUSCOK_V1 */
       if (kapsam === "durum"    && durum)  {
         const dList = durum.split(",").map(d => d.trim()).filter(Boolean);
         baseParams.push(dList); scopeWhere.push(`sm.durum = ANY($${baseParams.length})`);
@@ -31710,6 +37010,7 @@ Respond ONLY with a JSON object. No markdown. No code blocks. Just valid JSON:
       function buildSatisQ(fromDate, toDate) {
         const p = [session.tenantId];
         const w = ["sf.tenant_id = $1::text"];
+        if (!_canTum) { p.push(session.userId); w.push(`sf.musteri_kodu IN (SELECT musteri_kodu FROM saha_musteri WHERE tenant_id::text=$1::text AND sorumlu_rep::text=$${p.length}::text AND musteri_kodu IS NOT NULL)`); }  /* SAHASESI_CAP_V1 — yetkisiz = kendi musterilerinin cirosu */
         if (kapsam === "sehir" && sehir) { p.push(sehir); w.push(`sf.sehir ILIKE $${p.length}`); }
         if (fromDate) { p.push(fromDate); w.push(`sf.fatura_tarihi >= $${p.length}::date`); }
         if (toDate)   { p.push(toDate);   w.push(`sf.fatura_tarihi <= $${p.length}::date`); }
@@ -31723,10 +37024,11 @@ Respond ONLY with a JSON object. No markdown. No code blocks. Just valid JSON:
       function buildTeklifQ(fromDate, toDate) {
         const p = [session.tenantId];
         const w = ["t.tenant_id = $1"];
+        if (!_canTum) { p.push(session.userId); w.push(`t.rep_id = $${p.length}`); }  /* SAHASESI_CAP_V1 */
         const needsSmJoin = kapsam === "sehir";
         if (kapsam === "sehir"    && sehir)  { p.push(sehir);  w.push(`sm.il = $${p.length}`); }
         if (kapsam === "temsilci" && repId)  { p.push(repId);  w.push(`t.rep_id = $${p.length}`); }
-        if (kapsam === "musteri"  && mustId) { p.push(mustId); w.push(`t.musteri_id = $${p.length}`); }
+        if (kapsam === "musteri") { const _mids = (qs.get("musteri_ids") || mustId || "").split(",").map(x => x.trim()).filter(Boolean); if (_mids.length) { p.push(_mids); w.push(`t.musteri_id = ANY($${p.length}::uuid[])`); } }  /* SAHASESI_MUSCOK_V1 */
         if (fromDate) { p.push(fromDate); w.push(`t.created_at::date >= $${p.length}::date`); }
         if (toDate)   { p.push(toDate);   w.push(`t.created_at::date <= $${p.length}::date`); }
         const smJoin = needsSmJoin ? "JOIN saha_musteri sm ON sm.id = t.musteri_id" : "";
@@ -31779,7 +37081,7 @@ Respond ONLY with a JSON object. No markdown. No code blocks. Just valid JSON:
       const kpiCur  = `Satış: ${satisLine(curSRes)}\nTeklif: ${teklifLine(curTRes)}\nZiyaret notu: ${notlar.length} adet`;
       const kpiPrior = priorFrom ? `Satış: ${satisLine(prSRes)}\nTeklif: ${teklifLine(prTRes)}\nZiyaret notu: ${priorNotlar.length} adet` : "";
 
-      let kapsamAciklama = kapsam === "tum"       ? "Tüm KRB Sahası"
+      let kapsamAciklama = kapsam === "tum"       ? "Tüm Saha"
         : kapsam === "sehir"    ? `${sehir} İli`
         : kapsam === "temsilci" ? "Seçili Temsilci"
         : kapsam === "musteri"  ? "Seçili Müşteri"
@@ -31799,7 +37101,7 @@ Respond ONLY with a JSON object. No markdown. No code blocks. Just valid JSON:
         ? `Her kategori için iki dönemi karşılaştır — her "trend" alanını "yeni|artiyor|azaliyor|stabil" olarak doldur. Sayısal verideki değişimi notlardaki gözlemlerle ilişkilendir.`
         : `Sayısal veriyi (satış, teklif) saha notlarıyla ilişkilendirerek analiz et.`;
 
-      const prompt = `Sen KRB Rot Balans'ın (lastik distribütörü) saha istihbarat analistissin. Görevin iki veri kaynağını SENTEZLEMEK — sadece yan yana sıralamak değil.
+      const prompt = `Sen bu firmanın (lastik distribütörü) saha istihbarat analistissin. Görevin iki veri kaynağını SENTEZLEMEK — sadece yan yana sıralamak değil.
 
 ELİNDEKİ VERİ:
 ${donemBolumu}
@@ -31852,12 +37154,19 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       const _to = url.searchParams.get("to");
       const _tip = url.searchParams.get("tip");
       const _p = [session.tenantId];
-      let _w = "m.tenant_id=$1";
-      if (_from) { _p.push(_from); _w += " AND m.created_at >= $" + _p.length + "::date"; }
-      if (_to) { _p.push(_to); _w += " AND m.created_at < ($" + _p.length + "::date + INTERVAL '1 day')"; }
-      if (_tip && ["TUKETICI","TICARI"].includes(_tip)) { _p.push(_tip); _w += " AND m.tip=$" + _p.length; }
-      const _oz = await query("SELECT COUNT(*)::int AS toplam, COUNT(*) FILTER (WHERE m.lat IS NOT NULL)::int AS konumlu, COUNT(*) FILTER (WHERE m.vergi_no IS NOT NULL AND m.vergi_no <> '')::int AS vkn_var FROM saha_musteri m WHERE " + _w, _p);
-      const _ls = await query("SELECT m.id, m.firma, m.tip, m.il, m.ilce, m.durum, m.lat, m.vergi_no, m.created_at, COALESCE(u.full_name,u.email) AS rep FROM saha_musteri m LEFT JOIN users u ON u.id=m.sorumlu_rep WHERE " + _w + " ORDER BY m.created_at DESC LIMIT 200", _p);
+      let _flt = "";  /* YENI_MUSTERI_GERCEK_V1 */
+      if (_tip && ["TUKETICI","TICARI"].includes(_tip)) { _p.push(_tip); _flt += " AND m.tip=$" + _p.length; }
+      if (_from) { _p.push(_from); _flt += " AND i.ilk_tarih >= $" + _p.length + "::date"; }
+      if (_to) { _p.push(_to); _flt += " AND i.ilk_tarih < ($" + _p.length + "::date + INTERVAL '1 day')"; }
+      const _base = `FROM saha_musteri m
+        JOIN (SELECT z.musteri_id,
+                     MIN(COALESCE(z.ziyaret_tarihi, z.created_at::date)) AS ilk_tarih,
+                     (array_agg(z.kaynak ORDER BY COALESCE(z.ziyaret_tarihi, z.created_at::date) ASC, z.created_at ASC))[1] AS ilk_kaynak
+                FROM saha_ziyaret z WHERE z.tenant_id=$1 GROUP BY z.musteri_id) i ON i.musteri_id = m.id
+        LEFT JOIN users u ON u.id = m.sorumlu_rep
+        WHERE m.tenant_id=$1 AND i.ilk_kaynak='APP' AND COALESCE(m.kayit_kaynagi,'') <> 'EXCEL_IMPORT_KONTROL'` + _flt;
+      const _oz = await query("SELECT COUNT(*)::int AS toplam, COUNT(*) FILTER (WHERE m.lat IS NOT NULL)::int AS konumlu, COUNT(*) FILTER (WHERE m.vergi_no IS NOT NULL AND m.vergi_no <> '')::int AS vkn_var " + _base, _p);
+      const _ls = await query("SELECT m.id, m.firma, m.tip, m.il, m.ilce, m.durum, m.lat, m.vergi_no, i.ilk_tarih AS created_at, COALESCE(u.full_name,u.email) AS rep " + _base + " ORDER BY i.ilk_tarih DESC LIMIT 200", _p);
       sendJson(response, 200, { ozet: _oz.rows[0], liste: _ls.rows });
       return;
     }
@@ -32191,23 +37500,23 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     // ── /api/saha/bugun — ana ekran özeti ──────────────────────────────────
     if (method === "GET" && path === "/api/saha/bugun") {
       const session = await requireSahaAccess(request);
-      const today = new Date().toISOString().slice(0, 10);
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });  /* BUGUN_AKTIVITE_V1 */
       const tid   = session.tenantId;
 
       // Bugün planlanan ziyaretler
       let ziyaretler = [];
       try {
-        let zvSql = `SELECT z.id, z.rep_adi, z.ziyaret_tarihi, z.durum, COALESCE(m.firma, '') AS musteri_adi, COALESCE(m.adres, '') AS adres FROM saha_ziyaret z LEFT JOIN saha_musteri m ON m.id = z.musteri_id WHERE z.tenant_id = $1 AND z.durum = 'PLANLANDI' AND z.ziyaret_tarihi::date = $2::date`;
-        const zvP = [tid, today];
-        if (session.sahaRole === "rep") { zvSql += " AND z.rep_id = $3"; zvP.push(session.userId); }
-        zvSql += " ORDER BY z.ziyaret_tarihi ASC LIMIT 20";
+        let zvSql = `SELECT z.id, COALESCE(NULLIF(z.rep_adi,''), u.full_name) AS rep_adi, z.ziyaret_tarihi, z.durum, COALESCE(m.firma, '') AS musteri_adi, EXISTS(SELECT 1 FROM saha_ziyaret_gorulme g WHERE g.ziyaret_id = z.id AND g.user_id = $3) AS gordum FROM saha_ziyaret z LEFT JOIN saha_musteri m ON m.id = z.musteri_id LEFT JOIN users u ON u.id = z.rep_id /* BUGUN_ADRES_FIX_V1: m.adres kolonu yok, cikarildi */ WHERE z.tenant_id = $1 AND ( (z.durum = 'TAMAMLANDI' AND z.ziyaret_tarihi::date = $2::date) OR (z.durum = 'PLANLANDI' AND COALESCE(z.planlanan_tarih, z.ziyaret_tarihi)::date = $2::date) )`;  /* BUGUN_AKTIVITE_V1 */
+        const zvP = [tid, today, session.userId];  /* BUGUN_ZIYARET_GORDUM_V1: $3 = gordum EXISTS + rep filtresi */
+        if (session.sahaRole === "rep") { zvSql += " AND z.rep_id = $3"; }
+        zvSql += " ORDER BY z.ziyaret_tarihi DESC NULLS LAST LIMIT 50";  /* BUGUN_AKTIVITE_V1 */
         ziyaretler = (await pool.query(zvSql, zvP)).rows;
       } catch (_) {}
 
       // Bekleyen teklifler
       let teklifler = [];
       try {
-        let tSql = `SELECT t.id, t.musteri_adi, t.durum, t.toplam_tutar, t.created_at FROM saha_teklif t WHERE t.tenant_id = $1 AND t.durum IN ('TASLAK','ONAY_BEKLIYOR')`;
+        let tSql = `SELECT t.id, COALESCE(m.firma,'') AS musteri_adi, u.full_name AS rep_adi, t.durum, t.toplam_tutar, t.created_at FROM saha_teklif t LEFT JOIN saha_musteri m ON m.id = t.musteri_id LEFT JOIN users u ON u.id = t.rep_id WHERE t.tenant_id = $1 AND t.durum IN ('TASLAK','ONAY_BEKLIYOR')`; /* BUGUN_TEKLIF_FIX_V1: musteri_adi/rep_adi kolon degil, JOIN ile getir */
         const tP = [tid];
         if (session.sahaRole === "rep") { tSql += " AND t.rep_id = $2"; tP.push(session.userId); }
         tSql += " ORDER BY t.created_at DESC LIMIT 10";
@@ -32230,13 +37539,21 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
         hatirlatmalar = (await pool.query("SELECT n.id, n.icerik, to_char(n.hatirlatma_tarihi,'YYYY-MM-DD') AS hatirlatma_tarihi, m.firma AS musteri FROM saha_rep_not n LEFT JOIN saha_musteri m ON m.id=n.musteri_id WHERE n.tenant_id=$1 AND n.rep_id=$2 AND n.tamamlandi=false AND n.hatirlatma_tarihi IS NOT NULL AND n.hatirlatma_tarihi <= (CURRENT_DATE + INTERVAL '1 day') ORDER BY n.hatirlatma_tarihi ASC LIMIT 10", [tid, session.userId])).rows;
       } catch (e) {}
 
+      let mesaj_okunmamis = 0;  /* MESAJ_OKUNDU_V1 */
+      try {
+        const _mrole = session.sahaRole === "rep";
+        const _msql = _mrole
+          ? `SELECT count(*)::int AS n FROM saha_konusma k JOIN saha_konusma_mesaj m ON m.konusma_id=k.id LEFT JOIN saha_konusma_okundu o ON o.konusma_id=k.id AND o.user_id=$2 WHERE k.tenant_id=$1 AND k.rep_id=$2 AND k.tip='BIREYSEL' AND m.gonderen_rol<>'rep' AND m.created_at > COALESCE(o.son_okunan_at,'epoch'::timestamptz)`
+          : `SELECT count(*)::int AS n FROM saha_konusma k JOIN saha_konusma_mesaj m ON m.konusma_id=k.id LEFT JOIN saha_konusma_okundu o ON o.konusma_id=k.id AND o.user_id=$2 WHERE k.tenant_id=$1 AND k.tip='BIREYSEL' AND m.gonderen_rol='rep' AND m.created_at > COALESCE(o.son_okunan_at,'epoch'::timestamptz)`;
+        mesaj_okunmamis = (await pool.query(_msql, [tid, session.userId])).rows[0].n;
+      } catch (e) {}
       sendJson(response, 200, {
         bugun: today,
         ziyaretler,
         duyurular_okunmamis,
         duyurular_yeni_sayisi,
         rep_sayisi,
-        mesaj_okunmamis: 0,
+        mesaj_okunmamis,  /* MESAJ_OKUNDU_V1 */
         teklifler,
         hatirlatmalar
       });
@@ -32244,6 +37561,16 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     }
 
     // ── /api/saha/reps — yönetici için temsilci listesi ─────────────────────
+    if (method === "GET" && path === "/api/saha/saha-kullanicilar") { // KATILIMCI_V1 — tum saha kullanicilari (rep dahil erisir)
+      const session = await requireSahaAccess(request);
+      const rows = await pool.query(
+        `SELECT u.id, COALESCE(u.full_name, u.email) AS ad FROM users u
+           JOIN tenant_user_modules tum ON tum.user_id = u.id AND tum.module_id = 'saha' AND tum.tenant_id = $1 AND tum.active = true
+          WHERE u.status != 'disabled' ORDER BY ad`,
+        [session.tenantId]);
+      sendJson(response, 200, { kullanicilar: rows.rows });
+      return;
+    }
     if (method === "GET" && path === "/api/saha/reps") {
       const session = await requireSahaAccess(request, ["manager","admin"]);
       const rows = await pool.query(
@@ -32251,6 +37578,25 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
         [session.tenantId]
       );
       sendJson(response, 200, { reps: rows.rows });
+      return;
+    }
+
+    // ── Bildirim kutusu (inbox) — PUSH_INBOX_V1 ──
+    if (method === "GET" && path === "/api/saha/bildirimler") {
+      const session = await requireSahaAccess(request);
+      await ensureBildirim();
+      const rows = await pool.query("SELECT id, baslik, govde, tip, data, okundu, created_at FROM bi_bildirim WHERE tenant_id=$1 AND user_id=$2 ORDER BY created_at DESC LIMIT 100", [session.tenantId, session.userId]);
+      const okunmamis = rows.rows.filter(function (x) { return !x.okundu; }).length;
+      sendJson(response, 200, { bildirimler: rows.rows, okunmamis: okunmamis });
+      return;
+    }
+    if (method === "POST" && path === "/api/saha/bildirimler/okundu") {
+      const session = await requireSahaAccess(request);
+      await ensureBildirim();
+      const b = await readJson(request).catch(function () { return {}; });
+      if (b && b.id) await pool.query("UPDATE bi_bildirim SET okundu=true WHERE tenant_id=$1 AND user_id=$2 AND id=$3", [session.tenantId, session.userId, b.id]);
+      else await pool.query("UPDATE bi_bildirim SET okundu=true WHERE tenant_id=$1 AND user_id=$2 AND okundu=false", [session.tenantId, session.userId]);
+      sendJson(response, 200, { ok: true });
       return;
     }
     
@@ -32281,6 +37627,26 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       const _out = [];
       for (const _row of _ten.rows) { _out.push(await _sahaGunlukOzet(_row.tenant_id)); }
       sendJson(response, 200, { ok: true, results: _out });
+      return;
+    }
+
+    // GUNLUK_RAPOR_EXEC_V1 — manuel onizleme/tetik (secret'li). ?dry=1 gondermeden hesapla; ?force=1 saat/guard bypass.
+    if ((method === "POST" || method === "GET") && path === "/api/saha/gunluk-rapor-exec") {
+      let secret = "";
+      try { secret = url.searchParams.get("key") || request.headers["x-ozet-secret"] || ""; } catch (e) {}
+      let ok = false;
+      try { const _s = await pool.query("SELECT value FROM bi_rakip_izle_ayar WHERE key='alarm_flush_secret'"); ok = !!(_s.rows[0] && _s.rows[0].value && _s.rows[0].value === secret); } catch (e) {}
+      if (!ok) { sendJson(response, 403, { error: "forbidden" }); return; }
+      const dry = url.searchParams.get("dry") === "1", force = url.searchParams.get("force") === "1";
+      if (dry) {
+        const _ten = await pool.query("SELECT DISTINCT tenant_id FROM saha_ziyaret");
+        const _out = [];
+        for (const _r of _ten.rows) { _out.push(await _execDailyReport(_r.tenant_id, { dry: true, force: true })); }
+        sendJson(response, 200, { ok: true, dry: true, results: _out });
+        return;
+      }
+      const r = await _gunlukRaporExecTick(force);
+      sendJson(response, 200, { ok: true, result: r });
       return;
     }
     if (method === "POST" && path === "/api/saha/notlar") {
@@ -32407,6 +37773,34 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       return;
     }
 
+    // YORUM_AKISI_V1 — Bugun "Yorumlar" karti: birlesik (ziyaret + duyuru) yorum akisi + okunmamis
+    if (method === "GET" && path === "/api/saha/yorum-akisi") {
+      const session = await requireSahaAccess(request);
+      const tid = session.tenantId, uid = session.userId;
+      const _tumu = url.searchParams.get("mod") === "tumu";  /* YORUM_AKISI_TUMU_V1 */
+      const r = _tumu
+        ? await pool.query(
+            `SELECT tip AS tur, (data->>'id') AS ref_id, baslik, govde, created_at, okundu
+               FROM bi_bildirim
+              WHERE tenant_id=$1 AND user_id=$2
+                AND (baslik LIKE '💬 Ziyaret yorumu%' OR baslik LIKE '💬 Duyuru yorumu%')
+                AND created_at >= date_trunc('year', (now() AT TIME ZONE 'Europe/Istanbul'))
+              ORDER BY created_at DESC LIMIT 200`, [tid, uid])
+        : await pool.query(  /* YORUM_AKISI_ODAK_V1 — odak: okunmamis ilgili yorum bildirimleri */
+            `SELECT tip AS tur, (data->>'id') AS ref_id, baslik, govde, created_at, false AS okundu
+               FROM bi_bildirim
+              WHERE tenant_id=$1 AND user_id=$2 AND okundu=false
+                AND (baslik LIKE '💬 Ziyaret yorumu%' OR baslik LIKE '💬 Duyuru yorumu%')
+              ORDER BY created_at DESC LIMIT 50`, [tid, uid]);
+      let okunmamis = 0;
+      try {
+        const u = await pool.query("SELECT COUNT(*) n FROM bi_bildirim WHERE tenant_id=$1 AND user_id=$2 AND okundu=false AND (baslik LIKE '💬 Ziyaret yorumu%' OR baslik LIKE '💬 Duyuru yorumu%')", [tid, uid]);
+        okunmamis = u.rows[0] ? Number(u.rows[0].n) : 0;
+      } catch (e) {}
+      sendJson(response, 200, { yorumlar: r.rows, okunmamis });
+      return;
+    }
+
     // SESSIZ_HATA_V1 — ziyaret yorumlari (tablo + arayuz VARDI, route YOKTU)
     if (path.startsWith("/api/saha/ziyaretler/") && path.endsWith("/yorumlar")) {
       const session = await requireSahaAccess(request);
@@ -32415,10 +37809,13 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
 
       if (method === "GET") {
         const r = await pool.query(
-          `SELECT id, user_adi, rol, icerik, created_at
-             FROM saha_ziyaret_yorum
-            WHERE tenant_id=$1 AND ziyaret_id=$2
-            ORDER BY created_at ASC`,
+          `SELECT y.id, y.user_adi, y.rol, y.icerik, y.created_at,
+                  EXISTS(SELECT 1 FROM saha_ziyaret_gorulme g
+                          WHERE g.ziyaret_id=y.ziyaret_id AND g.user_id <> y.user_id
+                            AND g.gorulme_at >= y.created_at) AS goruldu  /* YORUM_GORULDU_V1 */
+             FROM saha_ziyaret_yorum y
+            WHERE y.tenant_id=$1 AND y.ziyaret_id=$2
+            ORDER BY y.created_at ASC`,
           [session.tenantId, zid]
         );
         sendJson(response, 200, { yorumlar: r.rows });
@@ -32437,6 +37834,21 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
            RETURNING id, user_adi, rol, icerik, created_at`,
           [session.tenantId, zid, session.userId, adi, session.sahaRole || "rep", icerik]
         );
+        try { /* YORUM_BILDIRIM_V1 — ziyaret sahibi + onceki yorumcular (yazan haric) push+inbox */
+          const _zr = await pool.query("SELECT z.rep_id, m.firma FROM saha_ziyaret z LEFT JOIN saha_musteri m ON m.id=z.musteri_id WHERE z.id=$1 AND z.tenant_id=$2", [zid, session.tenantId]);
+          const _sahip = _zr.rows[0] && _zr.rows[0].rep_id;
+          const _firma = (_zr.rows[0] && _zr.rows[0].firma) || "Ziyaret";
+          const _kr = await pool.query("SELECT DISTINCT user_id FROM saha_ziyaret_yorum WHERE tenant_id=$1 AND ziyaret_id=$2", [session.tenantId, zid]);
+          const _hedef = new Set();
+          if (_sahip) _hedef.add(_sahip);
+          for (const _x of _kr.rows) { if (_x.user_id) _hedef.add(_x.user_id); }
+          _hedef.delete(session.userId);
+          const _ids = Array.from(_hedef);
+          if (_ids.length) {
+            const _snip = icerik.length > 90 ? icerik.slice(0, 90) + "…" : icerik;
+            pushToUsers(session.tenantId, _ids, "💬 Ziyaret yorumu", adi + " · " + _firma + ": " + _snip, { room: "saha", type: "ziyaret", id: zid }).catch(function () {});
+          }
+        } catch (e) { try { console.warn("yorum bildirim:", e.message); } catch (er) {} }
         sendJson(response, 201, { yorum: r.rows[0] });
         return;
       }
@@ -32445,7 +37857,83 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       return;
     }
 
+    // YORUM_BACKFILL_V1 — gecmis yorumlar icin sahiplere tek seferlik toplu bildirim (secret'li).
+    if ((method === "GET" || method === "POST") && path === "/api/saha/yorum-backfill") {
+      let secret = "";
+      try { secret = url.searchParams.get("key") || request.headers["x-ozet-secret"] || ""; } catch (e) {}
+      let ok = false;
+      try { const _s = await pool.query("SELECT value FROM bi_rakip_izle_ayar WHERE key='alarm_flush_secret'"); ok = !!(_s.rows[0] && _s.rows[0].value && _s.rows[0].value === secret); } catch (e) {}
+      if (!ok) { sendJson(response, 403, { error: "forbidden" }); return; }
+      const who = (url.searchParams.get("who") || "bilen").trim();
+      const days = parseInt(url.searchParams.get("days") || "0", 10) || 0;
+      const force = url.searchParams.get("force") === "1";
+      try {
+        const cu = await pool.query("SELECT id, full_name FROM users WHERE full_name ILIKE $1 OR email ILIKE $1", ["%" + who + "%"]);
+        const cids = cu.rows.map(function (x) { return x.id; });
+        if (!cids.length) { sendJson(response, 200, { ok: true, eslesen: 0, mesaj: "kullanici bulunamadi: " + who }); return; }
+        const cname = cu.rows.length === 1 ? cu.rows[0].full_name : "Yönetim";
+        const params = [cids];
+        let dayF = "";
+        if (days > 0) { params.push(days); dayF = " AND y.created_at >= now() - ($2 * INTERVAL '1 day')"; }
+        const plan = await pool.query(
+          "SELECT z.rep_id, u.full_name rep, count(DISTINCT y.ziyaret_id)::int ziyaret, (array_agg(y.ziyaret_id ORDER BY y.created_at DESC))[1] son_zid" +
+          " FROM saha_ziyaret_yorum y JOIN saha_ziyaret z ON z.id=y.ziyaret_id LEFT JOIN users u ON u.id=z.rep_id" +
+          " WHERE y.user_id = ANY($1::uuid[]) AND z.rep_id IS NOT NULL AND z.rep_id <> ALL($1::uuid[])" + dayF +
+          " GROUP BY z.rep_id, u.full_name ORDER BY ziyaret DESC", params);
+        const plani = plan.rows.map(function (r) { return { rep: r.rep, rep_id: r.rep_id, ziyaret: r.ziyaret, son_zid: r.son_zid }; });
+        if (!force) { sendJson(response, 200, { ok: true, dry: true, commenter: cname, hedef_rep: plani.length, toplam_ziyaret: plani.reduce(function (a, b) { return a + b.ziyaret; }, 0), plan: plani }); return; }
+        let gonderilen = 0;
+        for (const r of plan.rows) {
+          try {
+            const trow = await pool.query("SELECT tenant_id FROM saha_ziyaret WHERE id=$1", [r.son_zid]);
+            const T = trow.rows[0] && trow.rows[0].tenant_id; if (!T) continue;
+            const n = r.ziyaret;
+            const body = cname + ", " + n + " ziyaretinize yorum bıraktı" + (n > 1 ? " — açıp görün." : ".");
+            await pushToUsers(T, [r.rep_id], "💬 Ziyaret yorumları", body, { room: "saha", type: "ziyaret", id: r.son_zid });
+            gonderilen++;
+          } catch (e) {}
+        }
+        sendJson(response, 200, { ok: true, commenter: cname, gonderilen: gonderilen, hedef: plani.length });
+      } catch (e) { sendJson(response, 500, { error: String(e && e.message) }); }
+      return;
+    }
+
     // REP_SELAM_V1 — resepsiyon karsilama: sicak + gercek-temelli, gunluk onbellekli; LLM yalniz bicimler, UYDURMAZ.
+    if (method === "POST" && path === "/api/saha/push-register") {
+      const session = await requireSahaAccess(request);
+      const body = await readJson(request);
+      const token = (body && body.token ? String(body.token) : "").trim();
+      const platform = (body && body.platform ? String(body.platform) : "android").slice(0, 20);
+      if (!token) { sendJson(response, 400, { error: "token zorunlu" }); return; }
+      try {
+        await pool.query("INSERT INTO bi_push_token (tenant_id,user_id,token,platform,updated_at) VALUES ($1,$2,$3,$4,now()) ON CONFLICT (token) DO UPDATE SET user_id=EXCLUDED.user_id, tenant_id=EXCLUDED.tenant_id, platform=EXCLUDED.platform, updated_at=now()", [session.tenantId, session.userId, token, platform]);
+        sendJson(response, 200, { ok: true });
+      } catch (e) { sendJson(response, 500, { error: "kayit basarisiz" }); }
+      return;
+    }
+    if (method === "POST" && path === "/api/saha/push-test") {
+      const session = await requireSahaAccess(request);
+      const rr = await pushToUsers(session.tenantId, [session.userId], "🔔 Derive test", "Bildirim testi — çalışıyor ✅", { room: "reception", type: "test" });
+      sendJson(response, 200, rr);
+      return;
+    }
+    if (method === "GET" && path === "/api/saha/araclarim") {
+      const session = await requireSahaAccess(request);
+      const mgmt = ["manager", "admin"].includes(session.sahaRole);
+      let araclar = [];
+      if (mgmt) { araclar = ["musteri_kart", "ebat_kart"]; }
+      else {
+        try {
+          const g = await pool.query("SELECT arac_kod FROM bi_arac_yetki WHERE tenant_id::text=$1 AND user_id=$2 AND aktif=true", [session.tenantId, session.userId]);
+          araclar = g.rows.map(r => r.arac_kod);
+        } catch (e) {}
+        const _dep = (session.permissions && Array.isArray(session.permissions.departments)) ? session.permissions.departments : [];  /* ARAC_IZIN_UNIFY_V1 */
+        if (_dep.includes("musterikart") && !araclar.includes("musteri_kart")) araclar.push("musteri_kart");
+        if (_dep.includes("ebatkart") && !araclar.includes("ebat_kart")) araclar.push("ebat_kart");
+      }
+      sendJson(response, 200, { araclar });
+      return;
+    }
     if (method === "GET" && path === "/api/saha/recep-selam") {
       const session = await requireSahaAccess(request);
       try {
@@ -32454,7 +37942,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       } catch (e) {}
       const _g = [];
       try {
-        const _r = await pool.query("SELECT (SELECT count(*)::int FROM saha_ziyaret WHERE tenant_id=$1 AND rep_id=$2 AND durum='TAMAMLANDI' AND ziyaret_tarihi=CURRENT_DATE) AS tamam, (SELECT count(*)::int FROM saha_ziyaret WHERE tenant_id=$1 AND rep_id=$2 AND durum='PLANLANDI' AND planlanan_tarih=CURRENT_DATE) AS planli", [session.tenantId, session.userId]);
+        const _r = await pool.query("SELECT (SELECT count(*)::int FROM saha_ziyaret WHERE tenant_id=$1 AND rep_id=$2 AND durum='TAMAMLANDI' AND ziyaret_tarihi=(now() AT TIME ZONE 'Europe/Istanbul')::date) AS tamam, (SELECT count(*)::int FROM saha_ziyaret WHERE tenant_id=$1 AND rep_id=$2 AND durum='PLANLANDI' AND planlanan_tarih=(now() AT TIME ZONE 'Europe/Istanbul')::date) AS planli", [session.tenantId, session.userId]);
         const _t = (_r.rows[0] && _r.rows[0].tamam) || 0, _p = (_r.rows[0] && _r.rows[0].planli) || 0;
         if (_t > 0) _g.push("bugun " + _t + " ziyaret tamamlandi");
         if (_p > 0) _g.push("bugun " + _p + " planli ziyaret var");
@@ -32481,6 +37969,85 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       sendJson(response, 200, { selam: _selam });
       return;
     }
+      // NABIZ_HIKAYE_V1 — Mod-4 haftanin hikayesi (memnuniyet nabzi)
+      if (method === "GET" && path === "/api/saha/nabiz-hikaye") {
+        const session = await requireSahaAccess(request);
+        const r = await pool.query(
+          "WITH h AS (SELECT rep_id, count(*)::int z FROM saha_ziyaret WHERE tenant_id=$1 AND ziyaret_tarihi > now()-interval '7 days' AND durum='TAMAMLANDI' GROUP BY rep_id) SELECT z, sira, toplam FROM (SELECT rep_id, z, rank() OVER (ORDER BY z DESC) sira, count(*) OVER () toplam FROM h) x WHERE rep_id=$2",
+          [session.tenantId, session.userId]);
+        const c = await pool.query(
+          "SELECT count(*)::int n FROM bi_geri_bildirim WHERE tenant_id=$1 AND kullanici=$2 AND hedef_tur='nabiz_capa' AND zaman > date_trunc('week', now())",
+          [session.tenantId, session.userId]);
+        sendJson(response, 200, { ziyaret: r.rows[0] ? r.rows[0].z : 0, sira: r.rows[0] ? r.rows[0].sira : null, toplam: r.rows[0] ? r.rows[0].toplam : null, cevaplandi: (c.rows[0].n > 0) });
+        return;
+      }
+      // NABIZ_HIKAYE_V1 — cevap yaz (kapali dongu -> bi_geri_bildirim)
+      if (method === "POST" && path === "/api/saha/nabiz-cevap") {
+        const session = await requireSahaAccess(request);
+        const body = await readJson(request);
+        const capa = (body.capa || '').toString().slice(0, 40);
+        const deger = (body.deger === undefined || body.deger === null) ? null : String(body.deger).slice(0, 60);
+        const metin = (body.metin || '').toString().slice(0, 2000);
+        if (!capa && !metin) { sendJson(response, 400, { error: 'bos' }); return; }
+        await pool.query(
+          "INSERT INTO bi_geri_bildirim (tenant_id, zaman, kullanici, hedef, hedef_tur, tur, metin, baglam, islendi) VALUES ($1, now(), $2, 'nabiz-hikaye', $3, $4, $5, $6, false)",
+          [session.tenantId, session.userId, (capa ? 'nabiz_capa' : 'nabiz_serbest'), (capa || 'serbest'), (metin || null), JSON.stringify({ capa, deger, mod: 'mod4', kanal: 'bugun' })]);
+        sendJson(response, 200, { ok: true });
+        return;
+      }
+      // NABIZ_SOR_V1 — Mod-3 asistan is-arkadasi sorusu (beyin secer)
+      if (method === "GET" && path === "/api/saha/nabiz-sor") {
+        const session = await requireSahaAccess(request);
+        const t = session.tenantId, u = session.userId;
+        const asked = await pool.query("SELECT count(*)::int n FROM bi_geri_bildirim WHERE tenant_id=$1 AND kullanici=$2 AND hedef_tur='nabiz_mod3' AND zaman > now()-interval '7 days'", [t,u]);
+        if (asked.rows[0].n > 0) { sendJson(response,200,{sor:null}); return; }
+        const rem = await pool.query("SELECT count(*) FILTER (WHERE NOT tamamlandi)::int acik, count(*) FILTER (WHERE tamamlandi AND updated_at > now()-interval '7 days')::int kapali7 FROM saha_rep_not WHERE tenant_id=$1 AND rep_id=$2", [t,u]);
+        const err = await pool.query("SELECT count(*)::int n FROM saha_hata_log WHERE tenant_id=$1 AND user_id=$2 AND ts > now()-interval '7 days' AND tip='YAVAS_API'", [t,u]);
+        const tek = await pool.query("SELECT count(*)::int n FROM saha_teklif WHERE tenant_id=$1 AND rep_id=$2 AND created_at > now()-interval '30 days'", [t,u]);
+        let sor=null, capa=null, secenekler=null;
+        if ((rem.rows[0].acik||0) >= 5 && (rem.rows[0].kapali7||0) === 0) {
+          sor = "Bu arada — yeni Tamamla butonu hatirlatmalari kapatmani kolaylastirdi mi?";
+          capa = "hatirlatma"; secenekler = ["Evet, artik kapatiyorum","Fark etmedim","Hala zor"];
+        } else if ((err.rows[0].n||0) >= 10) {
+          sor = "Bu hafta uygulama seni birkac yerde bekletti galiba — en cok nerede takildin?";
+          capa = "hiz"; secenekler = ["Ziyaret listesi","Kaydederken","Fotograf","Beklemedi"];
+        } else if ((tek.rows[0].n||0) === 0) {
+          sor = "Teklif ekranini bu ara kullanmadin — gerek mi olmadi, yoksa bir yerde mi takildin?";
+          capa = "teklif"; secenekler = ["Gerek olmadi","Takildim","Nasil oldugunu bilmiyorum"];
+        } else {
+          sor = "Kisa bir sey: bu hafta Derive'da en cok neyi duzeltmemizi istersin?";
+          capa = "acik"; secenekler = ["Her sey yolunda","Bir sorun var"];
+        }
+        sendJson(response, 200, { sor, capa, secenekler });
+        return;
+      }
+      // NABIZ_SOR_V1 — Mod-3 cevap (hedef_tur=nabiz_mod3)
+      if (method === "POST" && path === "/api/saha/nabiz-sor-cevap") {
+        const session = await requireSahaAccess(request);
+        const body = await readJson(request);
+        const capa = (body.capa || '').toString().slice(0,40);
+        const cevap = (body.cevap || '').toString().slice(0,2000);
+        const soru = (body.soru || '').toString().slice(0,400);
+        if (!cevap) { sendJson(response,400,{error:'bos'}); return; }
+        await pool.query("INSERT INTO bi_geri_bildirim (tenant_id, zaman, kullanici, hedef, hedef_tur, tur, metin, baglam, islendi) VALUES ($1, now(), $2, 'nabiz-asistan', 'nabiz_mod3', $3, $4, $5, false)",
+          [session.tenantId, session.userId, (capa || 'mod3'), cevap, JSON.stringify({ mod:'mod3', kanal:'asistan', soru, capa })]);
+        sendJson(response, 200, { ok:true });
+        return;
+      }
+      // NABIZ_OZET_V1 — Memnuniyet izleme (manager/admin)
+      if (method === "GET" && path === "/api/saha/nabiz-ozet") {
+        const session = await requireSahaAccess(request, ["manager", "admin"]);
+        const tid = session.tenantId;
+        const F = "AND baglam::jsonb->>'deger' ~ '^[0-9]+$'";
+        const ozet = await pool.query("SELECT count(*)::int adet, count(DISTINCT kullanici)::int rep, round(avg((baglam::jsonb->>'deger')::numeric),1) ort FROM bi_geri_bildirim WHERE tenant_id::text=$1::text AND hedef_tur='nabiz_capa' "+F, [tid]);
+        const hafta = await pool.query("SELECT count(DISTINCT kullanici)::int rep, round(avg((baglam::jsonb->>'deger')::numeric),1) ort FROM bi_geri_bildirim WHERE tenant_id::text=$1::text AND hedef_tur='nabiz_capa' AND zaman > date_trunc('week', now()) "+F, [tid]);
+        const dagilim = await pool.query("SELECT (baglam::jsonb->>'deger')::int deger, count(*)::int adet FROM bi_geri_bildirim WHERE tenant_id::text=$1::text AND hedef_tur='nabiz_capa' "+F+" GROUP BY 1 ORDER BY 1", [tid]);
+        const repler = await pool.query("SELECT DISTINCT ON (g.kullanici) COALESCE(NULLIF(u.name,''),u.full_name) ad, (g.baglam::jsonb->>'deger') deger, g.zaman FROM bi_geri_bildirim g LEFT JOIN users u ON u.id::text=g.kullanici::text WHERE g.tenant_id::text=$1::text AND g.hedef_tur='nabiz_capa' ORDER BY g.kullanici, g.zaman DESC", [tid]);
+        const mod3 = await pool.query("SELECT COALESCE(NULLIF(u.name,''),u.full_name) ad, g.tur capa, g.metin cevap, (g.baglam::jsonb->>'soru') soru, g.zaman FROM bi_geri_bildirim g LEFT JOIN users u ON u.id::text=g.kullanici::text WHERE g.tenant_id::text=$1::text AND g.hedef_tur='nabiz_mod3' ORDER BY g.zaman DESC LIMIT 30", [tid]);
+        const trend = await pool.query("SELECT zaman::date gun, count(*)::int adet, round(avg((baglam::jsonb->>'deger')::numeric),1) ort FROM bi_geri_bildirim WHERE tenant_id::text=$1::text AND hedef_tur='nabiz_capa' AND zaman > now()-interval '14 days' "+F+" GROUP BY 1 ORDER BY 1", [tid]);
+        if (!response.headersSent) sendJson(response, 200, { ozet: ozet.rows[0], hafta: hafta.rows[0], dagilim: dagilim.rows, repler: repler.rows, mod3: mod3.rows, trend: trend.rows });
+        return;
+      }
     if (method === "POST" && path === "/api/saha/rep-brain") {
       const session = await requireSahaAccess(request);
       const body = await readJson(request);
@@ -32511,7 +38078,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
         [session.tenantId, session.userId]
       );
       // REP_ASSISTANT_V1 — tool-use loop (fast quote + auto-task + rakip)
-      const _repSys = "Sen KRB Otomotiv saha ekibinin kişisel asistanısın. Türkçe, KISA ve pratik cevap ver — temsilci yolda/müşteride, hızlı sonuç ister.\n" +
+      const _repSys = "Sen bu firmanın saha ekibinin kişisel asistanısın. Türkçe, KISA ve pratik cevap ver — temsilci yolda/müşteride, hızlı sonuç ister.\n" +
         "BİÇİM ÇOK ÖNEMLİ: Düz, insani sohbet dili yaz — sanki iş arkadaşına WhatsApp mesajı atıyorsun. ASLA markdown KULLANMA: tablo (|, ---), kalın (**), başlık (#) YASAK; ekranda çirkin görünüyor. Kısa cümleler kur; liste gerekiyorsa satır başında sade tire (-) kullan. En fazla 1-2 emoji, abartma. Rakamları cümle içinde doğal söyle (ör. \"Bu hafta 215 ziyaret yaptın, 980 bin liralık teklifin onaylandı\").\n" +
         "Araçlar:\n" +
         "- platform_yenilikler: 'ne yeni / neler degisti / bunu nasil yaparim / uygulama ne yapabiliyor / yeni ozellik' sorularinda platformun son yeniliklerini ve yeteneklerini getirir; teknik terim/marker verme, sade gunluk dille anlat.\n" +
@@ -32848,13 +38415,14 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       const body = await readJson(request);
       const { baslik, icerik, onem='NORMAL', tip='DUYURU' } = body;
       if (!baslik || !icerik) { sendJson(response, 400, { error: 'baslik ve icerik zorunlu' }); return; }
-      const _tip = tip === 'PIYASA' ? 'PIYASA' : 'DUYURU';
+      const _tip = tip === 'PIYASA' ? 'PIYASA' : (tip === 'HTML' && ['admin','manager'].includes(session.sahaRole)) ? 'HTML' : 'DUYURU';  /* DUYURU_HTML_V1 */
       const _onem = ['NORMAL','YUKSEK','ACIL'].includes(onem) ? onem : 'NORMAL';
       const r = await pool.query(
         `INSERT INTO saha_duyuru (id,tenant_id,yazan_id,yazan_adi,baslik,icerik,onem,tip)
          VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7) RETURNING id`,
         [session.tenantId, session.userId, session.name||'Kullanıcı', baslik, icerik, _onem, _tip]
       );
+      try { pushToTenant(session.tenantId, session.userId, "📢 " + baslik, icerik, { room: "reception", type: "duyuru", id: r.rows[0].id }).then(function (rr) { try { console.log("[push] duyuru:", JSON.stringify(rr)); } catch (e) {} }); } catch (e) {}
       sendJson(response, 201, { id: r.rows[0].id });
       return;
     }
@@ -32871,12 +38439,14 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
 
     if (method === "GET" && (m = path.match(/^\/api\/saha\/duyurular\/([0-9a-f-]{36})$/))) {
       const session = await requireSahaAccess(request);
-      const dr = await pool.query("SELECT id, yazan_id, yazan_adi, baslik, icerik, onem, COALESCE(tip,'DUYURU') AS tip, created_at FROM saha_duyuru WHERE tenant_id=$1 AND id=$2", [session.tenantId, m[1]]);
+      await ensureDuyuruEk();  /* DUYURU_EK_V1 */
+      const dr = await pool.query("SELECT id, yazan_id, yazan_adi, baslik, icerik, onem, COALESCE(tip,'DUYURU') AS tip, created_at, updated_at FROM saha_duyuru WHERE tenant_id=$1 AND id=$2", [session.tenantId, m[1]]);
       if (!dr.rowCount) { sendJson(response, 404, { error: 'Duyuru bulunamadı.' }); return; }
       const yr = await pool.query("SELECT id, user_adi, rol, icerik, created_at FROM saha_duyuru_yorum WHERE tenant_id=$1 AND duyuru_id=$2 ORDER BY created_at ASC", [session.tenantId, m[1]]);
       let okuyanlar = [];
       try { const orr = await pool.query("SELECT u.full_name FROM saha_duyuru_okundu o JOIN users u ON u.id=o.user_id WHERE o.duyuru_id=$1", [m[1]]); okuyanlar = orr.rows; } catch (e) {}
-      sendJson(response, 200, { duyuru: dr.rows[0], yorumlar: yr.rows, okuyanlar: okuyanlar });
+      let _ekler = []; try { const _er = await pool.query("SELECT id, dosya_adi, mime, boyut FROM saha_duyuru_ek WHERE duyuru_id=$1 ORDER BY created_at ASC", [m[1]]); _ekler = _er.rows; } catch (e) {}  /* DUYURU_EK_V1 */
+      sendJson(response, 200, { duyuru: dr.rows[0], yorumlar: yr.rows, okuyanlar: okuyanlar, ekler: _ekler, duzenlenebilir: dr.rows[0].yazan_id === session.userId });
       return;
     }
     if (method === "POST" && (m = path.match(/^\/api\/saha\/duyurular\/([0-9a-f-]{36})\/yorum$/))) {
@@ -32885,8 +38455,82 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       const icerik = String(body.icerik || '').trim();
       if (!icerik) { sendJson(response, 400, { error: 'icerik zorunlu' }); return; }
       await pool.query("INSERT INTO saha_duyuru_yorum (id,tenant_id,duyuru_id,user_id,user_adi,rol,icerik) VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6)", [session.tenantId, m[1], session.userId, session.name || 'Kullanıcı', session.sahaRole || 'rep', icerik]);
+      try { /* DUYURU_YORUM_BILDIRIM_V1 — duyuru sahibi + onceki yorumcular (yazan haric) push+inbox */
+        const _dr = await pool.query("SELECT yazan_id, baslik FROM saha_duyuru WHERE id=$1 AND tenant_id=$2", [m[1], session.tenantId]);
+        const _yazan = _dr.rows[0] && _dr.rows[0].yazan_id;
+        const _baslik = (_dr.rows[0] && _dr.rows[0].baslik) || "Duyuru";
+        const _kr = await pool.query("SELECT DISTINCT user_id FROM saha_duyuru_yorum WHERE tenant_id=$1 AND duyuru_id=$2", [session.tenantId, m[1]]);
+        const _hedef = new Set();
+        if (_yazan) _hedef.add(_yazan);
+        for (const _x of _kr.rows) { if (_x.user_id) _hedef.add(_x.user_id); }
+        _hedef.delete(session.userId);
+        const _ids = Array.from(_hedef);
+        if (_ids.length) {
+          const _snip = icerik.length > 90 ? icerik.slice(0, 90) + "…" : icerik;
+          pushToUsers(session.tenantId, _ids, "💬 Duyuru yorumu", (session.name || "Kullanıcı") + " · " + _baslik + ": " + _snip, { room: "reception", type: "duyuru", id: m[1] }).catch(function () {});
+        }
+      } catch (e) { try { console.warn("duyuru yorum bildirim:", e.message); } catch (er) {} }
       const yr = await pool.query("SELECT id, user_adi, rol, icerik, created_at FROM saha_duyuru_yorum WHERE tenant_id=$1 AND duyuru_id=$2 ORDER BY created_at ASC", [session.tenantId, m[1]]);
       sendJson(response, 201, { yorumlar: yr.rows });
+      return;
+    }
+    /* DUYURU_EK_V1 — ek yukle (yalniz yazar) */
+    if (method === "POST" && (m = path.match(/^\/api\/saha\/duyurular\/([0-9a-f-]{36})\/ek$/))) {
+      const session = await requireSahaAccess(request);
+      const dr = await pool.query("SELECT yazan_id FROM saha_duyuru WHERE tenant_id=$1 AND id=$2", [session.tenantId, m[1]]);
+      if (!dr.rowCount) { sendJson(response, 404, { error: 'Duyuru bulunamadı.' }); return; }
+      if (dr.rows[0].yazan_id !== session.userId) { sendJson(response, 403, { error: 'Yalnız kendi paylaşımınıza ek ekleyebilirsiniz.' }); return; }
+      const body = await readJson(request, 12 * 1024 * 1024);  /* DUYURU_EK_UI_V1 buyuk govde */
+      const _ad = String((body && body.dosya_adi) || 'dosya').slice(0, 200);
+      const _mime = String((body && body.mime) || 'application/octet-stream').slice(0, 120);
+      let _buf = null; try { _buf = Buffer.from(String((body && body.veri) || ''), 'base64'); } catch (e) {}
+      if (!_buf || !_buf.length) { sendJson(response, 400, { error: 'Dosya boş.' }); return; }
+      if (_buf.length > 8 * 1024 * 1024) { sendJson(response, 413, { error: 'Dosya 8MB sınırını aşıyor.' }); return; }
+      await ensureDuyuruEk();
+      const er = await pool.query("INSERT INTO saha_duyuru_ek (id,tenant_id,duyuru_id,dosya_adi,mime,boyut,veri,yukleyen_id) VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7) RETURNING id, dosya_adi, mime, boyut", [session.tenantId, m[1], _ad, _mime, _buf.length, _buf, session.userId]);
+      sendJson(response, 201, { ek: er.rows[0] });
+      return;
+    }
+    /* DUYURU_EK_V1 — ek indir/goruntule (tum saha kullanicilari) */
+    if (method === "GET" && (m = path.match(/^\/api\/saha\/duyurular\/([0-9a-f-]{36})\/ek\/([0-9a-f-]{36})$/))) {
+      const session = await requireSahaAccess(request);
+      await ensureDuyuruEk();
+      const er = await pool.query("SELECT dosya_adi, mime, veri FROM saha_duyuru_ek WHERE tenant_id=$1 AND duyuru_id=$2 AND id=$3", [session.tenantId, m[1], m[2]]);
+      if (!er.rowCount) { sendJson(response, 404, { error: 'Ek bulunamadı.' }); return; }
+      const _e = er.rows[0];
+      response.writeHead(200, { 'Content-Type': _e.mime || 'application/octet-stream', 'Content-Disposition': 'inline; filename="' + encodeURIComponent(_e.dosya_adi || 'dosya') + '"', 'Cache-Control': 'private, max-age=300' });
+      response.end(_e.veri);
+      return;
+    }
+    /* DUYURU_EK_V1 — ek sil (yalniz yazar) */
+    if (method === "DELETE" && (m = path.match(/^\/api\/saha\/duyurular\/([0-9a-f-]{36})\/ek\/([0-9a-f-]{36})$/))) {
+      const session = await requireSahaAccess(request);
+      const dr = await pool.query("SELECT yazan_id FROM saha_duyuru WHERE tenant_id=$1 AND id=$2", [session.tenantId, m[1]]);
+      if (!dr.rowCount) { sendJson(response, 404, { error: 'Duyuru bulunamadı.' }); return; }
+      if (dr.rows[0].yazan_id !== session.userId) { sendJson(response, 403, { error: 'Yalnız kendi paylaşımınızın ekini silebilirsiniz.' }); return; }
+      await ensureDuyuruEk();
+      await pool.query("DELETE FROM saha_duyuru_ek WHERE tenant_id=$1 AND duyuru_id=$2 AND id=$3", [session.tenantId, m[1], m[2]]);
+      sendJson(response, 200, { ok: true });
+      return;
+    }
+    /* DUYURU_EDIT_V1 — duzenle (yalniz yazar) + istege bagli yeniden bildirim */
+    if (method === "PUT" && (m = path.match(/^\/api\/saha\/duyurular\/([0-9a-f-]{36})$/))) {
+      const session = await requireSahaAccess(request);
+      const dr = await pool.query("SELECT yazan_id FROM saha_duyuru WHERE tenant_id=$1 AND id=$2", [session.tenantId, m[1]]);
+      if (!dr.rowCount) { sendJson(response, 404, { error: 'Duyuru bulunamadı.' }); return; }
+      if (dr.rows[0].yazan_id !== session.userId) { sendJson(response, 403, { error: 'Yalnız kendi paylaşımınızı düzenleyebilirsiniz.' }); return; }
+      const body = await readJson(request);
+      const { baslik, icerik, onem='NORMAL', tip='DUYURU', bildir=false } = body;
+      if (!baslik || !icerik) { sendJson(response, 400, { error: 'baslik ve icerik zorunlu' }); return; }
+      const _tip = tip === 'PIYASA' ? 'PIYASA' : (tip === 'HTML' && ['admin','manager'].includes(session.sahaRole)) ? 'HTML' : 'DUYURU';  /* DUYURU_HTML_V1 */
+      const _onem = ['NORMAL','YUKSEK','ACIL'].includes(onem) ? onem : 'NORMAL';
+      await ensureDuyuruEk();
+      await pool.query("UPDATE saha_duyuru SET baslik=$3, icerik=$4, onem=$5, tip=$6, updated_at=now(), guncelleyen_id=$7 WHERE tenant_id=$1 AND id=$2", [session.tenantId, m[1], baslik, icerik, _onem, _tip, session.userId]);
+      if (bildir === true) {
+        try { await pool.query("DELETE FROM saha_duyuru_okundu WHERE duyuru_id=$1", [m[1]]); } catch (e) {}
+        try { pushToTenant(session.tenantId, session.userId, "🔄 Güncellendi: " + baslik, icerik, { room: "reception", type: "duyuru", id: m[1] }).catch(function () {}); } catch (e) {}
+      }
+      sendJson(response, 200, { ok: true, bildirildi: bildir === true });
       return;
     }
     if (method === "DELETE" && (m = path.match(/^\/api\/saha\/duyurular\/([0-9a-f-]{36})$/))) {
@@ -32928,6 +38572,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
           [session.tenantId, kid, session.userId, session.name || "Yönetici", icerik]
         );
       }
+      try { pushToUsers(session.tenantId, rep_ids, "💬 Yeni mesaj", String(icerik).slice(0,120), { room: "saha", type: "mesaj" }); } catch (e) {}
       sendJson(response, 200, { ok: true, sayi: rep_ids.length });
       return;
     }
@@ -32940,10 +38585,11 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       // Yayım için ayrı konuşma kaydı (tip='YAYIM') her temsilci için
       const reps = await pool.query(
         `SELECT DISTINCT u.id FROM users u
-          JOIN user_modules um ON um.user_id=u.id AND um.module='saha'
+          JOIN tenant_user_modules um ON um.user_id=u.id AND um.module_id='saha' AND um.tenant_id=$1 AND um.active=true  /* YAYIM_USERMODULES_FIX_V1 */
           WHERE u.status != 'disabled'`,
         [session.tenantId]
       );
+      try { pushToUsers(session.tenantId, reps.rows.map(function (x) { return x.id; }), "📣 Yeni yayım", String(icerik).slice(0,120), { room: "saha", type: "yayim" }); } catch (e) {}
       for (const r of reps.rows) {
         let kRes = await pool.query(
           `SELECT id FROM saha_konusma WHERE tenant_id=$1 AND rep_id=$2 AND tip='YAYIM' LIMIT 1`,
@@ -32990,7 +38636,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
           konusma_id = ins.rows[0].id;
         }
         const mRes = await pool.query(
-          `SELECT id, gonderen_id, gonderen_adi, gonderen_rol, icerik, created_at
+          `SELECT id, gonderen_id, gonderen_adi, gonderen_rol, icerik, created_at, baglam_tip, baglam_id, baglam_etiket
              FROM saha_konusma_mesaj WHERE konusma_id=$1 AND tenant_id=$2
              ORDER BY created_at ASC LIMIT 200`,
           [konusma_id, tid]
@@ -33008,41 +38654,64 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
           );
           yayimlar = yRes.rows;
         } catch (_) {}
-        sendJson(response, 200, { konusma_id, mesajlar: mRes.rows, yayimlar });
+        try {  /* MESAJ_OKUNDU_V1 */
+          await pool.query(`INSERT INTO saha_konusma_okundu (konusma_id,user_id,son_okunan_at) VALUES ($1,$2,now()) ON CONFLICT (konusma_id,user_id) DO UPDATE SET son_okunan_at=now()`, [konusma_id, session.userId]);
+          await pool.query(`UPDATE bi_bildirim SET okundu=true WHERE tenant_id=$1 AND user_id=$2 AND okundu=false AND tip='mesaj' AND data->>'konusma_id'=$3`, [tid, session.userId, konusma_id]);
+        } catch (_) {}
+        try {  /* YAYIM_OKUNDU_V1: rep thread acinca YAYIM konusmalarini okundu yap */
+          await pool.query(`INSERT INTO saha_konusma_okundu (konusma_id,user_id,son_okunan_at) SELECT k.id,$2,now() FROM saha_konusma k WHERE k.tenant_id=$1 AND k.rep_id=$2 AND k.tip='YAYIM' ON CONFLICT (konusma_id,user_id) DO UPDATE SET son_okunan_at=now()`, [tid, session.userId]);
+        } catch (_) {}
+        let karsi_okundu_at = null;  /* MESAJ_TIK_V1: yoneticilerin en yeni okuma zamani */
+        try { const _kr = await pool.query(`SELECT MAX(son_okunan_at) AS t FROM saha_konusma_okundu WHERE konusma_id=$1 AND user_id<>$2`, [konusma_id, session.userId]); karsi_okundu_at = _kr.rows[0] ? _kr.rows[0].t : null; } catch (_) {}
+        sendJson(response, 200, { konusma_id, mesajlar: mRes.rows, yayimlar, karsi_okundu_at });
         return;
       } else {
         // Manager: rep konuşmalarının listesi
-        const rows = await pool.query(
-          `SELECT k.id, k.rep_id,
-              COALESCE(u.name, k.rep_id::text) AS rep_adi,
+        const rows = await pool.query(  /* ROSTER_V1: tum aktif rep'ler; admin + kendisi haric */
+          `SELECT u.id AS rep_id,
+              COALESCE(u.full_name, u.email, u.id::text) AS rep_adi,
               (SELECT row_to_json(sub) FROM (
                 SELECT m2.icerik, m2.created_at, m2.gonderen_rol
-                  FROM saha_konusma_mesaj m2 WHERE m2.konusma_id=k.id
+                  FROM saha_konusma k2 JOIN saha_konusma_mesaj m2 ON m2.konusma_id=k2.id
+                 WHERE k2.tenant_id=$1 AND k2.rep_id=u.id AND k2.tip='BIREYSEL'
                  ORDER BY m2.created_at DESC LIMIT 1
               ) sub) AS son_mesaj,
-              0::int AS okunmamis
-             FROM saha_konusma k
-             LEFT JOIN users u ON u.id=k.rep_id
-            WHERE k.tenant_id=$1 AND k.tip='BIREYSEL'
-            ORDER BY (SELECT MAX(m3.created_at) FROM saha_konusma_mesaj m3 WHERE m3.konusma_id=k.id) DESC NULLS LAST
-            LIMIT 100`,
-          [tid]
+              (SELECT count(*) FROM saha_konusma k3 JOIN saha_konusma_mesaj m3 ON m3.konusma_id=k3.id
+                 LEFT JOIN saha_konusma_okundu o ON o.konusma_id=k3.id AND o.user_id=$2
+                WHERE k3.tenant_id=$1 AND k3.rep_id=u.id AND k3.tip='BIREYSEL'
+                  AND m3.gonderen_rol='rep' AND m3.created_at > COALESCE(o.son_okunan_at,'epoch'::timestamptz))::int AS okunmamis
+             FROM users u
+             JOIN tenant_user_modules um ON um.user_id=u.id AND um.module_id='saha' AND um.tenant_id=$1 AND um.active=true AND um.module_role='rep'
+            WHERE u.status <> 'disabled' AND u.id <> $2
+            ORDER BY okunmamis DESC,
+                     (SELECT MAX(m4.created_at) FROM saha_konusma k4 JOIN saha_konusma_mesaj m4 ON m4.konusma_id=k4.id WHERE k4.tenant_id=$1 AND k4.rep_id=u.id AND k4.tip='BIREYSEL') DESC NULLS LAST,
+                     rep_adi
+            LIMIT 200`,
+          [tid, session.userId]
         );
         // Son yayımlar
         let yayimlar = [];
         try {
-          const yRes = await pool.query(
-            `SELECT DISTINCT ON (m.icerik) m.icerik, m.created_at, m.gonderen_adi
-               FROM saha_konusma k
-               JOIN saha_konusma_mesaj m ON m.konusma_id=k.id
-              WHERE k.tenant_id=$1 AND k.tip='YAYIM'
-              ORDER BY m.icerik, m.created_at DESC
-              LIMIT 5`,
+          const yRes = await pool.query(  /* YAYIM_OKUNDU_V1: okuyan sayaci */
+            `SELECT x.icerik, x.created_at, x.gonderen_adi,
+                (SELECT count(DISTINCT k2.rep_id) FROM saha_konusma k2
+                   JOIN saha_konusma_mesaj m2 ON m2.konusma_id=k2.id
+                   JOIN saha_konusma_okundu o2 ON o2.konusma_id=k2.id AND o2.user_id=k2.rep_id
+                  WHERE k2.tenant_id=$1 AND k2.tip='YAYIM' AND m2.icerik=x.icerik AND o2.son_okunan_at >= m2.created_at)::int AS okuyan
+             FROM (
+               SELECT DISTINCT ON (m.icerik) m.icerik, m.created_at, m.gonderen_adi
+                 FROM saha_konusma k JOIN saha_konusma_mesaj m ON m.konusma_id=k.id
+                WHERE k.tenant_id=$1 AND k.tip='YAYIM'
+                ORDER BY m.icerik, m.created_at DESC LIMIT 5
+             ) x
+             ORDER BY x.created_at DESC`,
             [tid]
           );
           yayimlar = yRes.rows;
         } catch (_) {}
-        sendJson(response, 200, { konusmalar: rows.rows, yayimlar });
+        let rep_toplam = 0;  /* YAYIM_OKUNDU_V1 */
+        try { const _rt = await pool.query(`SELECT count(*)::int AS n FROM users u JOIN tenant_user_modules um ON um.user_id=u.id AND um.module_id='saha' AND um.tenant_id=$1 AND um.active=true AND um.module_role='rep' WHERE u.status <> 'disabled'`, [tid]); rep_toplam = _rt.rows[0].n; } catch (_) {}
+        sendJson(response, 200, { konusmalar: rows.rows, yayimlar, rep_toplam });
         return;
       }
     }
@@ -33057,17 +38726,92 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
         [tid, repId]
       );
       let konusma_id = null, mesajlar = [];
-      if (kRes.rows.length) {
-        konusma_id = kRes.rows[0].id;
+      if (kRes.rows.length) { konusma_id = kRes.rows[0].id; }
+      else {  /* ROSTER_V1: thread yoksa yarat ki ilk mesaj gonderilebilsin */
+        const _ins = await pool.query(`INSERT INTO saha_konusma (id,tenant_id,tip,rep_id) VALUES (gen_random_uuid(),$1,'BIREYSEL',$2) RETURNING id`, [tid, repId]);
+        konusma_id = _ins.rows[0].id;
+      }
+      if (konusma_id) {
         const mRes = await pool.query(
-          `SELECT id, gonderen_id, gonderen_adi, gonderen_rol, icerik, created_at
+          `SELECT id, gonderen_id, gonderen_adi, gonderen_rol, icerik, created_at, baglam_tip, baglam_id, baglam_etiket
              FROM saha_konusma_mesaj WHERE konusma_id=$1 AND tenant_id=$2
              ORDER BY created_at ASC LIMIT 200`,
           [konusma_id, tid]
         );
         mesajlar = mRes.rows;
       }
-      sendJson(response, 200, { konusma_id, mesajlar });
+      if (konusma_id) {  /* MESAJ_OKUNDU_V1 */
+        try {
+          await pool.query(`INSERT INTO saha_konusma_okundu (konusma_id,user_id,son_okunan_at) VALUES ($1,$2,now()) ON CONFLICT (konusma_id,user_id) DO UPDATE SET son_okunan_at=now()`, [konusma_id, session.userId]);
+          await pool.query(`UPDATE bi_bildirim SET okundu=true WHERE tenant_id=$1 AND user_id=$2 AND okundu=false AND tip='mesaj' AND data->>'konusma_id'=$3`, [tid, session.userId, konusma_id]);
+        } catch (_) {}
+      }
+      let karsi_okundu_at = null;  /* MESAJ_TIK_V1: karsi tarafin (rep) son okuma zamani */
+      if (konusma_id) { try { const _kr = await pool.query(`SELECT son_okunan_at FROM saha_konusma_okundu WHERE konusma_id=$1 AND user_id=$2`, [konusma_id, repId]); karsi_okundu_at = _kr.rows[0] ? _kr.rows[0].son_okunan_at : null; } catch (_) {} }
+      sendJson(response, 200, { konusma_id, mesajlar, karsi_okundu_at });
+      return;
+    }
+
+    // ══ MUSTERI BAGLAMLI MESAJ (contextual) — CONTEXT_MSG_V1 ══
+    if (method === "POST" && (m = path.match(/^\/api\/saha\/musteri\/([^/]+)\/mesaj$/))) {
+      const session = await requireSahaAccess(request);
+      if (!_sahaCap(session, "musterikart")) { sendJson(response, 403, { error: "yetki yok" }); return; }  /* YETKI_FAZ1 */
+      const musteriId = m[1];
+      const body = await readJson(request);
+      const icerik = body && body.icerik;
+      if (!icerik) { sendJson(response, 400, { error: "icerik zorunlu" }); return; }
+      const mus = await pool.query(`SELECT id, firma, sorumlu_rep FROM saha_musteri WHERE tenant_id=$1 AND id=$2`, [session.tenantId, musteriId]);
+      if (!mus.rowCount) { sendJson(response, 404, { error: "Müşteri bulunamadı." }); return; }
+      const repId = mus.rows[0].sorumlu_rep;
+      const firma = mus.rows[0].firma || "";
+      if (!repId) { sendJson(response, 400, { error: "Müşterinin sorumlu temsilcisi yok." }); return; }
+      let kRes = await pool.query(`SELECT id FROM saha_konusma WHERE tenant_id=$1 AND rep_id=$2 AND tip='BIREYSEL' LIMIT 1`, [session.tenantId, repId]);
+      let kid;
+      if (kRes.rows.length) { kid = kRes.rows[0].id; }
+      else { const ins = await pool.query(`INSERT INTO saha_konusma (id,tenant_id,tip,rep_id) VALUES (gen_random_uuid(),$1,'BIREYSEL',$2) RETURNING id`, [session.tenantId, repId]); kid = ins.rows[0].id; }
+      await pool.query(`INSERT INTO saha_konusma_mesaj (id,tenant_id,konusma_id,gonderen_id,gonderen_adi,gonderen_rol,icerik,baglam_tip,baglam_id,baglam_etiket) VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,'musteri',$7,$8)`, [session.tenantId, kid, session.userId, session.name || "Yönetici", session.sahaRole || "manager", icerik, musteriId, firma]);
+      try { if (repId !== session.userId) pushToUsers(session.tenantId, [repId], "💬 Yeni mesaj", (session.name || "Yönetici") + " · " + firma + ": " + String(icerik).slice(0, 80), { room: "saha", type: "mesaj", konusma_id: kid }); } catch (e) {}
+      sendJson(response, 201, { ok: true, konusma_id: kid });
+      return;
+    }
+
+    // ══ GENEL BAGLAMLI MESAJ — BAGLAM_MSG_V1 ══
+    if (method === "POST" && path === "/api/saha/baglamli-mesaj") {
+      const session = await requireSahaAccess(request, ["manager","admin"]);
+      const body = await readJson(request);
+      const rep_id = body && body.rep_id, icerik = body && body.icerik;
+      const baglam_tip = (body && body.baglam_tip) || null, baglam_id = (body && body.baglam_id) || null, baglam_etiket = (body && body.baglam_etiket) || null;
+      if (!rep_id || !icerik) { sendJson(response, 400, { error: "rep_id ve icerik zorunlu" }); return; }
+      let kRes = await pool.query(`SELECT id FROM saha_konusma WHERE tenant_id=$1 AND rep_id=$2 AND tip='BIREYSEL' LIMIT 1`, [session.tenantId, rep_id]);
+      let kid;
+      if (kRes.rows.length) { kid = kRes.rows[0].id; }
+      else { const ins = await pool.query(`INSERT INTO saha_konusma (id,tenant_id,tip,rep_id) VALUES (gen_random_uuid(),$1,'BIREYSEL',$2) RETURNING id`, [session.tenantId, rep_id]); kid = ins.rows[0].id; }
+      await pool.query(`INSERT INTO saha_konusma_mesaj (id,tenant_id,konusma_id,gonderen_id,gonderen_adi,gonderen_rol,icerik,baglam_tip,baglam_id,baglam_etiket) VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6,$7,$8,$9)`, [session.tenantId, kid, session.userId, session.name || "Yönetici", session.sahaRole || "manager", icerik, baglam_tip, baglam_id, baglam_etiket]);
+      try { if (rep_id !== session.userId) pushToUsers(session.tenantId, [rep_id], "💬 Yeni mesaj", (session.name || "Yönetici") + (baglam_etiket ? " · " + baglam_etiket : "") + ": " + String(icerik).slice(0, 80), { room: "saha", type: "mesaj", konusma_id: kid }); } catch (e) {}
+      sendJson(response, 201, { ok: true, konusma_id: kid });
+      return;
+    }
+
+    // ══ YAYIM OKUYANLAR — YAYIM_OKUYAN_V1 ══
+    if (method === "POST" && path === "/api/saha/yayim-okuyanlar") {
+      const session = await requireSahaAccess(request, ["manager","admin"]);
+      const body = await readJson(request);
+      const icerik = body && body.icerik;
+      if (!icerik) { sendJson(response, 400, { error: "icerik zorunlu" }); return; }
+      const tid = session.tenantId;
+      const okur = await pool.query(`
+        SELECT DISTINCT u.id, COALESCE(u.full_name, u.email) AS ad, o.son_okunan_at
+          FROM saha_konusma k
+          JOIN saha_konusma_mesaj m ON m.konusma_id=k.id
+          JOIN saha_konusma_okundu o ON o.konusma_id=k.id AND o.user_id=k.rep_id
+          JOIN users u ON u.id=k.rep_id
+         WHERE k.tenant_id=$1 AND k.tip='YAYIM' AND m.icerik=$2 AND o.son_okunan_at >= m.created_at
+         ORDER BY o.son_okunan_at`, [tid, icerik]);
+      const okuyanIds = okur.rows.map(function (r) { return r.id; });
+      const okuyanlar = okur.rows.map(function (r) { return { ad: r.ad, okundu_at: r.son_okunan_at }; });
+      const tumRep = await pool.query(`SELECT u.id, COALESCE(u.full_name, u.email) AS ad FROM users u JOIN tenant_user_modules um ON um.user_id=u.id AND um.module_id='saha' AND um.tenant_id=$1 AND um.active=true AND um.module_role='rep' WHERE u.status <> 'disabled' ORDER BY ad`, [tid]);
+      const okumayanlar = tumRep.rows.filter(function (r) { return okuyanIds.indexOf(r.id) === -1; }).map(function (r) { return r.ad; });
+      sendJson(response, 200, { okuyanlar, okumayanlar });
       return;
     }
 
@@ -33087,6 +38831,17 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
          VALUES (gen_random_uuid(),$1,$2,$3,$4,$5,$6)`,
         [session.tenantId, konusmaId, session.userId, session.name || "Kullanıcı", session.sahaRole || "rep", icerik]
       );
+      try {  /* MESAJ_OKUNDU_V1: aliciyi bildir (bell + push) */
+        const _mtitle = "💬 Yeni mesaj";
+        const _mbody = (session.name || "Kullanıcı") + ": " + String(icerik).slice(0, 90);
+        const _mdata = { room: "saha", type: "mesaj", konusma_id: konusmaId };
+        if (session.sahaRole === "rep") {
+          sahaManagerIds(session.tenantId, session.userId).then(function (ids) { if (ids && ids.length) pushToUsers(session.tenantId, ids, _mtitle, _mbody, _mdata); }).catch(function () {});
+        } else {
+          const _rid = _kown.rows[0].rep_id;
+          if (_rid && _rid !== session.userId) pushToUsers(session.tenantId, [_rid], _mtitle, _mbody, _mdata).catch(function () {});
+        }
+      } catch (e) {}
       sendJson(response, 201, { ok: true });
       return;
     }
@@ -33229,6 +38984,72 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
       return;
     }
 
+    if (path === "/api/saha/aktivite-ping" || path === "/api/saha/rep-aktivite") { /* REP_AKTIVITE_V1 */
+      try {
+        const session = await requireSahaAccess(request);
+        const T = session.tenantId, U = session.userId;
+        if (!T || !U) { sendJson(response, 401, { error: "oturum yok" }); return; }
+        await pool.query("CREATE TABLE IF NOT EXISTS saha_rep_aktivite (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL, user_id uuid NOT NULL, ts timestamptz NOT NULL DEFAULT now(), oda text, platform text)").catch(function(){});
+        await pool.query("CREATE INDEX IF NOT EXISTS idx_rep_akt ON saha_rep_aktivite (tenant_id, user_id, ts DESC)").catch(function(){});
+        // ---- PING: her rep kendi kalp atisi (40sn debounce) ----
+        if (method === "POST" && path === "/api/saha/aktivite-ping") {
+          let body = {}; try { body = await readJson(request); } catch (e) {}
+          const oda = String(body.oda || "").slice(0, 40);
+          const platform = String(body.platform || "").slice(0, 16);
+          const son = await pool.query("SELECT ts FROM saha_rep_aktivite WHERE tenant_id=$1 AND user_id=$2 ORDER BY ts DESC LIMIT 1", [T, U]);
+          const tooSoon = son.rows.length && (Date.now() - new Date(son.rows[0].ts).getTime() < 40000);
+          if (!tooSoon) await pool.query("INSERT INTO saha_rep_aktivite (tenant_id,user_id,oda,platform) VALUES ($1,$2,$3,$4)", [T, U, oda || null, platform || null]);
+          sendJson(response, 200, { ok: true });
+          return;
+        }
+        // ---- RAPOR: yalniz platform yonetimi ----
+        if (method === "GET" && path === "/api/saha/rep-aktivite") {
+          const who = await pool.query("SELECT lower(email::text) e FROM users WHERE id=$1", [U]);
+          const _raOk = _sahaCapRole(session, "rep-aktivite", []);  /* EMAIL_AGNOSTIK_V1 — yonetim@ email fallback kaldirildi, cap-based */  /* SERVER_CAP_V1 — matris 'rep-aktivite' capi (admin varsayilan); yonetim@ gecici guvenlik agi, cap dogrulaninca kaldirilir */
+          if (!_raOk) { sendJson(response, 403, { error: "Bu bölüm yalnız yönetime özeldir." }); return; }
+          let gun = parseInt(url.searchParams.get("gun") || "7", 10);
+          if (!Number.isFinite(gun) || gun < 1) gun = 7; if (gun > 90) gun = 90;
+          const reps = (await pool.query(
+            "SELECT u.id, COALESCE(u.full_name,u.name,u.email::text) ad, u.last_login_at, " +
+            " (SELECT max(ts) FROM saha_rep_aktivite a WHERE a.user_id=u.id) son_aktivite, " +
+            " (SELECT count(DISTINCT date_trunc('minute',ts)) FROM saha_rep_aktivite a WHERE a.user_id=u.id AND ts::date=current_date) dk_bugun, " +
+            " (SELECT count(DISTINCT date_trunc('minute',ts)) FROM saha_rep_aktivite a WHERE a.user_id=u.id AND ts > now()-interval '7 days') dk_hafta, " +
+            " (SELECT count(*) FROM saha_ziyaret z WHERE z.rep_id=u.id AND z.created_at > now()-($2::int * interval '1 day')) ziyaret, " +
+            " (SELECT count(*) FROM saha_hata_log h WHERE h.user_id=u.id AND h.ts > now()-($2::int * interval '1 day')) hata, " +
+            " (SELECT oda FROM saha_rep_aktivite a WHERE a.user_id=u.id AND oda IS NOT NULL GROUP BY oda ORDER BY count(*) DESC LIMIT 1) en_cok_oda " +
+            "FROM users u JOIN tenant_user_modules m ON m.user_id=u.id AND m.module_id='saha' AND m.active " +
+            "WHERE m.tenant_id=$1 ORDER BY son_aktivite DESC NULLS LAST", [T, gun])).rows;
+          const now = Date.now();
+          const out = reps.map(function (r) {
+            return { ad: r.ad, son_giris: r.last_login_at, son_aktivite: r.son_aktivite,
+              online: r.son_aktivite ? (now - new Date(r.son_aktivite).getTime() < 180000) : false,
+              dk_bugun: Number(r.dk_bugun), dk_hafta: Number(r.dk_hafta),
+              ziyaret: Number(r.ziyaret), hata: Number(r.hata), en_cok_oda: r.en_cok_oda };
+          });
+          sendJson(response, 200, { repler: out, gun: gun });
+          return;
+        }
+        sendJson(response, 405, { error: "method" });
+      } catch (e) { console.error("[rep-aktivite]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+      return;
+    }
+
+    if (method === "POST" && path === "/api/saha/iz") { /* SAHA_IZ_V1 */
+      try {
+        const session = await requireSahaAccess(request);
+        const T = session.tenantId, U = session.userId;
+        if (!T || !U) { sendJson(response, 401, { error: "oturum yok" }); return; }
+        let body = {}; try { body = await readJson(request); } catch (e) {}
+        const oda = String(body.oda || "").slice(0, 40);
+        const bolum = String(body.bolum || "").slice(0, 60);
+        const tip = String(body.olay || body.tip || "goruntule").slice(0, 40);
+        const payload = (body.payload && typeof body.payload === "object") ? body.payload : {};
+        const refId = /^[0-9a-f-]{36}$/i.test(String(body.ref_id || "")) ? body.ref_id : null;
+        await kaydetOlay({ tenantId: T, kullanici: U, oda: oda || null, bolum: bolum || null, tip: tip, refId: refId, payload: payload });
+        sendJson(response, 200, { ok: true });
+      } catch (e) { console.error("[saha-iz]", e && e.message); sendJson(response, 500, { error: String(e && e.message) }); }
+      return;
+    }
     // ══ LOG / HATA ═══════════════════════════════════════════════════════════
     if (method === "POST" && path === "/api/saha/log-hata") {
       // Sessiz hata logu — auth zorunlu degil, ama varsa gercek tenant/user'i kullan.
@@ -33253,7 +39074,7 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     if (method === "GET" && path === "/api/saha/hata-raporu") {
       const session = await requireSahaAccess(request);
       // Platform IT only — tenants must not see the platform's error telemetry.
-      if (normalizeRole(session.role) !== "platform_owner") {
+      if (normalizeRole(session.role) !== "platform_owner") {  /* EMAIL_AGNOSTIK_V1 — platform telemetri yalniz platform_owner */ /* HATA_YONETIM_V1 */
         sendJson(response, 403, { error: "Bu bölüm platform yönetimine özeldir." });
         return;
       }
@@ -33295,3 +39116,233 @@ Riskli müşteriler en az 2, kritik konular en az 3, aksiyonlar en az 3 olsun. M
     sendJson(response, e.statusCode || 500, { error: e.message });
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PUSH_ENGINE_V1 — otomatik bildirim motoru. Hedefleri bi_push_token'dan çeker,
+   iOS→APNs / Android→FCM olarak yönlendirir. Kimlikler container'a mount edilir:
+   /app/fcm-sa.json (FCM servis hesabı) + /app/apns-key.p8 (APNs .p8). Ölü token'lar
+   (Unregistered/410, FCM UNREGISTERED/404) otomatik silinir. Hepsi node built-in.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const _APNS = {
+  keyId: process.env.APNS_KEY_ID || "H2XRJM325L",
+  teamId: process.env.APNS_TEAM_ID || "48SQSDC47D",
+  topic: process.env.APNS_TOPIC || "com.deriveglobal.intelligence",
+  keyPath: process.env.APNS_KEY || "/app/apns-key.p8",
+};
+const _FCM_SA_PATH = process.env.FCM_SA || "/app/fcm-sa.json";
+
+function _strData(data) { const o = {}; const s = data || {}; for (const k in s) o[k] = String(s[k]); return o; }
+
+function _httpsPost(urlStr, headers, body) {
+  return new Promise((resolve, reject) => {
+    import("node:https").then(({ default: https }) => {
+      const u = new URL(urlStr);
+      const req = https.request(
+        { hostname: u.hostname, path: u.pathname + u.search, method: "POST", headers: { ...headers, "Content-Length": Buffer.byteLength(body) } },
+        (res) => { let d = ""; res.on("data", (c) => (d += c)); res.on("end", () => resolve({ status: res.statusCode, text: d })); }
+      );
+      req.on("error", reject); req.write(body); req.end();
+    }).catch(reject);
+  });
+}
+
+let _fcmTok = null, _fcmExp = 0, _fcmProj = null;
+async function _fcmAccessToken() {
+  const now = Math.floor(Date.now() / 1000);
+  if (_fcmTok && _fcmExp - 60 > now) return _fcmTok;
+  const { createSign } = await import("node:crypto");
+  const sa = JSON.parse(readFileSync(_FCM_SA_PATH, "utf8"));
+  _fcmProj = sa.project_id;
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const unsigned = b64({ alg: "RS256", typ: "JWT" }) + "." + b64({ iss: sa.client_email, scope: "https://www.googleapis.com/auth/firebase.messaging", aud: sa.token_uri, iat: now, exp: now + 3600 });
+  const jwt = unsigned + "." + createSign("RSA-SHA256").update(unsigned).sign(sa.private_key).toString("base64url");
+  const r = await _httpsPost(sa.token_uri, { "Content-Type": "application/x-www-form-urlencoded" }, new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jwt }).toString());
+  const j = JSON.parse(r.text);
+  if (!j.access_token) throw new Error("fcm-auth " + r.status + " " + r.text);
+  _fcmTok = j.access_token; _fcmExp = now + (j.expires_in || 3600);
+  return _fcmTok;
+}
+
+async function _sendFCM(token, title, body, data) {
+  const at = await _fcmAccessToken();
+  const msg = { message: { token, notification: { title, body }, android: { priority: "high" }, data: _strData(data) } };
+  const r = await _httpsPost("https://fcm.googleapis.com/v1/projects/" + _fcmProj + "/messages:send", { Authorization: "Bearer " + at, "Content-Type": "application/json" }, JSON.stringify(msg));
+  const dead = r.status === 404 || /UNREGISTERED|NOT_FOUND/i.test(r.text || "");
+  return { ok: r.status === 200, status: r.status, dead };
+}
+
+let _apnsJwt = null, _apnsJwtAt = 0;
+async function _apnsAuth() {
+  const now = Math.floor(Date.now() / 1000);
+  if (_apnsJwt && now - _apnsJwtAt < 2400) return _apnsJwt;
+  const crypto = await import("node:crypto");
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const si = b64({ alg: "ES256", kid: _APNS.keyId }) + "." + b64({ iss: _APNS.teamId, iat: now });
+  const key = crypto.createPrivateKey(readFileSync(_APNS.keyPath));
+  _apnsJwt = si + "." + crypto.sign("sha256", Buffer.from(si), { key, dsaEncoding: "ieee-p1363" }).toString("base64url");
+  _apnsJwtAt = now;
+  return _apnsJwt;
+}
+
+async function _apnsPost(host, token, payloadStr, jwt) {
+  const http2 = (await import("node:http2")).default;
+  return new Promise((resolve) => {
+    let done = false; const fin = (v) => { if (!done) { done = true; resolve(v); } };
+    let c; try { c = http2.connect(host); } catch (e) { return fin({ status: 0, text: String(e) }); }
+    c.on("error", (e) => fin({ status: 0, text: String(e) }));
+    const req = c.request({ ":method": "POST", ":path": "/3/device/" + token, authorization: "bearer " + jwt, "apns-topic": _APNS.topic, "apns-push-type": "alert", "apns-priority": "10", "content-type": "application/json" });
+    let st = 0, d = ""; req.on("response", (h) => (st = h[":status"])); req.setEncoding("utf8"); req.on("data", (x) => (d += x));
+    req.on("end", () => { try { c.close(); } catch (e) {} fin({ status: st, text: d }); });
+    req.on("error", (e) => { try { c.close(); } catch (er) {} fin({ status: 0, text: String(e) }); });
+    req.end(payloadStr);
+  });
+}
+
+async function _sendAPNS(token, title, body, data) {
+  const jwt = await _apnsAuth();
+  const payload = JSON.stringify({ aps: { alert: { title, body }, sound: "default" }, ..._strData(data) });
+  let r = await _apnsPost("https://api.push.apple.com", token, payload, jwt);
+  if (r.status === 400 && /BadDeviceToken/i.test(r.text || "")) r = await _apnsPost("https://api.sandbox.push.apple.com", token, payload, jwt);
+  const dead = r.status === 410 || /Unregistered/i.test(r.text || "");
+  return { ok: r.status === 200, status: r.status, dead };
+}
+
+async function _pushRows(rows, title, body, data) {
+  let ok = 0, fail = 0;
+  for (const row of rows) {
+    try {
+      const res = row.platform === "ios" ? await _sendAPNS(row.token, title, body, data) : await _sendFCM(row.token, title, body, data);
+      if (res.ok) ok++;
+      else { fail++; if (res.dead) { try { await pool.query("DELETE FROM bi_push_token WHERE token=$1", [row.token]); } catch (e) {} } }
+    } catch (e) { fail++; }
+  }
+  return { ok, fail, total: rows.length };
+}
+
+// Tenant'taki HERKESE (exceptUserId hariç) gönder — duyuru broadcast için.
+/* PUSH_INBOX_V1 — bildirim deposu (inbox) + yönetici id yardımcıları */
+let _bildirimReady = false;
+async function ensureZiyaretEk() {  /* ZIYARET_EK_V1 */
+  await pool.query(`CREATE TABLE IF NOT EXISTS saha_ziyaret_ek (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id uuid NOT NULL,
+    ziyaret_id uuid NOT NULL REFERENCES saha_ziyaret(id) ON DELETE CASCADE,
+    dosya_adi text NOT NULL, mime text NOT NULL, boyut integer NOT NULL,
+    veri bytea NOT NULL, yukleyen_id uuid,
+    created_at timestamptz NOT NULL DEFAULT now())`);
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_saha_ziyaret_ek ON saha_ziyaret_ek (ziyaret_id)");
+}
+async function ensureDuyuruEk() {  /* DUYURU_EK_V1 */
+  await pool.query(`CREATE TABLE IF NOT EXISTS saha_duyuru_ek (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id uuid NOT NULL,
+    duyuru_id uuid NOT NULL REFERENCES saha_duyuru(id) ON DELETE CASCADE,
+    dosya_adi text NOT NULL, mime text NOT NULL, boyut integer NOT NULL,
+    veri bytea NOT NULL, yukleyen_id uuid,
+    created_at timestamptz NOT NULL DEFAULT now())`);
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_saha_duyuru_ek ON saha_duyuru_ek (duyuru_id)");
+  await pool.query("ALTER TABLE saha_duyuru ADD COLUMN IF NOT EXISTS updated_at timestamptz");
+  await pool.query("ALTER TABLE saha_duyuru ADD COLUMN IF NOT EXISTS guncelleyen_id uuid");
+}
+async function ensureBildirim() {
+  if (_bildirimReady) return;
+  await pool.query("CREATE TABLE IF NOT EXISTS bi_bildirim (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), tenant_id uuid NOT NULL, user_id uuid NOT NULL, baslik text, govde text, tip text, data jsonb NOT NULL DEFAULT '{}'::jsonb, okundu boolean NOT NULL DEFAULT false, created_at timestamptz NOT NULL DEFAULT now())");
+  await pool.query("CREATE INDEX IF NOT EXISTS idx_bi_bildirim_user ON bi_bildirim (tenant_id, user_id, created_at DESC)");
+  _bildirimReady = true;
+}
+async function _storeBildirim(tenantId, userIds, title, body, data) {
+  try {
+    const ids = (Array.isArray(userIds) ? userIds : [userIds]).filter(Boolean);
+    if (!ids.length) return;
+    await ensureBildirim();
+    await pool.query("INSERT INTO bi_bildirim (tenant_id,user_id,baslik,govde,tip,data) SELECT $1, uid, $3, $4, $5, $6 FROM unnest($2::uuid[]) AS uid", [tenantId, ids, title, body, (data && data.type) || null, JSON.stringify(data || {})]);
+  } catch (e) { try { console.warn("storeBildirim:", e.message); } catch (er) {} }
+}
+async function sahaManagerIds(tenantId, exceptUserId) {
+  try {
+    const r = await pool.query("SELECT DISTINCT u.id FROM users u JOIN tenant_user_modules tum ON tum.user_id=u.id AND tum.module_id='saha' AND tum.tenant_id=$1 AND tum.active=true LEFT JOIN tenant_users tu ON tu.user_id=u.id AND tu.tenant_id=$1 AND tu.active=true WHERE u.status <> 'disabled' AND (tum.module_role IN ('admin','manager') OR tu.tenant_role='company_owner')", [tenantId]);
+    return r.rows.map(function (x) { return x.id; }).filter(function (id) { return id && id !== exceptUserId; });
+  } catch (e) { try { console.warn("sahaManagerIds:", e.message); } catch (er) {} return []; }
+}
+async function pushToTenant(tenantId, exceptUserId, title, body, data) {
+  try {
+    try { const _ur = await pool.query("SELECT DISTINCT u.id FROM users u JOIN tenant_user_modules tum ON tum.user_id=u.id AND tum.module_id='saha' AND tum.tenant_id=$1 AND tum.active=true WHERE u.status <> 'disabled' AND u.id <> $2", [tenantId, exceptUserId || "00000000-0000-0000-0000-000000000000"]); await _storeBildirim(tenantId, _ur.rows.map(function (x) { return x.id; }), title, body, data); } catch (e) {}
+    const r = await pool.query("SELECT token, platform FROM bi_push_token WHERE tenant_id=$1 AND user_id <> $2", [tenantId, exceptUserId || "00000000-0000-0000-0000-000000000000"]);
+    if (!r.rowCount) return { ok: 0, fail: 0, total: 0 };
+    return await _pushRows(r.rows, title, body, data);
+  } catch (e) { try { console.warn("pushToTenant:", e.message); } catch (er) {} return { ok: 0, fail: 0, err: String(e) }; }
+}
+
+// Belirli kullanıcı(lar)a gönder — teklif/mesaj/hatırlatma için.
+async function pushToUsers(tenantId, userIds, title, body, data) {
+  try {
+    const ids = (Array.isArray(userIds) ? userIds : [userIds]).filter(Boolean);
+    if (!ids.length) return { ok: 0, fail: 0, total: 0 };
+    try { await _storeBildirim(tenantId, ids, title, body, data); } catch (e) {}
+    const r = await pool.query("SELECT token, platform FROM bi_push_token WHERE tenant_id=$1 AND user_id = ANY($2::uuid[])", [tenantId, ids]);
+    if (!r.rowCount) return { ok: 0, fail: 0, total: 0 };
+    return await _pushRows(r.rows, title, body, data);
+  } catch (e) { try { console.warn("pushToUsers:", e.message); } catch (er) {} return { ok: 0, fail: 0, err: String(e) }; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   REMINDER_PUSH_V1 — saha_rep_not hatırlatmaları vadesi gelince (hatirlatma_tarihi <= bugün,
+   Europe/Istanbul) ilgili temsilciye bir kez push. Kendi migration'ını yapar: push_bildirildi
+   kolonu yoksa ekler ve MEVCUT tüm hatırlatmaları "bildirildi" işaretler (deploy anında eski
+   birikimin toplu push'unu önler) — böylece yalnız BUNDAN SONRA vadesi gelenler tetiklenir.
+   Arka plan işi; sorgu hatası ekranları kırmaz (try/catch). 5 dakikada bir çalışır.
+   ═══════════════════════════════════════════════════════════════════════════ */
+let _remBusy = false;
+
+async function _reminderTick() {
+  if (_remBusy) return;
+  _remBusy = true;
+  try {
+    const r = await pool.query(
+      "SELECT id, tenant_id, rep_id, icerik FROM saha_rep_not " +
+      "WHERE rep_id IS NOT NULL AND hatirlatma_tarihi IS NOT NULL " +
+      "AND hatirlatma_tarihi <= (now() AT TIME ZONE 'Europe/Istanbul')::date " +
+      "AND push_bildirildi = false LIMIT 200"
+    );
+    for (const row of r.rows) {
+      try {
+        await pushToUsers(row.tenant_id, [row.rep_id], "⏰ Hatırlatma", String(row.icerik || "").slice(0, 140), { room: "reception", type: "hatirlatma", id: row.id });
+        await pool.query("UPDATE saha_rep_not SET push_bildirildi = true WHERE id = $1", [row.id]);
+      } catch (e) {}
+    }
+    if (r.rows.length) { try { console.log("[push] hatirlatma:", r.rows.length); } catch (e) {} }
+  } catch (e) { try { console.warn("reminderTick:", e.message); } catch (er) {} }
+  _remBusy = false;
+}
+
+async function _reminderInit() {
+  try {
+    await pool.query(
+      "DO $do$ BEGIN " +
+      "IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='saha_rep_not' AND column_name='push_bildirildi') THEN " +
+      "ALTER TABLE saha_rep_not ADD COLUMN push_bildirildi boolean NOT NULL DEFAULT false; " +
+      "UPDATE saha_rep_not SET push_bildirildi = true; " +
+      "END IF; END $do$;"
+    );
+    try { console.log("[push] reminder scheduler ready"); } catch (e) {}
+  } catch (e) { try { console.warn("reminderInit:", e.message); } catch (er) {} }
+  _reminderTick();
+  setInterval(_reminderTick, 5 * 60 * 1000);
+}
+
+setTimeout(function () { _reminderInit(); }, 30000);
+
+// GUNLUK_RAPOR_EXEC_V1 — sabah 08:00 (Europe/Istanbul) yonetici raporu; 15 dk kontrol, gun-guard.
+setTimeout(function () { _gunlukRaporExecTick().catch(function () {}); }, 60000);
+setInterval(function () { _gunlukRaporExecTick().catch(function () {}); }, 15 * 60 * 1000);
+
+
+/* BEYIN_IKI_IS */
+
+/* HAFIZA_FULL */
+
+/* MOBIL_DIKKAT */
+
+/* UMBRELLA_YOY */
+
+/* KOKPIT_TAKIP */
