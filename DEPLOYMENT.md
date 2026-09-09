@@ -83,3 +83,5 @@ To make surveys truly work across users:
 6. Add email sending.
 7. Add OpenAI API analysis.
 8. Add KVKK consent and privacy controls.
+
+Kaynak depo: git@github.com:deriveglobal/deriveintelligence.git (dal: master)
