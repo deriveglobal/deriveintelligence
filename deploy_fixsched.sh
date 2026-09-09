@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# FINSCHED_FIX_V1 deploy — scheduler queryAsTenant fix. Rule 5: build+up. Idempotent.
+set -e
+cd /opt/krb-assessment
+cp server_container.mjs server_container.mjs.bak.$(date +%s)
+printf '%s' 'IyEvdXNyL2Jpbi9lbnYgcHl0aG9uMwojIEZJTlNDSEVEX0ZJWF9WMSDigJQgc2NoZWR1bGVyJ2Rha2kgcXVlcnlBc1RlbmFudCAoaW5uZXItc2NvcGUsIGfDtnLDvG5tZXopIHJlZmVyYW5zxLFuxLEga2FsZMSxcjsKIyBkb8SfcnVkYW4gbW9kdWxlLWxldmVsIHF1ZXJ5KCkga3VsbGFuIChhcmthIHBsYW5kYSBlbGV2YXRlZCBwb29sICsgYcOnxLFrIHRlbmFudCBmaWx0cmVzaSDDp2FsxLHFn8SxeW9yKS4KZGVmIHJlYWQocCk6IHJldHVybiBvcGVuKHAsIGVuY29kaW5nPSJ1dGYtOCIpLnJlYWQoKQpkZWYgd3JpdGUocCwgcyk6IG9wZW4ocCwgInciLCBlbmNvZGluZz0idXRmLTgiKS53cml0ZShzKQoKRlAgPSAic2VydmVyX2NvbnRhaW5lci5tanMiCnMgPSByZWFkKEZQKQppZiAicXVlcnlBc1RlbmFudChULCBzcWwsIHBhcmFtcykiIG5vdCBpbiBzOgogICAgcHJpbnQoImZpbnNjaGVkLWZpeDogcXVlcnlBc1RlbmFudCByZWZlcmFuc8SxIHlvaywgc2tpcCIpOyBwcmludCgiRE9ORS4iKTsgcmFpc2UgU3lzdGVtRXhpdAoKb2xkID0gKCcgICAgICBjb25zdCBUID0gcm93LnQ7IGlmICghVCkgY29udGludWU7XG4nCiAgICAgICAnICAgICAgY29uc3QgcSA9IChzcWwsIHBhcmFtcykgPT4gcXVlcnlBc1RlbmFudChULCBzcWwsIHBhcmFtcyk7XG4nCiAgICAgICAnICAgICAgdHJ5IHtcbicKICAgICAgICcgICAgICAgIGNvbnN0IGhhcyA9IChhd2FpdCBxKGBTRUxFQ1QgMSBGUk9NIGJpX2ZpbmFuc2FsX2ljZ29ydSBXSEVSRSB0ZW5hbnRfaWQ6OnRleHQ9JDEgQU5EIGd1bj0kMmAsIFtULCBndW5dKSkucm93Q291bnQ7XG4nCiAgICAgICAnICAgICAgICBpZiAoaGFzKSBjb250aW51ZTtcbicKICAgICAgICcgICAgICAgIGF3YWl0IF9maW5JY2dvcnVHdW5sdWsoVCwgZmFsc2UsIHEpOycpCm5ldyA9ICgnICAgICAgY29uc3QgVCA9IHJvdy50OyBpZiAoIVQpIGNvbnRpbnVlO1xuJwogICAgICAgJyAgICAgIHRyeSB7XG4nCiAgICAgICAnICAgICAgICBjb25zdCBoYXMgPSAoYXdhaXQgcXVlcnkoYFNFTEVDVCAxIEZST00gYmlfZmluYW5zYWxfaWNnb3J1IFdIRVJFIHRlbmFudF9pZDo6dGV4dD0kMSBBTkQgZ3VuPSQyYCwgW1QsIGd1bl0pKS5yb3dDb3VudDtcbicKICAgICAgICcgICAgICAgIGlmIChoYXMpIGNvbnRpbnVlO1xuJwogICAgICAgJyAgICAgICAgYXdhaXQgX2ZpbkljZ29ydUd1bmx1ayhULCBmYWxzZSk7JykKYXNzZXJ0IHMuY291bnQob2xkKSA9PSAxLCAic2NoZWR1bGVyIGJsb2NrIGFuY2hvciIKcyA9IHMucmVwbGFjZShvbGQsIG5ldywgMSkKCndyaXRlKEZQLCBzKQpwcmludCgiZmluc2NoZWQtZml4OiBxdWVyeUFzVGVuYW50IGthbGTEsXLEsWxkxLEsIHF1ZXJ5KCkga3VsbGFuxLFsxLF5b3IiKQpwcmludCgiRE9ORS4iKQo=' | base64 -d > fix_finsched.py
+python3 fix_finsched.py
+node --check server_container.mjs && echo SERVER_OK
+docker build -t krb-assessment:secure .
+docker compose up -d --force-recreate krb-assessment
+echo "== restart sonrası scheduler 45sn'de üretir. 70sn bekle, sonra doğrula =="
+sleep 70
+set -a; [ -f .env ] && . ./.env; set +a
+PW="${POSTGRES_PASSWORD:-}"
+docker exec -i -e PGPASSWORD="$PW" krb-assessment-postgres \
+  psql -U assessment_app -d assessment_platform -P pager=off -c \
+  "SELECT to_char(gun,'YYYY-MM-DD') gun, jsonb_array_length(icgoruler) icgoru_adet, to_char(uretildi_at,'HH24:MI:SS') uretim FROM bi_finansal_icgoru ORDER BY uretildi_at DESC LIMIT 3;"
+echo "-- son loglar --"
+docker logs --tail 200 krb-assessment 2>&1 | grep -i "fin-icgoru" | tail -6 || echo "(log yok)"
+echo "== DONE =="

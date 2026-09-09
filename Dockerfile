@@ -32,6 +32,7 @@ RUN npm install --omit=dev
 
 # ⚠ server_container.mjs -> server.mjs.  Repodaki bayat server.mjs ARTIK KULLANILMIYOR.
 COPY server_container.mjs ./server.mjs
+COPY tr-cities.json ./tr-cities.json
 COPY index.html styles.css app.js participant.js shared.js store.js homepage.html ./
 COPY components ./components
 COPY shells ./shells
@@ -45,6 +46,8 @@ COPY stamp_versions.mjs ./stamp_versions.mjs
 RUN node stamp_versions.mjs /app
 
 COPY erp_ingest.py ./erp_ingest.py
+COPY sl_ingest.py ./sl_ingest.py
+COPY sl_connector.py ./sl_connector.py
 
 # yuklenen dosyalar icin gecici dizin (node kullanicisi yazabilmeli)
 RUN mkdir -p /app/yukleme && chown -R node:node /app
@@ -58,3 +61,7 @@ EXPOSE 3000
 USER node
 
 CMD ["node", "server.mjs"]
+
+# --- AGNOSTIK BUILD-GATE (devir kural 2): drift imaja giremez ---
+COPY agnostik_buildgate.sh /tmp/agnostik_buildgate.sh
+RUN sh /tmp/agnostik_buildgate.sh /app/server.mjs

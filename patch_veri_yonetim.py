@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+# VERI_YONETIM_V1 — "Veri" (ERP dosya yükleme) odasını Yönetim (Intelligence) üst şeridinden alıp
+# Yönetim konsolu (tenant-admin) sol menüsüne taşır. 3 dosya + standalone yükleme sayfası (gömülü):
+#   server_container.mjs: yeni GET /api/bi/veri/ekran -> shells/veri_yukle.html (intelligence-gated)
+#   tenant-admin.js: "Veri" nav + görünüm + renderVeri (iframe)
+#   bi.js: üst şeritteki "Veri" sekmesi kaldırıldı (oda/fonksiyon kod olarak durur, erişilmez)
+#   shells/veri_yukle.html: /api/bi/yukle + /yukle/durum + /saglik-alarm ile aynı, kendi stilli sayfa
+# Idempotent (dosya başına guard) + .bak + node --check + rollback. TEK build.
+# KULLANIM: /opt/krb-assessment/ içine koy →
+#   cd /opt/krb-assessment && python3 patch_veri_yonetim.py \
+#     && docker build -t krb-assessment:secure . && docker compose up -d --force-recreate krb-assessment
+import sys, subprocess, shutil, os, base64
+SV='/opt/krb-assessment/server_container.mjs'
+TA='/opt/krb-assessment/shells/tenant-admin.js'
+BI='/opt/krb-assessment/shells/bi.js'
+SHELLD="/opt/krb-assessment/shells/veri_yukle.html"
+SV_EDITS=[('if (method === "GET" && path === "/api/saha/manager-portfoyum/ekran") {', 'if (method === "GET" && path === "/api/bi/veri/ekran") {  /* VERI_EKRAN_V1 */\n  if (response.headersSent) return;\n  try {\n    await requireModuleAccess(request, "intelligence");\n    const _h = await readFile("/app/shells/veri_yukle.html", "utf8");\n    response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });\n    response.end(_h);\n  } catch (e) {\n    if (!response.headersSent) sendJson(response, 403, { error: "yetki yok / ekran bulunamadi" });\n  }\n  return;\n}\n\nif (method === "GET" && path === "/api/saha/manager-portfoyum/ekran") {')]
+TA_EDITS=[('        ${navBtn("memnuniyet", "Memnuniyet", \'<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>\')}', '        ${navBtn("memnuniyet", "Memnuniyet", \'<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>\')}\n        ${navBtn("veri", "Veri", \'<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>\')}'), ('      memnuniyet: ["Memnuniyet", "Saha memnuniyet nabzi", renderMemnuniyet],', '      memnuniyet: ["Memnuniyet", "Saha memnuniyet nabzi", renderMemnuniyet],\n      veri: ["Veri", "ERP dosya yükleme — kalite kapıları + sağlık", renderVeri],  /* VERI_YONETIM_V1 */'), ('  async function renderOverview(content) {', '  async function renderVeri(content) {  /* VERI_YONETIM_V1 */\n    content.innerHTML = \'<iframe src="/api/bi/veri/ekran" style="width:100%;height:calc(100vh - 150px);min-height:520px;border:0;border-radius:12px;display:block;background:#0b0f17" title="Veri Yukleme"></iframe>\';\n  }\n  async function renderOverview(content) {')]
+OLD_BI='          <button class="vmo-tab" data-dept="veri" style="--c:#8A8A8F">Veri</button>'
+SHELL_B64="""
+PCFET0NUWVBFIGh0bWw+CjxodG1sIGxhbmc9InRyIj4KPGhlYWQ+CjxtZXRhIGNoYXJzZXQ9InV0Zi04Ij4KPG1ldGEgbmFtZT0idmlld3BvcnQiIGNvbnRl
+bnQ9IndpZHRoPWRldmljZS13aWR0aCwgaW5pdGlhbC1zY2FsZT0xIj4KPHRpdGxlPlZlcmkg4oCUIEVSUCBEb3N5YSBZw7xrbGVtZTwvdGl0bGU+CjxzdHls
+ZT4KICA6cm9vdHsKICAgIC0temVtaW4tMDojMGIwZjE3Oy0temVtaW4tMTojMTIxODI2Oy0tY2l6Z2k6IzIyMmMzZDstLWNpemdpLWc6IzJjMzg1MDsKICAg
+IC0tdHgtMDojZWVmMmY4Oy0tdHgtMTojYzNjZGRkOy0tdHgtMjojOGE5N2FkOwogICAgLS15ZXNpbDojM2ZiOThhOy0tc2FyaTojZTBhNDRhOy0ta2lybWl6
+aTojZTA2MDVlOwogIH0KICAqe2JveC1zaXppbmc6Ym9yZGVyLWJveH0KICBib2R5e21hcmdpbjowO2JhY2tncm91bmQ6dmFyKC0temVtaW4tMCk7Y29sb3I6
+dmFyKC0tdHgtMCk7Zm9udDoxNC41cHgvMS41NSAtYXBwbGUtc3lzdGVtLEJsaW5rTWFjU3lzdGVtRm9udCwiU2Vnb2UgVUkiLFJvYm90byxBcmlhbCxzYW5z
+LXNlcmlmOy13ZWJraXQtZm9udC1zbW9vdGhpbmc6YW50aWFsaWFzZWR9CiAgLndyYXB7bWF4LXdpZHRoOjkyMHB4O21hcmdpbjowIGF1dG87cGFkZGluZzoy
+NnB4IDI4cHggNDhweH0KICBoMXtmb250LXNpemU6MjBweDtmb250LXdlaWdodDo4MDA7bWFyZ2luOjAgMCAzcHh9CiAgLnN1Yntjb2xvcjp2YXIoLS10eC0y
+KTtmb250LXNpemU6MTNweDttYXJnaW4tYm90dG9tOjIwcHh9CiAgLmV0aWtldHtmb250LXNpemU6MTAuNXB4O2xldHRlci1zcGFjaW5nOi4xNGVtO3RleHQt
+dHJhbnNmb3JtOnVwcGVyY2FzZTtmb250LXdlaWdodDo4MDA7Y29sb3I6dmFyKC0tdHgtMil9CiAgLmthcnR7YmFja2dyb3VuZDp2YXIoLS16ZW1pbi0xKTti
+b3JkZXI6MXB4IHNvbGlkIHZhcigtLWNpemdpKTtib3JkZXItcmFkaXVzOjEzcHg7cGFkZGluZzoxNHB4IDE2cHh9CiAgLmthcnQta2FyYXJ7Ym9yZGVyLWNv
+bG9yOnJnYmEoMjI0LDk2LDk0LC40NSl9CiAgLmthcnQtbm9ybWFse2JvcmRlci1jb2xvcjpyZ2JhKDYzLDE4NSwxMzgsLjQpfQogIC5zYXRpcntkaXNwbGF5
+OmZsZXg7anVzdGlmeS1jb250ZW50OnNwYWNlLWJldHdlZW47Z2FwOjEycHg7YWxpZ24taXRlbXM6YmFzZWxpbmU7cGFkZGluZzo2cHggMDtib3JkZXItYm90
+dG9tOi41cHggc29saWQgdmFyKC0tY2l6Z2kpO2ZvbnQtc2l6ZToxMy41cHh9CiAgLnNhdGlyOmxhc3QtY2hpbGR7Ym9yZGVyLWJvdHRvbTowfS5zYXRpciBz
+cGFuOmZpcnN0LWNoaWxke2NvbG9yOnZhcigtLXR4LTEpfQogIC5ue2ZvbnQtdmFyaWFudC1udW1lcmljOnRhYnVsYXItbnVtcztmb250LXdlaWdodDo3MDB9
+CiAgLmQteWVzaWx7Y29sb3I6dmFyKC0teWVzaWwpfS5kLXNhcml7Y29sb3I6dmFyKC0tc2FyaSl9LmQta2lybWl6aXtjb2xvcjp2YXIoLS1raXJtaXppKX0K
+ICBidXR0b257Zm9udC1mYW1pbHk6aW5oZXJpdH0KPC9zdHlsZT4KPC9oZWFkPgo8Ym9keT4KPGRpdiBjbGFzcz0id3JhcCI+CiAgPGgxPlZlcmkg4oCUIEVS
+UCBEb3N5YSBZw7xrbGVtZTwvaDE+CiAgPGRpdiBjbGFzcz0ic3ViIj5FUlAgZG9zeWFsYXLEsW7EsSBidXJhZGFuIHnDvGtsZS4gRG9zeWEgdGlwaSA8c3Bh
+biBjbGFzcz0iZC15ZXNpbCI+YmHFn2zEsWtsYXLEsW5kYW48L3NwYW4+IHRhbsSxbsSxcjsgdGFyaWggb25hcsSxbcSxLCDDtmzDp2VrIMOnw7Z6w7xtw7wg
+dmUga2FsaXRlIGthcMSxbGFyxLEgb3RvbWF0aWsgw6dhbMSxxZ/EsXIuPC9kaXY+CiAgPGRpdiBpZD0idmVyaS1nb3ZkZSI+PC9kaXY+CjwvZGl2Pgo8c2Ny
+aXB0PgogIGZ1bmN0aW9uIGVzYyhzKXtzPShzPT1udWxsPycnOlN0cmluZyhzKSk7cmV0dXJuIHMucmVwbGFjZSgvJi9nLCcmYW1wOycpLnJlcGxhY2UoLzwv
+ZywnJmx0OycpLnJlcGxhY2UoLz4vZywnJmd0OycpLnJlcGxhY2UoLyIvZywnJnF1b3Q7Jyk7fQogIGFzeW5jIGZ1bmN0aW9uIGNpel92ZXJpKCl7CiAgICB2
+YXIgZz1kb2N1bWVudC5nZXRFbGVtZW50QnlJZCgndmVyaS1nb3ZkZScpOyBpZighZylyZXR1cm47CiAgICB2YXIgZD17ZG9zeWFsYXI6W119OwogICAgdHJ5
+eyB2YXIgcj1hd2FpdCBmZXRjaCgnL2FwaS9iaS95dWtsZS9kdXJ1bScse2NyZWRlbnRpYWxzOidzYW1lLW9yaWdpbid9KTsgZD1hd2FpdCByLmpzb24oKTsg
+fWNhdGNoKGUpe30KICAgIHZhciBoPSc8ZGl2IGlkPSJ2ZXJpLWFsYXJtIj48L2Rpdj4nOwogICAgaCs9JzxkaXYgY2xhc3M9ImV0aWtldCIgc3R5bGU9Im1h
+cmdpbi1ib3R0b206MTJweCI+RVJQIERPU1lBTEFSSTwvZGl2Pic7CiAgICBoKz0nPGRpdiBjbGFzcz0ia2FydCIgc3R5bGU9Im1hcmdpbi1ib3R0b206MjBw
+eCI+JzsKICAgIChkLmRvc3lhbGFyfHxbXSkuZm9yRWFjaChmdW5jdGlvbihmKXsKICAgICAgdmFyIHJlbms9Zi5kdXJ1bT09PSd0YXplJz8nZC15ZXNpbCc6
+Zi5kdXJ1bT09PSdoacOnIGdlbG1lZGknPydkLWtpcm1pemknOidkLXNhcmknOwogICAgICBoKz0nPGRpdiBzdHlsZT0iZGlzcGxheTpmbGV4O2p1c3RpZnkt
+Y29udGVudDpzcGFjZS1iZXR3ZWVuO2FsaWduLWl0ZW1zOmJhc2VsaW5lO2dhcDoxMnB4O3BhZGRpbmc6OHB4IDA7Ym9yZGVyLWJvdHRvbTouNXB4IHNvbGlk
+IHZhcigtLWNpemdpKSI+JwogICAgICAgICsnPHNwYW4gc3R5bGU9ImZvbnQtc2l6ZToxNHB4Ij4nK2VzYyhmLmFkKSsnPC9zcGFuPicKICAgICAgICArJzxz
+cGFuIGNsYXNzPSJuICcrcmVuaysnIiBzdHlsZT0iZm9udC1zaXplOjEycHgiPicrZXNjKGYuZHVydW0pKyhmLmd1biE9bnVsbD8nIMK3ICcrZi5ndW4rJyBn
+w7xuJzonJykKICAgICAgICArKGYuc2F0aXI/JyDCtyAnK051bWJlcihmLnNhdGlyKS50b0xvY2FsZVN0cmluZygndHItVFInKSsnIHNhdMSxcic6JycpKyc8
+L3NwYW4+PC9kaXY+JzsKICAgIH0pOwogICAgaCs9JzwvZGl2Pic7CiAgICBoKz0nPGRpdiBpZD0idmVyaS1kcm9wIiBzdHlsZT0iYm9yZGVyOjFweCBkYXNo
+ZWQgdmFyKC0tY2l6Z2ktZyk7Ym9yZGVyLXJhZGl1czoxMnB4O3BhZGRpbmc6MzRweDt0ZXh0LWFsaWduOmNlbnRlcjtjdXJzb3I6cG9pbnRlcjtiYWNrZ3Jv
+dW5kOnZhcigtLXplbWluLTEpO21hcmdpbi1ib3R0b206MTZweCI+JwogICAgICArJzxkaXYgc3R5bGU9ImZvbnQtc2l6ZToxNXB4O21hcmdpbi1ib3R0b206
+NnB4Ij5FUlAgZG9zeWFzxLFuxLEgYnVyYXlhIHPDvHLDvGtsZTwvZGl2PicKICAgICAgKyc8ZGl2IHN0eWxlPSJmb250LXNpemU6MTJweDtjb2xvcjp2YXIo
+LS10eC0yKTtsaW5lLWhlaWdodDoxLjciPnN0b2NrbW92aW5nIMK3IGZ1bGwgc2FsZXMgwrcgZnVsbCB0ZWRhcmlrY2kgwrcgaW52ZW50b3J5IMK3IGFjY291
+bnRyaXNrcmVwb3J0IMK3IGFjY291bnQgYmFsYW5jZSDCtyDDtm4gc2lwYXJpxZ88YnI+JwogICAgICArJ0Rvc3lhIHRpcGkgPHNwYW4gY2xhc3M9ImQteWVz
+aWwiPmJhxZ9sxLFrbGFyxLFuZGFuPC9zcGFuPiB0YW7EsW7EsXIg4oCUIGRvc3lhIGFkxLFuYSBiYWvEsWxtYXouIEVuIGZhemxhIDIwME1CLjwvZGl2PicK
+ICAgICAgKyc8aW5wdXQgdHlwZT0iZmlsZSIgaWQ9InZlcmktZG9zeWEiIGFjY2VwdD0iLnhsc3giIHN0eWxlPSJkaXNwbGF5Om5vbmUiPjwvZGl2Pic7CiAg
+ICBoKz0nPGRpdiBpZD0idmVyaS1zb251YyI+PC9kaXY+JzsKICAgIGcuaW5uZXJIVE1MPWg7CiAgICBfc2FnbGlrQWxhcm1DaXooKTsKICAgIHZhciBkcm9w
+PWRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCd2ZXJpLWRyb3AnKSwgaW5wPWRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCd2ZXJpLWRvc3lhJyk7CiAgICBkcm9w
+Lm9uY2xpY2s9ZnVuY3Rpb24oKXtpbnAuY2xpY2soKTt9OwogICAgZHJvcC5vbmRyYWdvdmVyPWZ1bmN0aW9uKGUpe2UucHJldmVudERlZmF1bHQoKTtkcm9w
+LnN0eWxlLmJvcmRlckNvbG9yPSd2YXIoLS15ZXNpbCknO307CiAgICBkcm9wLm9uZHJhZ2xlYXZlPWZ1bmN0aW9uKCl7ZHJvcC5zdHlsZS5ib3JkZXJDb2xv
+cj0ndmFyKC0tY2l6Z2ktZyknO307CiAgICBkcm9wLm9uZHJvcD1mdW5jdGlvbihlKXtlLnByZXZlbnREZWZhdWx0KCk7ZHJvcC5zdHlsZS5ib3JkZXJDb2xv
+cj0ndmFyKC0tY2l6Z2ktZyknO2lmKGUuZGF0YVRyYW5zZmVyLmZpbGVzWzBdKV95dWtsZShlLmRhdGFUcmFuc2Zlci5maWxlc1swXSk7fTsKICAgIGlucC5v
+bmNoYW5nZT1mdW5jdGlvbigpe2lmKGlucC5maWxlc1swXSlfeXVrbGUoaW5wLmZpbGVzWzBdKTt9OwogIH0KICBhc3luYyBmdW5jdGlvbiBfc2FnbGlrQWxh
+cm1DaXooKXsKICAgIHZhciBib3g9ZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3ZlcmktYWxhcm0nKTsgaWYoIWJveClyZXR1cm47CiAgICB2YXIgZD17YWxh
+cm1sYXI6W119OwogICAgdHJ5eyB2YXIgcj1hd2FpdCBmZXRjaCgnL2FwaS9iaS9zYWdsaWstYWxhcm0nLHtjcmVkZW50aWFsczonc2FtZS1vcmlnaW4nfSk7
+IGQ9YXdhaXQgci5qc29uKCk7IH1jYXRjaChlKXtyZXR1cm47fQogICAgdmFyIGE9ZC5hbGFybWxhcnx8W107CiAgICBpZighYS5sZW5ndGgpeyBib3guaW5u
+ZXJIVE1MPSc8ZGl2IGNsYXNzPSJrYXJ0IiBzdHlsZT0ibWFyZ2luLWJvdHRvbToyMHB4Ij48ZGl2IHN0eWxlPSJkaXNwbGF5OmZsZXg7anVzdGlmeS1jb250
+ZW50OnNwYWNlLWJldHdlZW47YWxpZ24taXRlbXM6YmFzZWxpbmUiPjxzcGFuIGNsYXNzPSJldGlrZXQiIHN0eWxlPSJtYXJnaW46MCI+VkVSxLAgU0HEnkxJ
+Szwvc3Bhbj48c3BhbiBjbGFzcz0ibiBkLXllc2lsIiBzdHlsZT0iZm9udC1zaXplOjEycHgiPuKchSBhw6fEsWsgYWxhcm0geW9rPC9zcGFuPjwvZGl2Pjwv
+ZGl2Pic7IHJldHVybjsgfQogICAgdmFyIGg9JzxkaXYgY2xhc3M9ImthcnQga2FydC1rYXJhciIgc3R5bGU9Im1hcmdpbi1ib3R0b206MjBweCI+PGRpdiBz
+dHlsZT0iZGlzcGxheTpmbGV4O2p1c3RpZnktY29udGVudDpzcGFjZS1iZXR3ZWVuO2FsaWduLWl0ZW1zOmJhc2VsaW5lO21hcmdpbi1ib3R0b206MTBweCI+
+PHNwYW4gY2xhc3M9ImV0aWtldCIgc3R5bGU9Im1hcmdpbjowIj7imqAgVkVSxLAgU0HEnkxJSyDigJQgJythLmxlbmd0aCsnIGHDp8SxayBhbGFybTwvc3Bh
+bj48c3BhbiBzdHlsZT0iZm9udC1zaXplOjEycHg7Y29sb3I6dmFyKC0tdHgtMikiPnRhbsSxbWFkxLHEn8SxbsSxIHNlc3NpemNlIGthYnVsIGV0bWU8L3Nw
+YW4+PC9kaXY+JzsKICAgIGEuZm9yRWFjaChmdW5jdGlvbih4KXsKICAgICAgdmFyIHRpcEV0PXgudGlwPT09J211a2VycmVyJz8nbcO8a2VycmVyIGFydMSx
+xZ/EsSc6eC50aXA9PT0nbXV0YWJha2F0Jz8nb3J0YWxhbWEgc8Sxw6dyYW1hc8SxJzp4LnRpcD09PSdhcmFsaWsnPydhcmFsxLFrIGTEscWfxLEnOidiaWxp
+bm1leWVuIGRlxJ9lcic7CiAgICAgIGgrPSc8ZGl2IHN0eWxlPSJwYWRkaW5nOjEwcHggMDtib3JkZXItdG9wOi41cHggc29saWQgdmFyKC0tY2l6Z2kpIj48
+ZGl2IHN0eWxlPSJkaXNwbGF5OmZsZXg7anVzdGlmeS1jb250ZW50OnNwYWNlLWJldHdlZW47Z2FwOjEwcHg7YWxpZ24taXRlbXM6YmFzZWxpbmUiPjxzcGFu
+IHN0eWxlPSJmb250LXNpemU6MTNweCI+PGI+Jytlc2MoeC50YWJsbykrJzwvYj4gwrcgJytlc2MoeC5rb2xvbnx8JycpKyc8L3NwYW4+PHNwYW4gY2xhc3M9
+Im4gZC1zYXJpIiBzdHlsZT0iZm9udC1zaXplOjExcHgiPicrZXNjKHRpcEV0KSsoeC5hZGV0PygnIMK3ICcrTnVtYmVyKHguYWRldCkudG9Mb2NhbGVTdHJp
+bmcoJ3RyLVRSJykrJ8OXJyk6JycpKyc8L3NwYW4+PC9kaXY+JwogICAgICAgICsnPGRpdiBzdHlsZT0iZm9udC1zaXplOjEzcHg7Y29sb3I6dmFyKC0tdHgt
+MSk7bWFyZ2luOjRweCAwIDhweCI+Jytlc2MoeC5kZWdlcnx8JycpKyc8L2Rpdj4nCiAgICAgICAgKyc8ZGl2IHN0eWxlPSJkaXNwbGF5OmZsZXg7Z2FwOjhw
+eCI+JwogICAgICAgICsnPGJ1dHRvbiBkYXRhLWthcmFyPSJrYWJ1bCIgZGF0YS1pZD0iJyt4LmlkKyciIHN0eWxlPSJmb250LXNpemU6MTJweDtwYWRkaW5n
+OjVweCAxMnB4O2JvcmRlci1yYWRpdXM6OHB4O2JvcmRlcjouNXB4IHNvbGlkIHZhcigtLWNpemdpLWcpO2JhY2tncm91bmQ6dmFyKC0temVtaW4tMSk7Y29s
+b3I6dmFyKC0tdHgtMSk7Y3Vyc29yOnBvaW50ZXIiPkJpbGluZW4ga8O8bWV5ZSBla2xlPC9idXR0b24+JwogICAgICAgICsnPGJ1dHRvbiBkYXRhLWthcmFy
+PSJyZWRkZXQiIGRhdGEtaWQ9IicreC5pZCsnIiBzdHlsZT0iZm9udC1zaXplOjEycHg7cGFkZGluZzo1cHggMTJweDtib3JkZXItcmFkaXVzOjhweDtib3Jk
+ZXI6LjVweCBzb2xpZCB2YXIoLS1raXJtaXppKTtjb2xvcjp2YXIoLS1raXJtaXppKTtiYWNrZ3JvdW5kOnRyYW5zcGFyZW50O2N1cnNvcjpwb2ludGVyIj5H
+ZXLDp2VrIGJvenVsbWE8L2J1dHRvbj4nCiAgICAgICAgKyc8L2Rpdj48L2Rpdj4nOwogICAgfSk7CiAgICBoKz0nPC9kaXY+JzsKICAgIGJveC5pbm5lckhU
+TUw9aDsKICAgIGJveC5xdWVyeVNlbGVjdG9yQWxsKCdidXR0b25bZGF0YS1rYXJhcl0nKS5mb3JFYWNoKGZ1bmN0aW9uKGJ0KXsgYnQub25jbGljaz1mdW5j
+dGlvbigpe19zYWdsaWtLYXJhcihidC5kYXRhc2V0LmlkLGJ0LmRhdGFzZXQua2FyYXIsYnQpO307IH0pOwogIH0KICBhc3luYyBmdW5jdGlvbiBfc2FnbGlr
+S2FyYXIoaWQsa2FyYXIsYnRuKXsKICAgIGlmKGJ0bil7YnRuLmRpc2FibGVkPXRydWU7YnRuLnRleHRDb250ZW50PSfigKYnO30KICAgIHRyeXsgYXdhaXQg
+ZmV0Y2goJy9hcGkvYmkvc2FnbGlrLWFsYXJtLWthcmFyJyx7bWV0aG9kOidQT1NUJyxjcmVkZW50aWFsczonc2FtZS1vcmlnaW4nLGhlYWRlcnM6eydDb250
+ZW50LVR5cGUnOidhcHBsaWNhdGlvbi9qc29uJ30sYm9keTpKU09OLnN0cmluZ2lmeSh7aWQ6aWQsa2FyYXI6a2FyYXJ9KX0pOyB9Y2F0Y2goZSl7fQogICAg
+X3NhZ2xpa0FsYXJtQ2l6KCk7CiAgfQogIGFzeW5jIGZ1bmN0aW9uIF95dWtsZShkb3N5YSl7CiAgICB2YXIgcz1kb2N1bWVudC5nZXRFbGVtZW50QnlJZCgn
+dmVyaS1zb251YycpOwogICAgcy5pbm5lckhUTUw9JzxkaXYgY2xhc3M9ImthcnQiPjxkaXYgc3R5bGU9ImZvbnQtc2l6ZToxNHB4Ij4nK2VzYyhkb3N5YS5u
+YW1lKSsnIOKAlCAnKyhkb3N5YS5zaXplLzFlNikudG9GaXhlZCgxKSsnTUIgwrcgacWfbGVuaXlvcuKApjwvZGl2PjxkaXYgc3R5bGU9ImZvbnQtc2l6ZTox
+MnB4O2NvbG9yOnZhcigtLXR4LTIpO21hcmdpbi10b3A6NnB4Ij5UYXJpaCBvbmFyxLFtxLEsIMO2bMOnZWsgw6fDtnrDvG3DvCB2ZSBrYXDEsWxhciDDp2Fs
+xLHFn8SxeW9yLiBCw7x5w7xrIGRvc3lhZGEgYmlya2HDpyBkYWtpa2Egc8O8cmViaWxpci48L2Rpdj48L2Rpdj4nOwogICAgdmFyIGZkPW5ldyBGb3JtRGF0
+YSgpOyBmZC5hcHBlbmQoJ2Rvc3lhJyxkb3N5YSk7CiAgICB2YXIgcjsKICAgIHRyeXsgdmFyIHJlcz1hd2FpdCBmZXRjaCgnL2FwaS9iaS95dWtsZScse21l
+dGhvZDonUE9TVCcsY3JlZGVudGlhbHM6J3NhbWUtb3JpZ2luJyxib2R5OmZkfSk7IHI9YXdhaXQgcmVzLmpzb24oKTsgfQogICAgY2F0Y2goZSl7IHMuaW5u
+ZXJIVE1MPSc8ZGl2IGNsYXNzPSJrYXJ0IGthcnQta2FyYXIiPjxkaXYgc3R5bGU9ImZvbnQtc2l6ZToxNHB4Ij5Zw7xrbGVtZSBiYcWfYXLEsXPEsXo8L2Rp
+dj48ZGl2IHN0eWxlPSJmb250LXNpemU6MTNweDtjb2xvcjp2YXIoLS10eC0xKTttYXJnaW4tdG9wOjZweCI+Jytlc2MoZS5tZXNzYWdlKSsnPC9kaXY+PC9k
+aXY+JzsgcmV0dXJuOyB9CiAgICB2YXIgaD0nPGRpdiBjbGFzcz0ia2FydCAnKyhyLm9rPydrYXJ0LW5vcm1hbCc6J2thcnQta2FyYXInKSsnIj4nOwogICAg
+aCs9JzxkaXYgc3R5bGU9ImZvbnQtc2l6ZToxNXB4O21hcmdpbi1ib3R0b206MTBweCI+Jysoci5vaz8n4pyFIFnDvGtsZW5kaSc6J+KdjCBZw5xLTEVOTUVE
+xLAg4oCUIGVza2kgdmVyaSB5ZXJpbmRlIGR1cnV5b3InKSsnPC9kaXY+JzsKICAgIGlmKHIuYWQpIGgrPSc8ZGl2IGNsYXNzPSJzYXRpciI+PHNwYW4+ZG9z
+eWEgdGlwaTwvc3Bhbj48c3Bhbj4nK2VzYyhyLmFkKSsnPC9zcGFuPjwvZGl2Pic7CiAgICBpZihyLnNhdGlyKSBoKz0nPGRpdiBjbGFzcz0ic2F0aXIiPjxz
+cGFuPnNhdMSxcjwvc3Bhbj48c3BhbiBjbGFzcz0ibiI+JytOdW1iZXIoci5zYXRpcikudG9Mb2NhbGVTdHJpbmcoJ3RyLVRSJykrJzwvc3Bhbj48L2Rpdj4n
+OwogICAgaWYoci5hcmFsaWspIGgrPSc8ZGl2IGNsYXNzPSJzYXRpciI+PHNwYW4+dGFyaWggYXJhbMSxxJ/EsTwvc3Bhbj48c3BhbiBjbGFzcz0ibiI+Jytl
+c2Moci5hcmFsaWtbMF0pKycg4oaSICcrZXNjKHIuYXJhbGlrWzFdKSsnPC9zcGFuPjwvZGl2Pic7CiAgICBpZihyLm1vZCkgaCs9JzxkaXYgY2xhc3M9InNh
+dGlyIj48c3Bhbj55w7xrbGVtZSBtb2R1PC9zcGFuPjxzcGFuPicrKHIubW9kPT09J3RhcmloX2FyYWxpZ2knPyd6YW1hbiBzZXJpc2kg4oCUIGFyYWzEsWsg
+ZGXEn2nFn3Rpcm1lJzonYW5sxLFrIGfDtnLDvG50w7wg4oCUIHRhbSBkZcSfacWfdGlybWUnKSsnPC9zcGFuPjwvZGl2Pic7CiAgICBpZihyLnNpbGluZW4h
+PW51bGwpIGgrPSc8ZGl2IGNsYXNzPSJzYXRpciI+PHNwYW4+c2lsaW5lbiAoYXJhbMSxa3RhKTwvc3Bhbj48c3BhbiBjbGFzcz0ibiI+JytOdW1iZXIoci5z
+aWxpbmVuKS50b0xvY2FsZVN0cmluZygndHItVFInKSsnPC9zcGFuPjwvZGl2Pic7CiAgICB2YXIgdD1yLnRhcmloX29uYXJpbXx8e307CiAgICBpZih0LnRh
+a2FzKSBoKz0nPGRpdiBjbGFzcz0ic2F0aXIiPjxzcGFuPnRhcmloIG9uYXLEsW3EsSAoZ8O8bi9heSB0YWthc8SxKTwvc3Bhbj48c3BhbiBjbGFzcz0ibiBk
+LXNhcmkiPicrTnVtYmVyKHQudGFrYXMpLnRvTG9jYWxlU3RyaW5nKCd0ci1UUicpKyc8L3NwYW4+PC9kaXY+JzsKICAgIGlmKCh0Lm9sY2VrX2tpbWxpa3Rl
+bnx8W10pLmxlbmd0aCkgaCs9JzxkaXYgY2xhc3M9InNhdGlyIj48c3Bhbj7DtmzDp2XEn2kga2ltbGlrdGVuIMOnw7Z6w7xsZW48L3NwYW4+PHNwYW4gY2xh
+c3M9Im4gZC1zYXJpIj4nK2VzYyh0Lm9sY2VrX2tpbWxpa3Rlbi5qb2luKCcsICcpKSsnPC9zcGFuPjwvZGl2Pic7CiAgICBpZigodC5iYXNhbWFnaV9iaWxp
+bm1leWVufHxbXSkubGVuZ3RoKSBoKz0nPGRpdiBjbGFzcz0ic2F0aXIiPjxzcGFuIGNsYXNzPSJkLXNhcmkiPuKaoCDDtmzDp2XEn2kgYmlsaW5tZXllbiAo
+ZG9rdW51bG1hZMSxKTwvc3Bhbj48c3BhbiBjbGFzcz0ibiBkLXNhcmkiPicrZXNjKHQuYmFzYW1hZ2lfYmlsaW5tZXllbi5qb2luKCcsICcpKSsnPC9zcGFu
+PjwvZGl2Pic7CiAgICBpZihyLmthcGlsYXIpewogICAgICBoKz0nPGRpdiBjbGFzcz0iZXRpa2V0IiBzdHlsZT0ibWFyZ2luOjE0cHggMCA4cHgiPktBUElM
+QVI8L2Rpdj4nOwogICAgICByLmthcGlsYXIuZm9yRWFjaChmdW5jdGlvbihrKXsKICAgICAgICBoKz0nPGRpdiBjbGFzcz0ic2F0aXIiPjxzcGFuPicrKGsu
+Z2VjdGk/J+KchSc6J+KdjCcpKycgJytlc2Moay5rYXBpKSsnPC9zcGFuPjxzcGFuIGNsYXNzPSJuICcrKGsuZ2VjdGk/Jyc6J2Qta2lybWl6aScpKyciPicr
+ay5kZWdlcisnIC8gZcWfaWsgJytrLmVzaWsrJzwvc3Bhbj48L2Rpdj4nOwogICAgICAgIGlmKCFrLmdlY3RpKSBoKz0nPGRpdiBzdHlsZT0iZm9udC1zaXpl
+OjEycHg7Y29sb3I6dmFyKC0ta2lybWl6aSk7cGFkZGluZy1sZWZ0OjEwcHg7bWFyZ2luLWJvdHRvbTo2cHgiPicrZXNjKGsuYWNpa2xhbWEpKyc8L2Rpdj4n
+OwogICAgICB9KTsKICAgIH0KICAgIGlmKHIuaGF0YSkgaCs9JzxkaXYgc3R5bGU9ImZvbnQtc2l6ZToxM3B4O2NvbG9yOnZhcigtLWtpcm1pemkpO21hcmdp
+bi10b3A6MTBweCI+Jytlc2Moci5oYXRhKSsnPC9kaXY+JzsKICAgIGlmKHIuaXB1Y3UpIGgrPSc8ZGl2IHN0eWxlPSJmb250LXNpemU6MTJweDtjb2xvcjp2
+YXIoLS10eC0yKTttYXJnaW4tdG9wOjZweCI+Jytlc2Moci5pcHVjdSkrJzwvZGl2Pic7CiAgICBoKz0nPC9kaXY+JzsKICAgIHMuaW5uZXJIVE1MPWg7CiAg
+ICBpZihyLm9rKXsKICAgICAgZmV0Y2goJy9hcGkvYmkveXVrbGUvZHVydW0nLHtjcmVkZW50aWFsczonc2FtZS1vcmlnaW4nfSkudGhlbihmdW5jdGlvbih4
+KXtyZXR1cm4geC5qc29uKCk7fSkudGhlbihmdW5jdGlvbigpe30pLmNhdGNoKGZ1bmN0aW9uKCl7fSk7CiAgICAgIHMuaW5zZXJ0QWRqYWNlbnRIVE1MKCdi
+ZWZvcmVlbmQnLCc8ZGl2IHN0eWxlPSJmb250LXNpemU6MTNweDtjb2xvcjp2YXIoLS10eC0yKTttYXJnaW4tdG9wOjEwcHgiPlTDvHJldGlsbWnFnyB0YWJs
+b2xhciAobWFyaiwgc2lueWFsbGVyKSB5ZW5pZGVuIGt1cnVsZHUuIDxzcGFuIGNsYXNzPSJkLXllc2lsIj5CdWfDvG48L3NwYW4+IGVrcmFuxLFuxLEgeWVu
+aWxleWVyZWsgZ8O2cmViaWxpcnNpbi48L2Rpdj4nKTsKICAgIH0KICB9CiAgY2l6X3ZlcmkoKTsKPC9zY3JpcHQ+CjwvYm9keT4KPC9odG1sPgo=
+"""
+def nc(t):
+    for ext in ("mjs","cjs"):
+        p="/tmp/_vyc."+ext; open(p,"w",encoding="utf-8").write(t)
+        if subprocess.run(["node","--check",p],capture_output=True,text=True).returncode==0: return True,""
+        e=subprocess.run(["node","--check",p],capture_output=True,text=True).stderr
+    return False,e
+def apply_edits(path, edits, guard, label):
+    if not os.path.exists(path): print("HATA yok:",path); sys.exit(1)
+    src=open(path,encoding="utf-8").read()
+    if guard in src: print("• zaten uygulanmış, atlandı:",os.path.basename(path)); return
+    for old,new in edits:
+        c=src.count(old)
+        if c!=1: print("HATA anchor (%s) count=%d: %r — DUR."%(os.path.basename(path),c,old[:55])); sys.exit(1)
+        src=src.replace(old,new,1)
+    ok,err=nc(src)
+    if not ok: print("HATA node --check (%s):\n%s"%(os.path.basename(path),err)); sys.exit(1)
+    shutil.copy(path,path+".bak_veriyonetim"); open(path,"w",encoding="utf-8").write(src)
+    print("✓ yamandı:",os.path.basename(path))
+
+# 1) standalone sayfa
+html=base64.b64decode("".join(SHELL_B64.split())).decode("utf-8")
+os.makedirs(os.path.dirname(SHELLD),exist_ok=True); open(SHELLD,"w",encoding="utf-8").write(html)
+print("✓ shells/veri_yukle.html yazıldı (%d bayt)."%len(html))
+# 2) server endpoint
+apply_edits(SV, SV_EDITS, "VERI_EKRAN_V1", "server")
+# 3) tenant-admin nav+view+render
+apply_edits(TA, TA_EDITS, 'navBtn("veri"', "tenant-admin")
+# 4) bi.js remove veri tab (guard: OLD yoksa zaten kaldırılmış)
+if not os.path.exists(BI): print("HATA yok:",BI); sys.exit(1)
+_bi=open(BI,encoding="utf-8").read()
+if OLD_BI not in _bi:
+    print("• bi.js Veri sekmesi zaten kaldırılmış, atlandı.")
+else:
+    _bi=_bi.replace(OLD_BI,"",1)
+    ok,err=nc(_bi)
+    if not ok: print("HATA node --check (bi.js):\n"+err); sys.exit(1)
+    shutil.copy(BI,BI+".bak_veriyonetim"); open(BI,"w",encoding="utf-8").write(_bi)
+    print("✓ bi.js üst şeritten Veri sekmesi kaldırıldı.")
+print("\nHepsi tamam. Şimdi: docker build -t krb-assessment:secure . && docker compose up -d --force-recreate krb-assessment")

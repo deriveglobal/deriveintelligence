@@ -1,14 +1,46 @@
+# bagimliliklar / derleme
 node_modules/
-backups/
-*.bak*
-.env
+dist/
+build/
+__pycache__/
+*.pyc
+venv/
+.venv/
 
-# scratch: kesif/patch scriptleri, arsiv, APK binary, stray root kopyalar (commit edilmez)
-/*.sh
-/patch_*.py
-/*.apk
-shells/*.apk
-/derive_arsiv/
-/migrate_*.sql
-/saha.js
-/kokpit.html
+# veri dosyalari (depoya girmez)
+*.csv
+*.xlsx
+*.xls
+*.sqlite
+*.dump
+*.sql.gz
+
+# mobil paketler
+*.apk
+*.ipa
+*.p8
+*.p12
+*.keystore
+
+# arsiv / oturum ciktilari
+derive_arsiv/krb-session-outputs/
+backups/
+
+# yerel yedek kopyalar
+*.yedek*
+*.bak
+*.bak.*
+*~
+
+# sirlar
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# log
+*.log
+logs/

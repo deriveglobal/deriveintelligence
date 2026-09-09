@@ -1,0 +1,1414 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Derive Assessment Platform</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap">
+    <link rel="stylesheet" href="/styles.css?v=20260627-v48" />
+  </head>
+  <body>
+
+<script>/* krb-perm-obs-v19 */
+(function(){
+  function kill(el){
+    if(el && el.id==='permission-denied'){
+      el.style.setProperty('display','none','important');
+      el.style.setProperty('opacity','0','important');
+    }
+  }
+  var obs=new MutationObserver(function(ms){
+    ms.forEach(function(m){
+      m.addedNodes.forEach(function(n){
+        kill(n);
+        if(n.querySelectorAll) n.querySelectorAll('#permission-denied').forEach(kill);
+      });
+      if(m.type==='attributes') kill(m.target);
+    });
+  });
+  obs.observe(document.documentElement,{
+    childList:true, subtree:true,
+    attributes:true, attributeFilter:['class','style','id']
+  });
+  kill(document.getElementById('permission-denied'));
+})();
+</script>
+    <section class="auth-screen" id="auth-screen">
+      <div id="app-loading" style="position:fixed;inset:0;background:#0A0A08;min-height:100vh;display:flex;align-items:center;justify-content:center;"></div>
+
+      <div class="auth-panel hidden" id="login-section">
+        <div class="auth-card">
+          <div class="auth-tabs" role="tablist" aria-label="Authentication mode">
+            <button class="active" data-auth-mode="signin" type="button">Sign In</button>
+            <button data-auth-mode="signup" type="button">Sign Up</button>
+          </div>
+          <div class="auth-heading">
+            <h2 id="auth-title">Welcome back</h2>
+            <p id="auth-subtitle">Access the assessment command center.</p>
+          </div>
+          <form class="auth-form" id="auth-form">
+            <label class="signup-only hidden">
+              Full Name
+              <input id="auth-name" type="text" placeholder="Your name" />
+            </label>
+            <label>
+              Email
+              <input id="auth-email" type="email" placeholder="name@company.com" required />
+            </label>
+            <label>
+              Password
+              <input id="auth-password" type="password" placeholder="Minimum 8 characters" required />
+            </label>
+            <label class="signup-only hidden">
+              Organization
+              <input id="auth-organization" type="text" placeholder="Client or partner company" />
+            </label>
+            <button class="primary-button auth-submit" id="auth-submit" type="submit">Sign In</button>
+          </form>
+          <button class="primary-button auth-submit hidden" id="open-dashboard-button" type="button">Open Dashboard</button>
+          <button class="ghost-button auth-link-button" id="forgot-password-button" type="button">Forgot password?</button>
+          <form class="auth-form hidden" id="forgot-password-form">
+            <label>
+              Email
+              <input id="forgot-password-email" type="email" placeholder="name@company.com" />
+            </label>
+            <button class="primary-button auth-submit" type="submit">Send Reset Link</button>
+            <button class="ghost-button" id="back-to-login-from-forgot" type="button">Back to Sign In</button>
+          </form>
+          <form class="auth-form hidden" id="reset-password-form">
+            <label>
+              New Password
+              <input id="reset-password-input" type="password" placeholder="Minimum 8 characters" />
+            </label>
+            <button class="primary-button auth-submit" type="submit">Reset Password</button>
+          </form>
+          <p class="auth-note">
+            Access is controlled by assigned workspace roles. Creator accounts manage users,
+            invitations, survey delivery, and assessment reporting.
+          </p>
+        </div>
+      </div>
+
+      <!-- 2FA confirmation step -->
+      <div class="auth-panel hidden" id="totp-section">
+        <div class="auth-card">
+          <div class="auth-heading">
+            <h2>İki Faktörlü Doğrulama</h2>
+            <p id="totp-subtitle">Kimlik doğrulama uygulamanızdaki 6 haneli kodu girin.</p>
+          </div>
+          <form class="auth-form" id="totp-form">
+            <label>
+              Doğrulama Kodu
+              <input id="totp-code" type="text" inputmode="numeric" pattern="\d{6}" maxlength="6" placeholder="000000" required autocomplete="one-time-code" />
+            </label>
+            <button class="primary-button auth-submit" type="submit">Doğrula</button>
+          </form>
+          <button class="ghost-button auth-link-button" id="back-to-login-from-totp" type="button">← Geri dön</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Security settings modal (2FA enable/disable) -->
+    <div class="modal-backdrop hidden" id="security-modal-backdrop" style="position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;display:flex;align-items:center;justify-content:center;">
+      <div style="background:var(--surface,#1a1a18);border:1px solid var(--border,#2a2a28);border-radius:12px;padding:2rem;max-width:480px;width:100%;margin:1rem;">
+        <h3 style="margin:0 0 .5rem">Güvenlik Ayarları</h3>
+        <p style="margin:0 0 1.5rem;color:var(--text-muted,#888);font-size:.875rem">İki faktörlü kimlik doğrulama (2FA)</p>
+        <div id="security-modal-content"></div>
+        <button id="security-modal-close" type="button" style="margin-top:1rem;background:none;border:none;color:var(--text-muted,#888);cursor:pointer;font-size:.875rem">Kapat</button>
+      </div>
+    </div>
+
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Primary">
+        <div class="brand">
+          <div class="brand-mark">D</div>
+          <div>
+            <p>Derive</p>
+            <span>Assessment Platform</span>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <span class="nav-group-label" data-roles="platform_owner">Platform</span>
+          <button class="nav-item active" data-view="platform-command" data-roles="platform_owner" type="button">Command Center</button>
+          <button class="nav-item" data-view="projects" data-roles="platform_owner" type="button">Organizations</button>
+          <button class="nav-item" data-view="question-bank" data-roles="platform_owner" type="button">Frameworks</button>
+          <button class="nav-item creator-only" data-view="operations-center" data-roles="platform_owner" type="button">Operations</button>
+          <button class="nav-item" data-view="users" data-roles="platform_owner" type="button">Users & Access</button>
+          <span class="nav-group-label" data-roles="consultant company_owner assessment_manager">Workspace</span>
+          <button class="nav-item" data-view="projects" data-roles="consultant" type="button">Consultant Command Center</button>
+          <button class="nav-item" data-view="executive-preview" data-roles="company_owner" type="button">Executive Command Center</button>
+          <button class="nav-item" data-view="dashboard" data-roles="assessment_manager" data-manager-section="manager-overview" type="button">Assessment Command Center</button>
+          <button class="nav-item hidden" data-view="surveys" data-roles="legacy_hidden" type="button">Collection</button>
+          <button class="nav-item hidden" data-view="stakeholders" data-roles="legacy_hidden" type="button">Stakeholder Coverage</button>
+          <button class="nav-item hidden" data-view="meetings" data-roles="legacy_hidden" type="button">Discovery Meetings</button>
+        </nav>
+
+        <div class="sidebar-card">
+          <span class="status-dot"></span>
+          <div>
+            <strong>Reusable Platform</strong>
+            <p>Multi-company assessment engine with project workspaces.</p>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="workspace-eyebrow">Assessment Platform</p>
+            <h1 id="view-title">Executive Dashboard</h1>
+            <div class="workspace-context-strip" id="workspace-context-strip" aria-label="Workspace context"></div>
+          </div>
+          <div class="topbar-actions">
+            <button class="primary-button hidden" id="export-report" type="button">Export Report</button>
+            <button class="ghost-button" id="open-security-settings" type="button" title="Güvenlik Ayarları">🔐</button>
+            <button class="ghost-button" id="sign-out" type="button">Sign Out</button>
+          </div>
+        </header>
+
+        <section class="workspace-shell-panel" id="workspace-shell-panel" aria-label="Workspace structure"></section>
+
+        <section class="view active" id="platform-command">
+          <div id="platform-command-center-root"></div>
+        </section>
+
+        <section class="view" id="projects">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Organization Workspaces</h2>
+              <span>Platform workspace</span>
+            </div>
+            <div id="project-list" class="project-grid"></div>
+          </section>
+
+          <section class="panel creator-only">
+            <div class="panel-header">
+              <h2>Add Organization</h2>
+              <span>Start from organization identity</span>
+            </div>
+            <form id="project-form" class="form project-form">
+              <div class="form-grid">
+                <label>
+                  Company Name
+                  <input id="project-company-name" type="text" placeholder="Example: Acme Services" />
+                </label>
+                <label>
+                  Company Domain
+                  <input id="project-domain" type="text" placeholder="example.com" />
+                </label>
+              </div>
+              <div class="form-grid">
+                <label>
+                  Industry / Context
+                  <input id="project-industry" type="text" placeholder="Fleet services, manufacturing, hospitality..." />
+                </label>
+                <label>
+                  Default Language
+                  <select id="project-language">
+                    <option value="tr">Turkish</option>
+                    <option value="en">English</option>
+                  </select>
+                </label>
+              </div>
+              <button class="primary-button" type="submit">Create Organization</button>
+            </form>
+            <div id="project-create-output" class="share-box">
+              <span>Enter a domain or company name to create a reusable assessment workspace.</span>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="dashboard">
+          <div id="assessment-engine-dashboard" class="assessment-engine-dashboard"></div>
+        </section>
+
+        <section class="view" id="operations-center">
+          <div id="operations-center-root"></div>
+        </section>
+
+        <section class="view" id="context">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Company Context Intake</h2>
+                <span>Layer 1 assessment baseline</span>
+              </div>
+              <div class="panel-actions">
+                <div class="segmented-control" aria-label="Company context language">
+                  <button class="active" data-context-language="tr" type="button">TR</button>
+                  <button data-context-language="en" type="button">EN</button>
+                </div>
+                <span id="context-status-badge" class="badge medium">Draft</span>
+              </div>
+            </div>
+            <form id="project-context-form" class="form context-form"></form>
+            <div id="context-form-output" class="share-box">
+              <span>Complete this before survey design. AI analysis should use this context as its baseline.</span>
+            </div>
+          </section>
+
+          <section class="panel operator-only">
+            <div class="panel-header">
+              <h2>Share With Company</h2>
+              <span>Send from consult@deriveglobal.com</span>
+            </div>
+            <form id="context-share-form" class="form">
+              <div class="form-grid">
+                <label>
+                  Recipient Name
+                  <input id="context-recipient-name" type="text" placeholder="Company contact" />
+                </label>
+                <label>
+                  Recipient Email
+                  <input id="context-recipient-email" type="email" placeholder="name@company.com" />
+                </label>
+              </div>
+              <label>
+                Form Language
+                <select id="context-language">
+                  <option value="tr">Turkish</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
+              <div class="meeting-actions">
+                <button class="primary-button" type="submit">Create Share Link</button>
+                <button class="ghost-button" id="send-context-email" type="button">Send Email</button>
+              </div>
+            </form>
+            <div id="context-share-output" class="share-box">
+              <span>Create a secure link or send it directly to the company before consulting begins.</span>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="surveys">
+          <section class="panel role-panel participant-only hidden">
+            <div class="panel-header">
+              <h2>My Assigned Survey</h2>
+              <span>Participant portal</span>
+            </div>
+            <div class="method-card">
+              <p>
+                Complete only the survey assigned to you. Your answers will be used
+                for this organization's assessment.
+              </p>
+            </div>
+          </section>
+
+          <section class="panel operator-only survey-primary">
+            <div class="panel-header">
+              <h2>1. Compose Survey</h2>
+              <span>Pick the right questions before sending</span>
+            </div>
+            <form id="composer-form" class="form composer-form">
+              <div class="form-grid">
+                <label>
+                  Stakeholder
+                  <select id="composer-stakeholder"></select>
+                </label>
+                <label>
+                  Language
+                  <select id="composer-language">
+                    <option value="tr">Turkish</option>
+                    <option value="en">English</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-grid">
+                <label>
+                  Industry / Context
+                  <input id="composer-industry" type="text" placeholder="Fleet services, tire operations, manufacturing..." />
+                </label>
+                <label>
+                  Discovery Depth
+                  <select id="composer-depth">
+                    <option value="standard">Standard</option>
+                    <option value="quick">Quick</option>
+                    <option value="deep">Deep</option>
+                  </select>
+                </label>
+              </div>
+              <label>
+                Known Problems / Objectives
+                <textarea id="composer-problems" rows="3" placeholder="Manual reporting, inventory visibility, technician communication, customer portal..."></textarea>
+              </label>
+              <button class="primary-button" type="submit">Generate Recommended Questions</button>
+            </form>
+            <div id="composer-summary" class="share-box">
+              <span>Generate a recommendation, review the questions, then apply them to the preview.</span>
+            </div>
+          </section>
+
+          <div class="split operator-only survey-review-grid">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>2. Review Questions</h2>
+                <span>Keep or remove</span>
+              </div>
+              <div id="composer-results" class="composer-results"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h2>3. Preview Survey</h2>
+                <span>What recipient sees</span>
+              </div>
+              <form id="survey-form" class="survey-form"></form>
+            </section>
+          </div>
+
+          <section class="panel operator-only">
+            <div class="panel-header">
+              <h2>4. Participant Database</h2>
+              <span>Upload recipient list per project</span>
+            </div>
+            <div class="meeting-actions">
+              <button class="ghost-button" id="download-participant-template" type="button">Download Sample Excel</button>
+              <label class="file-button">
+                Upload Excel
+                <input id="participant-excel-input" type="file" accept=".xlsx,.xls" />
+              </label>
+            </div>
+            <div id="participant-upload-output" class="share-box">
+              <span>Required columns: stakeholder, full_name, email, company, department, title, language, notes.</span>
+            </div>
+            <div class="table-wrap compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Stakeholder</th>
+                    <th>Context</th>
+                    <th>Language</th>
+                  </tr>
+                </thead>
+                <tbody id="participant-table"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel operator-only">
+            <div class="panel-header">
+              <h2>5. Send Survey</h2>
+              <span>Private discovery URL</span>
+            </div>
+            <form id="link-form" class="form">
+              <label>
+                Saved Participant
+                <select id="participant-select">
+                  <option value="">Manual recipient</option>
+                </select>
+              </label>
+              <div class="form-grid">
+                <label>
+                  Stakeholder
+                  <select id="stakeholder-select"></select>
+                </label>
+                <label>
+                  Survey Language
+                  <select id="survey-language-input">
+                    <option value="tr">Turkish</option>
+                    <option value="en">English</option>
+                  </select>
+                </label>
+              </div>
+              <div class="form-grid">
+                <label>
+                  Recipient
+                  <input id="recipient-input" type="text" placeholder="Example: Operations Manager" />
+                </label>
+                <label>
+                  Recipient Email
+                  <input id="recipient-email-input" type="email" placeholder="name@company.com" />
+                </label>
+              </div>
+              <label>
+                Context
+                <input id="department-input" type="text" placeholder="Branch, department, account, or decision area" />
+              </label>
+              <button class="primary-button" type="submit">Generate Link</button>
+            </form>
+            <div class="share-box" id="share-box">
+              <span>No link generated yet</span>
+            </div>
+          </section>
+
+          <details class="operator-only survey-secondary">
+            <summary>Tracking and analysis</summary>
+            <div class="content-grid">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Sent Surveys</h2>
+                <span>Link and response tracking</span>
+              </div>
+              <div class="table-wrap compact-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Stakeholder</th>
+                      <th>Recipient</th>
+                      <th>Department</th>
+                      <th>Status</th>
+                      <th>Link</th>
+                    </tr>
+                  </thead>
+                  <tbody id="survey-invite-table"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <h2>AI Survey Analysis</h2>
+                <span>Generated from responses</span>
+              </div>
+              <button class="primary-button" id="analyze-surveys" type="button">Analyze Survey Data</button>
+              <div id="survey-ai-output" class="analysis-output"></div>
+            </section>
+            </div>
+          </details>
+
+          <details class="operator-only survey-secondary">
+            <summary>Template library</summary>
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Survey Templates</h2>
+                <span>Stakeholder groups</span>
+              </div>
+              <div id="template-list" class="template-list"></div>
+            </section>
+          </details>
+
+          <section class="panel creator-only hidden" style="display:none">
+            <div class="panel-header">
+              <h2>Outlook Automation</h2>
+              <span>Microsoft Graph Mail.Send</span>
+            </div>
+            <div class="outlook-grid">
+              <form id="outlook-form" class="form">
+                <label>
+                  Microsoft Application Client ID
+                  <input id="outlook-client-id" type="text" placeholder="Paste Azure App Registration client ID" />
+                </label>
+                <label>
+                  Tenant
+                  <select id="outlook-tenant">
+                    <option value="850db4e5-8ef9-4e05-b91c-a19238934fdc">DERIVEGLOBAL tenant</option>
+                    <option value="common">Common</option>
+                    <option value="organizations">Work or school accounts</option>
+                    <option value="consumers">Personal Microsoft accounts</option>
+                  </select>
+                </label>
+                <div class="meeting-actions">
+                  <button class="primary-button" id="connect-outlook" type="button">Connect Outlook</button>
+                  <button class="ghost-button" id="disconnect-outlook" type="button">Disconnect</button>
+                </div>
+              </form>
+              <div class="method-card">
+                <h3 id="outlook-status">Outlook not connected</h3>
+                <p id="outlook-detail">
+                  To send automatically, create a Microsoft App Registration with delegated
+                  Mail.Send permission and add this app URL as a redirect URI.
+                </p>
+                <div class="tag-list">
+                  <span>Permission: Mail.Send</span>
+                  <span>Endpoint: /me/sendMail</span>
+                  <span>Redirect: current app URL</span>
+                </div>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="question-bank">
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2>Framework Engine</h2>
+                <span>Reusable framework libraries by stakeholder role</span>
+              </div>
+              <div class="panel-actions">
+                <span class="badge medium" id="question-bank-total">0 questions</span>
+              </div>
+            </div>
+            <div class="framework-identity-panel">
+              <article>
+                <span>Framework</span>
+                <strong>Fleet &amp; Service Operations Framework v1</strong>
+              </article>
+              <article>
+                <span>Version</span>
+                <strong>v1</strong>
+              </article>
+              <article>
+                <span>Industry</span>
+                <strong>Fleet &amp; Service Operations</strong>
+              </article>
+            </div>
+            <div class="framework-section-map" aria-label="Framework sections">
+              <span>Role Model</span>
+              <span>Question Banks</span>
+              <span>Blueprint Rules</span>
+              <span>KPI Expectations</span>
+              <span>Finding Rules</span>
+              <span>Recommendation Patterns</span>
+              <span>Roadmap Rules</span>
+              <span>Report Template</span>
+              <span>Demo Configuration</span>
+            </div>
+            <div id="question-bank-coverage" class="question-bank-coverage"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 id="question-bank-role-title">Operations Manager v1</h2>
+                <span id="question-bank-role-meta">25 production questions</span>
+              </div>
+            </div>
+            <div id="question-bank-detail" class="question-bank-detail"></div>
+          </section>
+        </section>
+
+        <section class="view" id="meetings">
+          <div class="content-grid">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Meeting Workspace</h2>
+                <span>AI agent participation</span>
+              </div>
+              <div class="meeting-hero">
+                <div>
+                  <p class="eyebrow">Live Assessment Meeting</p>
+                  <h2>Executive Discovery: Operations and Data Visibility</h2>
+                  <p>
+                    The AI agent can join meetings, listen to the full discussion,
+                    organize the transcript, and extract decisions, action items,
+                    risks, and transformation opportunities.
+                  </p>
+                </div>
+                <div class="agent-card">
+                  <span class="agent-pulse"></span>
+                  <strong id="agent-status">Agent standby</strong>
+                  <p id="agent-detail">Ready to listen when the meeting starts.</p>
+                </div>
+              </div>
+              <div class="meeting-actions">
+                <button class="primary-button" id="start-meeting" type="button">Start AI Agent</button>
+                <button class="ghost-button" id="stop-meeting" type="button">Stop & Summarize</button>
+                <button class="ghost-button" id="add-meeting-note" type="button">Add Sample Transcript</button>
+              </div>
+              <label class="transcript-field">
+                Live Transcript
+                <textarea id="meeting-transcript" rows="9" placeholder="Meeting transcript will appear here while the AI agent listens..."></textarea>
+              </label>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Schedule Teams Meeting</h2>
+                <span>Invite generator</span>
+              </div>
+              <form id="teams-form" class="form">
+                <label>
+                  Meeting Title
+                  <input id="teams-title" type="text" value="Executive Discovery Meeting" />
+                </label>
+                <div class="form-grid">
+                  <label>
+                    Date
+                    <input id="teams-date" type="date" />
+                  </label>
+                  <label>
+                    Time
+                    <input id="teams-time" type="time" value="10:00" />
+                  </label>
+                </div>
+                <label>
+                  Duration
+                  <select id="teams-duration">
+                    <option value="45">45 minutes</option>
+                    <option value="60" selected>60 minutes</option>
+                    <option value="90">90 minutes</option>
+                  </select>
+                </label>
+                <label>
+                  Participants
+                  <textarea id="teams-participants" rows="3" placeholder="owner@company.com, operations@company.com"></textarea>
+                </label>
+                <label>
+                  Teams Meeting Link
+                  <input id="teams-link" type="url" placeholder="Paste Microsoft Teams meeting link when created" />
+                </label>
+                <button class="primary-button" type="submit">Prepare Invite</button>
+              </form>
+              <div class="share-box" id="teams-invite-output">
+                <span>Prepare an invite to generate agenda text and a calendar file.</span>
+              </div>
+            </section>
+          </div>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Meeting Schedule</h2>
+              <span>Discovery sessions</span>
+            </div>
+            <div id="meeting-list" class="meeting-list"></div>
+          </section>
+
+          <div class="analysis-layout">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>AI Meeting Notes</h2>
+                <span>Generated after meeting</span>
+              </div>
+              <div id="meeting-notes" class="analysis-output"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Actions & Decisions</h2>
+                <span>Owner-ready follow-up</span>
+              </div>
+              <div id="meeting-actions-list" class="analysis-output"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="view" id="stakeholders">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Stakeholder Map</h2>
+              <span>Assessment audience</span>
+            </div>
+            <div id="stakeholder-map" class="stakeholder-map"></div>
+          </section>
+          <div class="content-grid">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Response Tracking</h2>
+                <span>By stakeholder group</span>
+              </div>
+              <div class="table-wrap compact-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Layer</th>
+                      <th>Stakeholder</th>
+                      <th>Responses</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="stakeholder-table"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Sentiment Analysis</h2>
+                <span>AI generated</span>
+              </div>
+              <div id="sentiment-list" class="sentiment-list"></div>
+            </section>
+          </div>
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Collected Responses</h2>
+              <span>Evidence library</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Stakeholder</th>
+                    <th>Department</th>
+                    <th>Process</th>
+                    <th>Pain Point</th>
+                    <th>Impact</th>
+                    <th>Urgency</th>
+                  </tr>
+                </thead>
+                <tbody id="response-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="findings">
+          <section class="panel wide">
+            <div class="panel-header">
+              <div>
+                <h2>Findings Workbench</h2>
+                <span>Review, approve, reject, edit, merge, and explain findings</span>
+              </div>
+              <button class="primary-button" id="refresh-findings-workbench" type="button">Refresh Engine</button>
+            </div>
+            <div id="findings-workbench" class="findings-workbench"></div>
+          </section>
+
+          <section class="panel wide">
+            <div class="panel-header">
+              <h2>Evidence Explorer</h2>
+              <span>Why this finding was created</span>
+            </div>
+            <div id="evidence-explorer" class="evidence-explorer"></div>
+          </section>
+
+          <section class="panel wide">
+            <div class="panel-header">
+              <h2>Finding Clustering</h2>
+              <span>Potential parent-child finding groups</span>
+            </div>
+            <div id="finding-clusters" class="finding-clusters"></div>
+          </section>
+        </section>
+
+        <section class="view" id="opportunities">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>AI Recommendations Dashboard</h2>
+              <span>Prioritized improvement register</span>
+            </div>
+            <div id="recommendation-list" class="recommendation-grid"></div>
+          </section>
+        </section>
+
+        <section class="view" id="roadmap">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Transformation Roadmap</h2>
+              <span>Prioritized initiatives</span>
+            </div>
+            <div class="roadmap" id="roadmap-list"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Process Dashboard</h2>
+              <span>Process health and bottlenecks</span>
+            </div>
+            <div class="content-grid">
+              <div class="table-wrap compact-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Process</th>
+                      <th>Health</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="process-table"></tbody>
+                </table>
+              </div>
+              <div id="bottleneck-list" class="analysis-output"></div>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" id="executive-preview">
+          <section class="panel wide">
+            <div class="panel-header">
+              <div>
+                <h2>Executive Dashboard</h2>
+                <span>Approved, evidence-backed business intelligence only</span>
+              </div>
+            </div>
+            <div id="executive-preview-content" class="owner-dashboard"></div>
+          </section>
+        </section>
+        <div id="owner-surface" style="display:none"></div>
+        <div id="consultant-surface" style="display:none"></div>
+        <div id="manager-surface" style="display:none"></div>
+        <div id="platform-surface" style="display:none"></div>
+
+        <section class="view" id="executive-report">
+          <section class="panel wide report-shell-panel">
+            <div class="panel-header report-toolbar">
+              <div>
+                <h2>Executive Report</h2>
+                <span>Formal owner-ready assessment deliverable</span>
+              </div>
+              <div class="report-actions">
+                <label><input id="report-include-drafts" type="checkbox" /> Include drafts</label>
+                <label><input id="report-show-evidence" type="checkbox" checked /> Evidence details</label>
+                <label><input id="report-show-appendix" type="checkbox" checked /> Appendix</label>
+                <button class="ghost-button" id="generate-executive-report" type="button">Generate Report</button>
+                <button class="primary-button" id="print-executive-report" type="button">Print / Export PDF</button>
+              </div>
+            </div>
+            <div id="executive-report-content" class="executive-report-page"></div>
+          </section>
+        </section>
+
+        <section class="view" id="methodology">
+          <section class="panel dashboard-guide-panel">
+            <div class="panel-header">
+              <div>
+                <h2>Framework Definition</h2>
+                <span>How we force the AI to think before recommendations</span>
+              </div>
+              <a class="ghost-button" href="https://gamma.app/embed/6hygia52ya4997d" target="_blank" rel="noreferrer">Open Deck</a>
+            </div>
+            <div class="dashboard-guide-frame">
+              <iframe
+                src="https://gamma.app/embed/6hygia52ya4997d"
+                allow="fullscreen"
+                title="The Interesting Part Is How We Force the AI to Think"
+              ></iframe>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Discovery Framework</h2>
+              <span>Survey question structure</span>
+            </div>
+            <div id="discovery-framework" class="framework-grid"></div>
+          </section>
+
+          <div class="content-grid">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Question Design Rule</h2>
+                <span>What every question must uncover</span>
+              </div>
+              <div class="method-card">
+                <p>
+                  Every survey, interview, and meeting question should expose at
+                  least one transformation signal: strategic intent, process friction,
+                  data weakness, technology gap, people readiness, customer expectation,
+                  financial impact, or innovation opportunity.
+                </p>
+              </div>
+            </section>
+            <section class="panel">
+              <div class="panel-header">
+                <h2>How We Use It</h2>
+                <span>Platform logic</span>
+              </div>
+              <div class="method-list">
+                <div><strong>Surveys</strong><span>Questions are tagged by framework area.</span></div>
+                <div><strong>Meetings</strong><span>AI notes extract signals into the same categories.</span></div>
+                <div><strong>Findings</strong><span>Themes are clustered by repeated framework signals.</span></div>
+                <div><strong>Roadmap</strong><span>Opportunities are prioritized from impact patterns.</span></div>
+              </div>
+            </section>
+          </div>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>AI Analysis Knowledge Map</h2>
+              <span>How every answer becomes a finding</span>
+            </div>
+            <div id="analysis-knowledge-map" class="framework-grid"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Layer 3 Business Domains</h2>
+              <span>Reusable assessment taxonomy</span>
+            </div>
+            <div id="business-domain-taxonomy"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Layer 4 Assessment Categories</h2>
+              <span>Finding classification taxonomy</span>
+            </div>
+            <div id="assessment-category-taxonomy"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Layer 5 Problem Types</h2>
+              <span>AI evidence clustering taxonomy</span>
+            </div>
+            <div id="problem-type-taxonomy"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Layer 6 Impact Model</h2>
+              <span>Prioritization and scoring engine</span>
+            </div>
+            <div id="impact-model-taxonomy"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Layer 7 Recommendation Engine</h2>
+              <span>From findings to initiatives</span>
+            </div>
+            <div id="recommendation-engine-taxonomy"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Layer 8 Roadmap Generator</h2>
+              <span>Executable transformation plan</span>
+            </div>
+            <div id="roadmap-generator-taxonomy"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Layer 9 Executive Intelligence</h2>
+              <span>Benchmarking, ROI, and owner-ready insight</span>
+            </div>
+            <div id="executive-intelligence-taxonomy"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Layer 10 Continuous Improvement</h2>
+              <span>Ongoing management and recurring value</span>
+            </div>
+            <div id="continuous-improvement-taxonomy"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Layer 11 Question Framework</h2>
+              <span>Metadata schema before question generation</span>
+            </div>
+            <div id="question-framework-taxonomy"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Layer 12 Answer Interpretation</h2>
+              <span>Evidence-backed AI findings</span>
+            </div>
+            <div id="answer-interpretation-taxonomy"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Layer 13 KPI Discovery</h2>
+              <span>Measurement gaps and business vital signs</span>
+            </div>
+            <div id="kpi-metric-library-taxonomy"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Master Survey Architecture v1</h2>
+              <span>Question metadata and stakeholder bank</span>
+            </div>
+            <div class="architecture-grid">
+              <div class="method-card">
+                <h3>Required Fields</h3>
+                <div id="survey-fields" class="tag-list"></div>
+              </div>
+              <div class="method-card">
+                <h3>Question Types</h3>
+                <div id="question-types" class="tag-list"></div>
+              </div>
+            </div>
+            <div id="master-survey-bank" class="survey-bank"></div>
+          </section>
+        </section>
+
+        <section class="view" id="users">
+          <section class="panel">
+            <div class="panel-header">
+              <h2>Users & Access</h2>
+              <span>Platform owner only</span>
+            </div>
+            <form id="user-role-form" class="form user-role-form">
+              <label>
+                Organization Access
+                <select id="role-user-project"></select>
+              </label>
+              <label>
+                Full Name
+                <input id="role-user-name" type="text" placeholder="User full name" />
+              </label>
+              <label>
+                User Email
+                <input id="role-user-email" type="email" placeholder="name@company.com" required />
+              </label>
+              <label>
+                Assigned Role
+                <select id="role-user-role">
+                  <option value="consultant">Consultant</option>
+                  <option value="company_owner">Company Owner</option>
+                  <option value="assessment_manager">Assessment Manager</option>
+                  <option value="platform_owner">Platform Owner</option>
+                </select>
+              </label>
+              <label>
+                Temporary Password
+                <input id="role-user-password" type="text" placeholder="Auto-generated if blank" />
+              </label>
+              <button class="primary-button" type="submit">Create / Assign User</button>
+            </form>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Organization</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="user-role-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <template id="question-template">
+      <label>
+        <span></span>
+        <textarea rows="3"></textarea>
+      </label>
+    </template>
+
+    <script src="https://alcdn.msauth.net/browser/2.39.0/js/msal-browser.min.js"></script>
+    <script type="module" src="/app.js?v=20260705-52"></script>
+
+    <!-- Derive Intelligence module surface -->
+    <div id="portal-surface" style="display:none;"></div>
+      <div id="bi-surface" style="display:none;"></div>
+    <!-- KRB Saha module surface -->
+    <div id="saha-surface" style="display:none;"></div>
+    <!-- Derive Tenant Admin surface -->
+    <div id="tenant-admin-surface" style="display:none;"></div>
+
+  <!-- Mobile sidebar overlay -->
+  <div class="mobile-sidebar-overlay" id="mobile-sidebar-overlay"></div>
+
+  <script>
+    (function() {
+      var overlay = document.getElementById('mobile-sidebar-overlay');
+      var sidebar = document.querySelector('.sidebar');
+      function openSidebar() {
+        if (sidebar) sidebar.classList.add('mobile-open');
+        if (overlay) overlay.classList.add('active');
+        document.body.style.overflow = 'hidden';
+      }
+      function closeSidebar() {
+        if (sidebar) sidebar.classList.remove('mobile-open');
+        if (overlay) overlay.classList.remove('active');
+        document.body.style.overflow = '';
+      }
+      if (overlay) overlay.addEventListener('click', closeSidebar);
+      document.addEventListener('click', function(e) {
+        if (e.target && e.target.closest && e.target.closest('.mobile-menu-btn')) {
+          openSidebar();
+        }
+      });
+      document.addEventListener('click', function(e) {
+        if (window.innerWidth <= 768 && e.target && e.target.closest && e.target.closest('.nav-item')) {
+          closeSidebar();
+        }
+      });
+    })();
+  </script>
+
+  <script>
+  /* krb-hub-v48 */
+  (function(){
+    var MQ = '(orientation:portrait) and (max-width:768px)';
+    var rafId = null, pollTimer = null;
+
+    var KA = {
+      'sales':         { label:'Satış',         emoji:'👩‍💼', color:'#2563eb' },
+      'pricing':       { label:'Fiyatlandırma', emoji:'📊',          color:'#7c3aed' },
+      'warehouse':     { label:'Depo',          emoji:'📦',          color:'#059669' },
+      'it':            { label:'Sistem',        emoji:'💻',          color:'#d97706' },
+      'orders':        { label:'Sipariş',       emoji:'🛒',          color:'#0891b2' },
+      'brand-analysis':{ label:'Marka',         emoji:'🔍',          color:'#be185d' },
+      'price-list':    { label:'Fiyat',         emoji:'📋',          color:'#16a34a' }
+    };
+
+    function _goToRoom(ov) {
+      ov.style.display = 'none';
+      document.body.classList.add('krb-room-mode');
+    }
+
+    function _goToHub() {
+      document.body.classList.remove('krb-room-mode');
+    }
+
+    function buildHub() {
+      if (!window.matchMedia(MQ).matches) return;
+      if (document.getElementById('krb-mhub')) return;
+      var biNodes = document.querySelectorAll('.vmo-hub-node');
+      if (!biNodes.length) return;
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+
+      var agents = [];
+      biNodes.forEach(function(n) {
+        // Saha module node — has data-saha="1" but no data-dept
+        if (n.dataset.saha) {
+          agents.push({ dept:'__saha__', label:'Saha', emoji:'📍', color:'#0ea5e9', isSaha:true });
+          return;
+        }
+        var dept = n.dataset.dept || '';
+        var info = KA[dept] || { label:dept, emoji:'?', color:'#7c3aed' };
+        agents.push({ dept:dept, label:info.label, emoji:info.emoji, color:info.color });
+      });
+
+      var biWrap = document.getElementById('vmo-hub-wrap') || document.querySelector('.vmo-hub-wrap');
+      if (biWrap) biWrap.style.setProperty('display','none','important');
+
+      var ov = document.createElement('div');
+      ov.id = 'krb-mhub';
+      ov.style.cssText =
+        'position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;' +
+        'background:#070c1b;overflow:hidden;display:flex;flex-direction:column;';
+      document.body.appendChild(ov);
+
+      var W = window.innerWidth || 390;
+      var H = window.innerHeight || 700;
+      var circH = H - 72;
+      var cx = W / 2, cy = circH / 2;
+
+      var cvs = document.createElement('canvas');
+      cvs.width = W; cvs.height = circH;
+      cvs.style.cssText =
+        'position:absolute;top:0;left:0;width:'+W+'px;height:'+circH+'px;pointer-events:none;z-index:1;';
+      ov.appendChild(cvs);
+      var ctx = cvs.getContext('2d');
+
+      var brain = document.createElement('div');
+      brain.style.cssText =
+        'position:absolute;left:'+cx+'px;top:'+cy+'px;transform:translate(-50%,-50%);' +
+        'width:90px;height:90px;border-radius:50%;' +
+        'background:radial-gradient(circle,#200510,#08020d);' +
+        'border:2.5px solid rgba(225,29,72,0.92);' +
+        'box-shadow:0 0 30px rgba(225,29,72,0.52),0 0 8px rgba(225,29,72,0.85);' +
+        'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+        'cursor:pointer;z-index:20;-webkit-tap-highlight-color:transparent;' +
+        'user-select:none;-webkit-user-select:none;';
+      brain.innerHTML =
+        '<div style="font-size:30px;line-height:1">🧠</div>' +
+        '<div style="font-size:9px;color:#f1f5f9;font-weight:700;margin-top:3px;' +
+          'text-align:center;line-height:1.2">CEO<br>Assistant</div>';
+      brain.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var t = document.querySelector('.vmo-tab[data-dept="brain"]');
+        if (t) { _goToRoom(ov); t.click(); }
+      });
+      ov.appendChild(brain);
+
+      var margin = 42;
+      var r = Math.min(cx - margin, cy - margin - 20) * 0.87;
+      r = Math.max(r, 75);
+
+      var conns = [];
+      agents.forEach(function(ag, i) {
+        var angle = (i / agents.length) * Math.PI * 2 - Math.PI / 2;
+        var x = cx + r * Math.cos(angle);
+        var y = cy + r * Math.sin(angle);
+
+        var pts = [];
+        for (var p = 0; p < 5; p++) {
+          pts.push({ t:p/5, speed:0.0022+Math.random()*0.0018,
+                     size:1.6+Math.random()*1.4, dir:p%2===0?1:-1 });
+        }
+        conns.push({ x:x, y:y, col:ag.color, particles:pts, phase:i*0.72 });
+
+        var btn = document.createElement('div');
+        btn.style.cssText =
+          'position:absolute;width:68px;height:72px;border-radius:14px;' +
+          'background:'+ag.color+'14;border:2px solid '+ag.color+';' +
+          'box-shadow:0 0 14px '+ag.color+'44;' +
+          'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+          'padding:4px 2px;cursor:pointer;z-index:15;' +
+          'left:'+x+'px;top:'+y+'px;transform:translate(-50%,-50%);' +
+          '-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;';
+        btn.innerHTML =
+          '<div style="font-size:26px;line-height:1">'+ag.emoji+'</div>'+
+          '<div style="font-size:8px;color:#e2e8f0;font-weight:600;margin-top:3px;' +
+            'text-align:center;line-height:1.2;max-width:64px;' +
+            'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+ag.label+'</div>';
+
+        // Saha node: hide hub overlay and show saha-surface directly
+        if (ag.isSaha) {
+          btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            ov.style.display = 'none';
+            var saha = document.getElementById('saha-surface');
+            if (saha) saha.style.display = 'block';
+            var bi = document.getElementById('bi-surface');
+            if (bi) bi.style.display = 'none';
+            var tog = document.getElementById('saha-module-toggle');
+            if (tog) tog.textContent = '📊 BI';
+          });
+        } else {
+          btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var t = document.querySelector('.vmo-tab[data-dept="'+ag.dept+'"]');
+            if (t) { _goToRoom(ov); t.click(); }
+          });
+        }
+        ov.appendChild(btn);
+      });
+
+      var t0 = Date.now();
+      if (rafId) cancelAnimationFrame(rafId);
+      function frame() {
+        if (!document.getElementById('krb-mhub')) { rafId = null; return; }
+        var t = (Date.now() - t0) / 1000;
+        ctx.clearRect(0, 0, W, circH);
+        conns.forEach(function(c) {
+          var osc = Math.sin(t*0.35+c.phase)*0.14;
+          var cpX = (c.x+cx)/2+(cy-c.y)*osc;
+          var cpY = (c.y+cy)/2+(c.x-cx)*osc;
+          [[8,'0c'],[3,'28'],[1.5,'55']].forEach(function(lw) {
+            ctx.beginPath(); ctx.moveTo(c.x,c.y);
+            ctx.quadraticCurveTo(cpX,cpY,cx,cy);
+            ctx.strokeStyle = c.col+lw[1];
+            ctx.lineWidth = lw[0]; ctx.lineCap='round'; ctx.stroke();
+          });
+          c.particles.forEach(function(p) {
+            p.t += p.speed*p.dir;
+            if (p.t>1.08) p.t=-0.08; if (p.t<-0.08) p.t=1.08;
+            var pt = Math.max(0,Math.min(1,p.t));
+            var bx=(1-pt)*(1-pt)*c.x+2*(1-pt)*pt*cpX+pt*pt*cx;
+            var by=(1-pt)*(1-pt)*c.y+2*(1-pt)*pt*cpY+pt*pt*cy;
+            var gr=ctx.createRadialGradient(bx,by,0,bx,by,p.size*5);
+            gr.addColorStop(0,c.col+'ff'); gr.addColorStop(0.35,c.col+'bb'); gr.addColorStop(1,c.col+'00');
+            ctx.globalAlpha = Math.sin(pt*Math.PI)*0.92;
+            ctx.beginPath(); ctx.arc(bx,by,p.size*5,0,Math.PI*2);
+            ctx.fillStyle=gr; ctx.fill(); ctx.globalAlpha=1;
+          });
+        });
+        [0,0.38,0.76].forEach(function(off) {
+          var w=((t*0.45+off)%1);
+          ctx.beginPath(); ctx.arc(cx,cy,36+w*100,0,Math.PI*2);
+          ctx.strokeStyle='rgba(225,29,72,'+((1-w)*0.18).toFixed(3)+')';
+          ctx.lineWidth=1.5; ctx.stroke();
+        });
+        rafId = requestAnimationFrame(frame);
+      }
+      frame();
+
+      var cmdBar = document.createElement('div');
+      cmdBar.style.cssText =
+        'margin-top:auto;flex-shrink:0;padding:8px 12px 20px;background:rgba(7,12,27,0.92);' +
+        'border-top:1px solid rgba(255,255,255,0.07);z-index:25;';
+      cmdBar.innerHTML =
+        '<form id="krb-cmd-form" style="display:flex;gap:8px;align-items:center;">' +
+        '<input id="krb-cmd-input" type="text" placeholder="CEO Asistana sor veya komut ver..." ' +
+          'style="flex:1;background:#1e293b;border:1.5px solid #334155;border-radius:12px;' +
+          'color:#f1f5f9;padding:11px 14px;font-size:14px;outline:none;' +
+          '-webkit-appearance:none;appearance:none;" />' +
+        '<button type="submit" style="background:#e11d48;color:#fff;border:none;' +
+          'border-radius:12px;padding:11px 16px;font-size:16px;cursor:pointer;' +
+          'flex-shrink:0;-webkit-tap-highlight-color:transparent;">→</button>' +
+        '</form>';
+      ov.appendChild(cmdBar);
+
+      document.getElementById('krb-cmd-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        var inp = document.getElementById('krb-cmd-input');
+        var msg = (inp.value || '').trim();
+        inp.value = '';
+        var t = document.querySelector('.vmo-tab[data-dept="brain"]');
+        if (!t) return;
+        _goToRoom(ov); t.click();
+        if (!msg) return;
+        setTimeout(function() {
+          var sel = [
+            '.vmo-room[data-dept="brain"] input[type="text"]',
+            '.vmo-room[data-dept="brain"] textarea',
+            '.vmo-room[data-dept="brain"] input:not([type="hidden"]):not([type="submit"])'
+          ];
+          var roomInp = null;
+          for (var i=0; i<sel.length; i++) {
+            roomInp = document.querySelector(sel[i]);
+            if (roomInp) break;
+          }
+          if (!roomInp) return;
+          roomInp.focus();
+          var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value') ||
+                             Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype,'value');
+          if (nativeSetter && nativeSetter.set) {
+            nativeSetter.set.call(roomInp, msg);
+            roomInp.dispatchEvent(new Event('input', { bubbles:true }));
+          } else {
+            roomInp.value = msg;
+          }
+          roomInp.dispatchEvent(new Event('change', { bubbles:true }));
+          var form = roomInp.closest('form');
+          if (form) {
+            setTimeout(function() {
+              form.dispatchEvent(new Event('submit', { bubbles:true, cancelable:true }));
+            }, 80);
+          } else {
+            roomInp.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',code:'Enter',bubbles:true}));
+            roomInp.dispatchEvent(new KeyboardEvent('keypress',{key:'Enter',code:'Enter',bubbles:true}));
+            roomInp.dispatchEvent(new KeyboardEvent('keyup',{key:'Enter',code:'Enter',bubbles:true}));
+          }
+        }, 400);
+      });
+
+      document.querySelectorAll('.vmo-tab').forEach(function(tab) {
+        tab.addEventListener('click', function() {
+          if (tab.dataset.dept === 'home') {
+            setTimeout(function() {
+              _goToHub();
+              var h = document.getElementById('krb-mhub');
+              if (h && window.matchMedia(MQ).matches) h.style.display = 'flex';
+            }, 80);
+          } else {
+            var h = document.getElementById('krb-mhub');
+            if (h) h.style.display = 'none';
+          }
+        });
+      });
+    }
+
+    function _teardown() {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+      var h = document.getElementById('krb-mhub');
+      if (h) h.remove();
+    }
+
+    function _fixCeo() {
+      if (window.matchMedia(MQ).matches) return;
+      var brain = document.querySelector('.vmo-hub-center');
+      if (!brain || brain._krb) return;
+      brain._krb = true; brain.style.cursor = 'pointer';
+      brain.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var t = document.querySelector('.vmo-tab[data-dept="brain"]');
+        if (t) t.click();
+      });
+    }
+
+    function _startPoll() {
+      if (pollTimer || !window.matchMedia(MQ).matches) return;
+      pollTimer = setInterval(function() {
+        if (document.getElementById('krb-mhub')) { clearInterval(pollTimer); pollTimer=null; return; }
+        buildHub();
+      }, 100);
+      setTimeout(function() { if (pollTimer) { clearInterval(pollTimer); pollTimer=null; } }, 30000);
+    }
+
+    _startPoll();
+    document.addEventListener('DOMContentLoaded', function() {
+      _startPoll(); _fixCeo();
+      [800,2000,4000,8000].forEach(function(d) { setTimeout(function() { buildHub(); _fixCeo(); }, d); });
+    });
+    window.addEventListener('load', function() { _startPoll(); buildHub(); _fixCeo(); setTimeout(buildHub, 500); });
+    window.addEventListener('orientationchange', function() {
+      _teardown();
+      if (pollTimer) { clearInterval(pollTimer); pollTimer=null; }
+      _goToHub();
+      setTimeout(function() { buildHub(); _fixCeo(); _startPoll(); }, 600);
+    });
+  })();
+  </script>
+</body>
+</html>

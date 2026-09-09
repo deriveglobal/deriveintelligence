@@ -1,0 +1,1432 @@
+// shells/bi.js — Derive Intelligence VMO (Virtual Management Office)
+// Export: initBiSurface(container, me, sub, callbacks)
+//
+// Departments: Sales (Satış) · Pricing (Fiyatlandırma) · Warehouse (Depo) · IT (Sistem)
+// Each dept: KPI tiles + chart placeholder + AI avatar chat
+
+export function initBiSurface(container, me, sub, callbacks) {
+  const { apiFetch, streamChat, logout } = callbacks;
+  const features    = sub?.features || {};
+  const permissions = sub?.permissions || me?.permissions || {};
+  const _adBase = permissions.departments || ["sales","pricing","warehouse","it"];
+  const allowedDepts = [...new Set([..._adBase, "rakip", "siparis", "marka", "fiyat"])];
+
+  const DEPTS = [
+    { id: "sales",     label: "Satış",          avatar: "Satış Müdürü",          icon: "📈", color: "#2563eb" },
+    { id: "pricing",   label: "Fiyatlandırma",  avatar: "Fiyat Müdürü",          icon: "💰", color: "#7c3aed" },
+    { id: "warehouse", label: "Depo",            avatar: "Depo Müdürü",           icon: "📦", color: "#059669" },
+    { id: "it",        label: "Sistem",          avatar: "Sistem Müdürü",         icon: "🖥", color: "#d97706"  },
+      { id: "rakip",   label: "Rakip Fiyatlar",  avatar: "Rakip Analisti",        icon: "🏷", color: "#dc2626" },
+    { id: "siparis", label: "Sipariş",  avatar: "Sipariş Analisti", icon: "🛒", color: "#0891b2" },
+    { id: "marka",   label: "Marka",    avatar: "Marka Analisti",   icon: "🎯", color: "#9333ea" },
+    { id: "fiyat",   label: "Fiyat",    avatar: "Fiyat Analisti",   icon: "📋", color: "#0f766e" },
+  ].filter(d => allowedDepts.includes(d.id));
+
+  let activeDept = DEPTS[0]?.id || "sales";
+  let chatHistories = {}; // { dept: [{role,content}] }
+  let briefingLoaded = false;
+
+  // ─── Render skeleton ────────────────────────────────────────────────────
+  container.innerHTML = `
+    <div class="bi-shell">
+      <header class="bi-header">
+        <div class="bi-header-left">
+          <div class="bi-logo">
+            <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
+              <rect width="32" height="32" rx="8" fill="#1a1a2e"/>
+              <path d="M8 16h4l3-8 4 16 3-8h4" stroke="#e2b04a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="bi-logo-text">Derive <strong>Intelligence</strong></span>
+          </div>
+        </div>
+        <div class="bi-header-center">
+          <nav class="bi-dept-nav">
+            ${DEPTS.map(d => `
+              <button class="bi-dept-tab ${d.id===activeDept?"active":""}" data-dept="${d.id}" style="--dept-color:${d.color}">
+                <span class="bi-tab-icon">${d.icon}</span>
+                <span class="bi-tab-label">${d.label}</span>
+              </button>`).join("")}
+          </nav>
+        </div>
+        <div class="bi-header-right">
+          <span class="bi-tenant-name">${esc(me.tenantName || "")}</span>
+          // [patch: bi-admin-nav]
+          ${(me.tenantRole === 'tenant_admin' || me.tenantRole === 'platform_owner') ? `
+          <button class="bi-icon-btn" id="bi-admin-btn" title="Ekip Yönetimi" style="margin-right:4px">
+            <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+          </button>` : ''}
+          <button class="bi-icon-btn" id="bi-logout" title="Çıkış">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="bi-body">
+        <!-- Morning briefing -->
+        <div class="bi-briefing-bar" id="bi-briefing-bar">
+          <div class="bi-briefing-loading">Sabah brifingı hazırlanıyor…</div>
+        </div>
+
+        <!-- Department rooms -->
+        <div class="bi-rooms" id="bi-rooms">
+          ${DEPTS.map(d => `
+            <div class="bi-room ${d.id===activeDept?"":"bi-room-hidden"}" id="bi-room-${d.id}" data-dept="${d.id}">
+              <div class="bi-room-main">
+                <div class="bi-kpi-row" id="bi-kpis-${d.id}">
+                  <div class="bi-kpi-loading">KPI'lar yükleniyor…</div>
+                </div>
+                <div class="bi-chart-area" id="bi-chart-${d.id}">
+                  <div class="bi-chart-placeholder">Grafik yükleniyor…</div>
+                </div>
+              </div>
+              <aside class="bi-chat-panel">
+                <div class="bi-avatar-header" style="--dept-color:${d.color}">
+                  <div class="bi-avatar-orb">${d.icon}</div>
+                  <div>
+                    <div class="bi-avatar-name">${d.avatar}</div>
+                    <div class="bi-avatar-status">✦ Çevrimiçi</div>
+                  </div>
+                </div>
+                <div class="bi-chat-messages" id="bi-chat-${d.id}">
+                  <div class="bi-chat-welcome">
+                    <p>Merhaba! Ben <strong>${d.avatar}</strong>. ${d.label} departmanı hakkında ne öğrenmek istersiniz?</p>
+                    <div class="bi-quick-prompts">
+                      ${quickPrompts(d.id).map(p => `<button class="bi-quick-btn" data-dept="${d.id}" data-prompt="${esc(p)}">${esc(p)}</button>`).join("")}
+                    </div>
+                  </div>
+                </div>
+                <form class="bi-chat-form" id="bi-chat-form-${d.id}">
+                  <input type="text" class="bi-chat-input" placeholder="Soru sorun…" autocomplete="off">
+                  <button type="submit" class="bi-chat-send">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                  </button>
+                </form>
+              </aside>
+            </div>`).join("")}
+        </div>
+      </div>
+    </div>
+    <style>${biStyles()}</style>
+  `;
+
+  // ─── Event: dept tab switching ──────────────────────────────────────────
+  container.querySelectorAll(".bi-dept-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      activeDept = tab.dataset.dept;
+      container.querySelectorAll(".bi-dept-tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      container.querySelectorAll(".bi-room").forEach(r => {
+        r.classList.toggle("bi-room-hidden", r.dataset.dept !== activeDept);
+      });
+      loadDeptData(activeDept);
+    });
+  });
+
+  // ─── Event: logout ──────────────────────────────────────────────────────
+  container.querySelector("#bi-logout").addEventListener("click", logout);
+
+  // Admin nav — open Tenant Admin surface
+  container.querySelector("#bi-admin-btn")?.addEventListener("click", () => {
+    const admContainer = document.getElementById("tenant-admin-surface");
+    const biContainer  = document.getElementById("bi-surface");
+    if (!admContainer) { alert("Tenant Admin yüklenemedi — sayfa yenileyin."); return; }
+    if (biContainer)  biContainer.style.display  = "none";
+    admContainer.style.display = "block";
+
+    if (!admContainer.dataset.initialized) {
+      admContainer.dataset.initialized = "1";
+      const apiFn = async (path, opts) => {
+        const headers = { ...(opts?.headers || {}) };
+        // pick up session token from cookie or window helper
+        const token = document.cookie.match(/platform_session=([^;]+)/)?.[1];
+        if (token) headers['Authorization'] = `Bearer ${decodeURIComponent(token)}`;
+        const r = await fetch(path, { ...opts, headers });
+        if (!r.ok) { const e = await r.json().catch(()=>({error:r.statusText})); throw Object.assign(new Error(e.error||"Failed"),{status:r.status}); }
+        return r.json();
+      };
+      import("/shells/tenant-admin.js").then(({ initTenantAdminSurface }) => {
+        initTenantAdminSurface(admContainer, me, {
+          apiFetch: apiFn,
+          switchToModule: () => {
+            admContainer.style.display = "none";
+            if (biContainer) biContainer.style.display = "block";
+          }
+        });
+      }).catch(err => {
+        admContainer.innerHTML = `<div style="padding:40px;color:red;font-family:sans-serif">Yüklenemedi: ${err.message}</div>`;
+      });
+    }
+  });
+
+  // ─── Event: chat forms ─────────────────────────────────────────────────
+  DEPTS.forEach(d => {
+    const form = container.querySelector(`#bi-chat-form-${d.id}`);
+    if (!form) return;
+    form.addEventListener("submit", e => {
+      e.preventDefault();
+      const input = form.querySelector(".bi-chat-input");
+      const msg = input.value.trim();
+      if (!msg) return;
+      input.value = "";
+      sendChat(d.id, msg);
+    });
+  });
+
+  // ─── Event: quick prompts ──────────────────────────────────────────────
+  container.addEventListener("click", e => {
+    const btn = e.target.closest(".bi-quick-btn");
+    if (!btn) return;
+    sendChat(btn.dataset.dept, btn.dataset.prompt);
+  });
+
+  // ─── Morning briefing ──────────────────────────────────────────────────
+  loadBriefing();
+
+  // ─── Load initial dept ─────────────────────────────────────────────────
+  if (activeDept) loadDeptData(activeDept);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Data loading
+  // ═══════════════════════════════════════════════════════════════════════
+
+  async function loadBriefing() {
+    const bar = container.querySelector("#bi-briefing-bar");
+    try {
+      const data = await apiFetch("/api/bi/morning-briefing");
+      const c = data.content_json;
+      if (!c || !c.summary) { bar.innerHTML = ""; return; }
+      bar.innerHTML = `
+        <div class="bi-briefing">
+          <div class="bi-briefing-icon">☀️</div>
+          <div class="bi-briefing-body">
+            <div class="bi-briefing-summary">${esc(c.summary)}</div>
+            <div class="bi-briefing-pills">
+              ${c.sales_highlight  ? `<span class="bi-pill bi-pill-blue">📈 ${esc(c.sales_highlight)}</span>` : ""}
+              ${c.stock_alert      ? `<span class="bi-pill bi-pill-orange">📦 ${esc(c.stock_alert)}</span>` : ""}
+              ${c.pricing_note     ? `<span class="bi-pill bi-pill-purple">💰 ${esc(c.pricing_note)}</span>` : ""}
+            </div>
+          </div>
+          <button class="bi-briefing-close" id="bi-close-briefing">✕</button>
+        </div>`;
+      container.querySelector("#bi-close-briefing").onclick = () => { bar.style.display = "none"; };
+    } catch { bar.innerHTML = ""; }
+  }
+
+  
+  // =========================================================================
+  // Rakip Fiyatlar — loadRakipRoom (initBiSurface içinde)
+  // =========================================================================
+  function loadRakipRoom(cont, _apiFetch) {
+    const room = cont.querySelector('#bi-room-rakip');
+    if (!room) return;
+
+    room.innerHTML = `
+      <div style="flex:1;overflow-y:auto;padding:24px;max-width:1200px;margin:0 auto;width:100%">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+          <h2 style="margin:0;font-size:22px;font-weight:700;color:#1a1a2e">Rakip Fiyatlar</h2>
+          <div id="rf-ozet-bar" style="display:flex;gap:16px;font-size:13px;color:#555"></div>
+        </div>
+        <div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:20px">
+          <button onclick="rfTab('piyasa')" id="rf-tab-piyasa"
+            style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;
+                   cursor:pointer;border-bottom:3px solid #3182ce;color:#3182ce;margin-bottom:-2px">Piyasa</button>
+          <button onclick="rfTab('izleme')" id="rf-tab-izleme"
+            style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;
+                   cursor:pointer;border-bottom:3px solid transparent;color:#888;margin-bottom:-2px">İzleme</button>
+          <button onclick="rfTab('alarmlar')" id="rf-tab-alarmlar"
+            style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;
+                   cursor:pointer;border-bottom:3px solid transparent;color:#888;margin-bottom:-2px">
+            Alarmlar <span id="rf-alarm-count" style="display:none;background:#e53e3e;color:#fff;
+              border-radius:10px;padding:1px 5px;font-size:11px;margin-left:4px">0</span>
+          </button>
+        </div>
+        <div id="rf-pane-piyasa">
+          <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+            <input id="rf-marka" placeholder="Marka (ör. Continental)"
+              style="padding:8px 12px;border:1px solid #cbd5e0;border-radius:6px;font-size:14px;width:200px">
+            <input id="rf-ebat" placeholder="Ebat (ör. 205/55R16)"
+              style="padding:8px 12px;border:1px solid #cbd5e0;border-radius:6px;font-size:14px;width:200px">
+            <button onclick="rfPiyasaAra()"
+              style="padding:8px 20px;background:#3182ce;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;font-weight:600">Ara</button>
+            <button onclick="rfPiyasaIzleEkle()"
+              style="padding:8px 16px;background:#38a169;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer">⭐ İzlemeye Ekle</button>
+          </div>
+          <div id="rf-piyasa-result"></div>
+        </div>
+        <div id="rf-pane-izleme" style="display:none">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <div id="rf-izle-limit-info" style="font-size:13px;color:#555"></div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <label style="font-size:13px;color:#555">Varsayılan alarm eşiği %:
+                <input id="rf-esik-ayar" type="number" min="1" max="100" step="0.5"
+                  style="width:60px;padding:4px 8px;border:1px solid #cbd5e0;border-radius:4px;font-size:13px;margin-left:6px">
+              </label>
+              <button onclick="rfKaydetAyar()"
+                style="padding:5px 12px;background:#718096;color:#fff;border:none;border-radius:5px;font-size:13px;cursor:pointer">Kaydet</button>
+            </div>
+          </div>
+          <div id="rf-izle-table"></div>
+          <div style="margin-top:16px;padding:16px;background:#f7fafc;border-radius:8px;border:1px dashed #cbd5e0">
+            <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:#555">Yeni SKU Ekle</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <input id="rf-yeni-marka" placeholder="Marka *"
+                style="padding:7px 12px;border:1px solid #cbd5e0;border-radius:6px;font-size:13px;width:160px">
+              <input id="rf-yeni-ebat" placeholder="Ebat *"
+                style="padding:7px 12px;border:1px solid #cbd5e0;border-radius:6px;font-size:13px;width:180px">
+              <select id="rf-yeni-cekim"
+                style="padding:7px 12px;border:1px solid #cbd5e0;border-radius:6px;font-size:13px">
+                <option value="3">3x Günlük (VIP)</option>
+                <option value="1">1x Günlük</option>
+              </select>
+              <input id="rf-yeni-esik" type="number" min="1" max="100" step="0.5" placeholder="Eşik %"
+                style="padding:7px 8px;border:1px solid #cbd5e0;border-radius:6px;font-size:13px;width:80px">
+              <input id="rf-yeni-aciklama" placeholder="Not (isteğe bağlı)"
+                style="padding:7px 12px;border:1px solid #cbd5e0;border-radius:6px;font-size:13px;width:180px">
+              <button onclick="rfIzleEkle()"
+                style="padding:7px 16px;background:#3182ce;color:#fff;border:none;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600">+ Ekle</button>
+            </div>
+          </div>
+        </div>
+        <div id="rf-pane-alarmlar" style="display:none">
+          <div style="display:flex;justify-content:space-between;margin-bottom:12px">
+            <div id="rf-alarm-info" style="font-size:13px;color:#555"></div>
+            <button onclick="rfHepsiniOku()"
+              style="padding:5px 14px;background:#718096;color:#fff;border:none;border-radius:5px;font-size:13px;cursor:pointer">Tümünü Okundu İşaretle</button>
+          </div>
+          <div id="rf-alarm-table"></div>
+        </div>
+      </div>
+    `;
+
+    window.rfTab = function(tab) {
+      ['piyasa','izleme','alarmlar'].forEach(t => {
+        const pane = document.getElementById('rf-pane-' + t);
+        const btn  = document.getElementById('rf-tab-'  + t);
+        if (!pane || !btn) return;
+        pane.style.display = t === tab ? 'block' : 'none';
+        btn.style.borderBottomColor = t === tab ? '#3182ce' : 'transparent';
+        btn.style.color = t === tab ? '#3182ce' : '#888';
+      });
+      if (tab === 'izleme')   rfYukleIzle();
+      if (tab === 'alarmlar') rfYukleAlarm();
+    };
+
+    async function rfApi(path, method, body) {
+      const opts = { method: method || 'GET' };
+      if (body) { opts.body = JSON.stringify(body); opts.headers = {'Content-Type':'application/json'}; }
+      const r = await fetch(path, opts);
+      return r.json();
+    }
+
+    rfYukleOzet();
+
+    window.rfPiyasaAra = async function() {
+      const marka = (document.getElementById('rf-marka')?.value || '').trim();
+      const ebat  = (document.getElementById('rf-ebat')?.value  || '').trim();
+      if (!marka && !ebat) { alert('Lütfen marka veya ebat girin.'); return; }
+      const res = document.getElementById('rf-piyasa-result');
+      res.innerHTML = '<div style="color:#888;padding:20px">Yükleniyor...</div>';
+      const qs = new URLSearchParams();
+      if (marka) qs.set('marka', marka);
+      if (ebat)  qs.set('ebat', ebat);
+      qs.set('limit', '300');
+      try {
+        const data = await rfApi('/api/rakip/piyasa?' + qs.toString());
+        if (!data.rows?.length) { res.innerHTML = '<div style="color:#888;padding:20px">Sonuç bulunamadı.</div>'; return; }
+        const groups = {}, kaynakSet = new Set();
+        for (const r of data.rows) {
+          const key = r.marka + ' | ' + r.ebat;
+          if (!groups[key]) groups[key] = { marka: r.marka, ebat: r.ebat, fiyatlar: {}, demand: {} };
+          groups[key].fiyatlar[r.kaynak] = parseFloat(r.fiyat);
+          kaynakSet.add(r.kaynak);
+          if (r.satici_sayisi) groups[key].demand.satici_sayisi = r.satici_sayisi;
+          if (r.yorum_sayisi)  groups[key].demand.yorum_sayisi  = r.yorum_sayisi;
+          if (r.puan)          groups[key].demand.puan          = r.puan;
+        }
+        const kaynaklar = [...kaynakSet].sort();
+        const rows = Object.values(groups).sort((a,b) => (a.marka+a.ebat).localeCompare(b.marka+b.ebat));
+        let html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">'
+          + '<thead><tr style="background:#f7fafc;font-weight:600;text-align:left">'
+          + '<th style="padding:10px 12px;border-bottom:2px solid #e2e8f0">Marka</th>'
+          + '<th style="padding:10px 12px;border-bottom:2px solid #e2e8f0">Ebat</th>'
+          + kaynaklar.map(k => `<th style="padding:10px 12px;border-bottom:2px solid #e2e8f0;text-align:right">${k}</th>`).join('')
+          + '<th style="padding:10px 12px;border-bottom:2px solid #e2e8f0;text-align:right">Min</th>'
+          + '<th style="padding:10px 12px;border-bottom:2px solid #e2e8f0">Talep</th>'
+          + '<th style="padding:10px 12px;border-bottom:2px solid #e2e8f0"></th>'
+          + '</tr></thead><tbody>';
+        for (const g of rows) {
+          const prices = Object.values(g.fiyatlar).filter(Boolean);
+          const min = prices.length ? Math.min(...prices) : null;
+          const demand = [];
+          if (g.demand.satici_sayisi) demand.push('🏪' + g.demand.satici_sayisi);
+          if (g.demand.yorum_sayisi)  demand.push('🛒' + g.demand.yorum_sayisi);
+          if (g.demand.puan)          demand.push('⭐' + g.demand.puan);
+          const em = s => s.replace(/'/g, "\\'");
+          html += '<tr style="border-bottom:1px solid #f0f4f8">'
+            + `<td style="padding:9px 12px;font-weight:600">${g.marka}</td>`
+            + `<td style="padding:9px 12px;color:#555">${g.ebat}</td>`
+            + kaynaklar.map(k => {
+                const f = g.fiyatlar[k];
+                return `<td style="padding:9px 12px;text-align:right;${f&&f===min?'color:#38a169;font-weight:700':'color:#4a5568'}">${f?f.toLocaleString('tr-TR')+' ₺':'<span style="color:#ccc">—</span>'}</td>`;
+              }).join('')
+            + `<td style="padding:9px 12px;text-align:right;font-weight:700">${min?min.toLocaleString('tr-TR')+' ₺':'—'}</td>`
+            + `<td style="padding:9px 12px;font-size:12px;color:#718096">${demand.join(' ')}</td>`
+            + `<td style="padding:9px 12px"><button onclick="rfHizliIzleEkle('${em(g.marka)}','${em(g.ebat)}')" style="padding:3px 8px;background:#ebf8ff;color:#2b6cb0;border:1px solid #bee3f8;border-radius:4px;font-size:11px;cursor:pointer">⭐</button></td>`
+            + '</tr>';
+        }
+        html += '</tbody></table></div>';
+        html += `<div style="margin-top:10px;font-size:12px;color:#999;text-align:right">${rows.length} SKU, ${data.rows.length} fiyat kaydı</div>`;
+        res.innerHTML = html;
+      } catch(e) { res.innerHTML = `<div style="color:#e53e3e;padding:20px">Hata: ${e.message}</div>`; }
+    };
+
+    window.rfPiyasaIzleEkle = function() {
+      const m = document.getElementById('rf-marka')?.value.trim();
+      const e = document.getElementById('rf-ebat')?.value.trim();
+      if (!m || !e) { alert('Marka ve ebat giriniz.'); return; }
+      rfTab('izleme');
+      setTimeout(() => {
+        const ym = document.getElementById('rf-yeni-marka'); if (ym) ym.value = m;
+        const ye = document.getElementById('rf-yeni-ebat');  if (ye) ye.value = e;
+      }, 100);
+    };
+
+    window.rfHizliIzleEkle = async function(marka, ebat) {
+      try {
+        const data = await rfApi('/api/rakip/izle', 'POST', { marka, ebat, gunluk_cekim: 3 });
+        if (data.error) { alert(data.error); return; }
+        alert(`"${marka} ${ebat}" izlemeye eklendi (VIP 3x/gün).`);
+        rfYukleOzet();
+      } catch(e) { alert('Hata: ' + e.message); }
+    };
+
+    async function rfYukleIzle() {
+      const tbl  = document.getElementById('rf-izle-table');
+      const info = document.getElementById('rf-izle-limit-info');
+      if (!tbl) return;
+      tbl.innerHTML = '<div style="color:#888">Yükleniyor...</div>';
+      try {
+        const [listData, ozetData, ayarData] = await Promise.all([
+          rfApi('/api/rakip/izle'), rfApi('/api/rakip/ozet'), rfApi('/api/rakip/ayar'),
+        ]);
+        const max   = ozetData.max_izle || 50;
+        const count = listData.rows?.length || 0;
+        if (info) info.innerHTML = `<span style="font-weight:600">${count}/${max}</span> SKU izleniyor`;
+        const esikEl = document.getElementById('rf-esik-ayar');
+        if (esikEl) esikEl.value = ayarData.ayar?.alarm_esigi_varsayilan || '10';
+        if (!listData.rows?.length) {
+          tbl.innerHTML = '<div style="color:#888;padding:20px">İzleme listesi boş. Aşağıdan SKU ekleyin.</div>'; return;
+        }
+        const em = s => s.replace(/'/g, "\\'");
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f7fafc;font-weight:600">'
+          + ['Marka','Ebat','Frekans','Alarm %','Durum','Alarm','İşlem']
+              .map(h => `<th style="padding:9px 12px;border-bottom:2px solid #e2e8f0">${h}</th>`).join('')
+          + '</tr></thead><tbody>';
+        for (const r of listData.rows) {
+          const badge = r.alarm_sayisi
+            ? `<span style="background:#e53e3e;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px">${r.alarm_sayisi}</span>`
+            : '<span style="color:#ccc">—</span>';
+          html += `<tr style="border-bottom:1px solid #f0f4f8">
+            <td style="padding:9px 12px;font-weight:600">${r.marka}</td>
+            <td style="padding:9px 12px;color:#555">${r.ebat}</td>
+            <td style="padding:9px 12px;text-align:center">
+              <select onchange="rfGuncelle(${r.id},'gunluk_cekim',parseInt(this.value))"
+                style="padding:3px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px">
+                <option value="3" ${r.gunluk_cekim===3?'selected':''}>3x VIP</option>
+                <option value="1" ${r.gunluk_cekim===1?'selected':''}>1x Günlük</option>
+              </select>
+            </td>
+            <td style="padding:9px 12px;text-align:center">
+              <input type="number" value="${r.alarm_esigi}" min="1" max="100" step="0.5"
+                onchange="rfGuncelle(${r.id},'alarm_esigi',parseFloat(this.value))"
+                style="width:55px;padding:3px 6px;border:1px solid #cbd5e0;border-radius:4px;font-size:12px;text-align:center"> %
+            </td>
+            <td style="padding:9px 12px;text-align:center">
+              ${r.aktif ? '<span style="color:#38a169">● Aktif</span>' : '<span style="color:#999">● Pasif</span>'}
+            </td>
+            <td style="padding:9px 12px;text-align:center">${badge}</td>
+            <td style="padding:9px 12px;text-align:center">
+              <button onclick="rfToggle(${r.id},${!r.aktif})"
+                style="padding:3px 8px;background:#edf2f7;border:1px solid #e2e8f0;border-radius:4px;font-size:11px;cursor:pointer;margin-right:4px">
+                ${r.aktif ? 'Duraklat' : 'Aktifleştir'}
+              </button>
+              <button onclick="rfSil(${r.id},'${em(r.marka)}','${em(r.ebat)}')"
+                style="padding:3px 8px;background:#fff5f5;border:1px solid #fed7d7;border-radius:4px;font-size:11px;cursor:pointer;color:#c53030">Sil</button>
+            </td>
+          </tr>`;
+        }
+        tbl.innerHTML = html + '</tbody></table>';
+      } catch(e) { tbl.innerHTML = `<div style="color:#e53e3e">Hata: ${e.message}</div>`; }
+    }
+
+    window.rfIzleEkle = async function() {
+      const marka    = document.getElementById('rf-yeni-marka')?.value.trim();
+      const ebat     = document.getElementById('rf-yeni-ebat')?.value.trim();
+      const cekim    = parseInt(document.getElementById('rf-yeni-cekim')?.value || '3', 10);
+      const esikRaw  = parseFloat(document.getElementById('rf-yeni-esik')?.value);
+      const aciklama = document.getElementById('rf-yeni-aciklama')?.value.trim();
+      if (!marka || !ebat) { alert('Marka ve ebat zorunlu.'); return; }
+      try {
+        const payload = { marka, ebat, gunluk_cekim: cekim };
+        if (!isNaN(esikRaw)) payload.alarm_esigi = esikRaw;
+        if (aciklama) payload.aciklama = aciklama;
+        const data = await rfApi('/api/rakip/izle', 'POST', payload);
+        if (data.error) { alert(data.error); return; }
+        ['rf-yeni-marka','rf-yeni-ebat','rf-yeni-esik','rf-yeni-aciklama']
+          .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+        rfYukleIzle(); rfYukleOzet();
+      } catch(e) { alert('Hata: ' + e.message); }
+    };
+
+    window.rfGuncelle = async function(id, alan, deger) {
+      try { await rfApi(`/api/rakip/izle/${id}`, 'PUT', { [alan]: deger }); }
+      catch(e) { alert('Güncelleme hatası: ' + e.message); }
+    };
+    window.rfToggle = async function(id, aktif) {
+      try { await rfApi(`/api/rakip/izle/${id}`, 'PUT', { aktif }); rfYukleIzle(); }
+      catch(e) { alert('Hata: ' + e.message); }
+    };
+    window.rfSil = async function(id, marka, ebat) {
+      if (!confirm(`"${marka} ${ebat}" izleme listesinden silinsin mi?`)) return;
+      try { await rfApi(`/api/rakip/izle/${id}`, 'DELETE'); rfYukleIzle(); rfYukleOzet(); }
+      catch(e) { alert('Hata: ' + e.message); }
+    };
+    window.rfKaydetAyar = async function() {
+      const esik = parseFloat(document.getElementById('rf-esik-ayar')?.value);
+      if (isNaN(esik) || esik <= 0) { alert('Geçerli bir eşik girin.'); return; }
+      try {
+        await rfApi('/api/rakip/ayar', 'PUT', { alarm_esigi_varsayilan: esik });
+        alert("Ayar kaydedildi. Yeni SKU'larda varsayilan esik %" + esik + " olacak.");
+      } catch(e) { alert('Hata: ' + e.message); }
+    };
+
+    async function rfYukleAlarm() {
+      const tbl  = document.getElementById('rf-alarm-table');
+      const info = document.getElementById('rf-alarm-info');
+      if (!tbl) return;
+      tbl.innerHTML = '<div style="color:#888">Yükleniyor...</div>';
+      try {
+        const data = await rfApi('/api/rakip/alarm?limit=100');
+        if (info) info.textContent = data.unread ? data.unread + ' okunmamış alarm' : 'Tüm alarmlar okundu';
+        const cnt = document.getElementById('rf-alarm-count');
+        if (cnt) { cnt.textContent = data.unread || 0; cnt.style.display = data.unread ? 'inline' : 'none'; }
+        if (!data.rows?.length) { tbl.innerHTML = '<div style="color:#888;padding:20px">Henüz alarm yok.</div>'; return; }
+        let html = '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#f7fafc;font-weight:600">'
+          + ['Tarih','SKU','Kaynak','Önceki','Yeni','Değişim','']
+              .map(h => `<th style="padding:9px 12px;border-bottom:2px solid #e2e8f0">${h}</th>`).join('')
+          + '</tr></thead><tbody>';
+        for (const a of data.rows) {
+          const yon = a.yon === 'YUKARI'
+            ? '<span style="color:#e53e3e;font-weight:700">▲</span>'
+            : '<span style="color:#38a169;font-weight:700">▼</span>';
+          const tarih = new Date(a.alarm_at).toLocaleString('tr-TR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+          html += `<tr style="border-bottom:1px solid #f0f4f8;${a.goruldu?'':'background:#fffbeb'}">
+            <td style="padding:9px 12px;color:#718096;font-size:12px">${tarih}</td>
+            <td style="padding:9px 12px;font-weight:600">${a.marka} ${a.ebat}</td>
+            <td style="padding:9px 12px;color:#555">${a.kaynak}</td>
+            <td style="padding:9px 12px;text-align:right;color:#718096">${a.eski_fiyat?parseFloat(a.eski_fiyat).toLocaleString('tr-TR')+' ₺':'—'}</td>
+            <td style="padding:9px 12px;text-align:right;font-weight:600">${a.yeni_fiyat?parseFloat(a.yeni_fiyat).toLocaleString('tr-TR')+' ₺':'—'}</td>
+            <td style="padding:9px 12px;text-align:center">${yon} %${parseFloat(a.degisim_pct).toFixed(1)}</td>
+            <td style="padding:9px 12px;text-align:center">
+              ${!a.goruldu?`<button onclick="rfOkundu(${a.id})" style="padding:2px 8px;background:#f0fff4;border:1px solid #c6f6d5;border-radius:4px;font-size:11px;cursor:pointer;color:#276749">Okundu</button>`:''}
+            </td>
+          </tr>`;
+        }
+        tbl.innerHTML = html + '</tbody></table>';
+      } catch(e) { tbl.innerHTML = `<div style="color:#e53e3e">Hata: ${e.message}</div>`; }
+    }
+
+    window.rfOkundu = async function(id) {
+      try { await rfApi(`/api/rakip/alarm/${id}/goruldu`, 'POST'); rfYukleAlarm(); rfYukleOzet(); }
+      catch(e) { alert('Hata: ' + e.message); }
+    };
+    window.rfHepsiniOku = async function() {
+      try { await rfApi('/api/rakip/alarm/goruldu-hepsi', 'POST'); rfYukleAlarm(); rfYukleOzet(); }
+      catch(e) { alert('Hata: ' + e.message); }
+    };
+
+    async function rfYukleOzet() {
+      try {
+        const data = await rfApi('/api/rakip/ozet');
+        const bar = document.getElementById('rf-ozet-bar');
+        if (bar) bar.innerHTML = `
+          <span>İzlenen: <strong>${data.izlenen_sku}/${data.max_izle}</strong></span>
+          ${data.okunmamis_alarm
+            ? `<span style="color:#e53e3e">⚠ ${data.okunmamis_alarm} alarm</span>`
+            : '<span style="color:#38a169">✓ Alarm yok</span>'}
+        `;
+        const cnt = document.getElementById('rf-alarm-count');
+        if (cnt) { cnt.textContent = data.okunmamis_alarm||0; cnt.style.display = data.okunmamis_alarm?'inline':'none'; }
+      } catch(e) { /* sessiz */ }
+    }
+  }
+
+
+  async function loadDeptData(dept) {
+    if (dept === 'rakip') { loadRakipRoom(container, apiFetch); return; }
+    if (dept === 'siparis') { loadSiparisRoom(container, apiFetch); return; }
+    if (dept === 'marka')   { loadMarkaRoom(container, apiFetch);   return; }
+    if (dept === 'fiyat')   { loadFiyatRoom(container, apiFetch);   return; }
+    switch(dept) {
+      case "sales":     await loadSalesKpis();     break;
+      case "pricing":   await loadPricingKpis();   break;
+      case "warehouse": await loadWarehouseKpis(); break;
+      case "it":        await loadItKpis();        break;
+    }
+  }
+
+  async function loadSalesKpis() {
+    const el = container.querySelector("#bi-kpis-sales");
+    const chartEl = container.querySelector("#bi-chart-sales");
+    try {
+      const [kpiData, trend] = await Promise.all([
+        apiFetch("/api/bi/sales/kpis"),
+        apiFetch("/api/bi/sales/trend")
+      ]);
+      const k = kpiData.kpis || {};
+      const prevCiro = parseFloat(k.revenue_prev_30d || 0);
+      const curCiro  = parseFloat(k.revenue_30d || 0);
+      const delta    = prevCiro > 0 ? ((curCiro - prevCiro) / prevCiro * 100).toFixed(1) : null;
+
+      el.innerHTML = `
+        ${kpiTile("Ciro (30g)", formatTRY(k.revenue_30d), delta ? `${delta > 0?"+":""}${delta}% önceki döneme göre` : null, delta > 0 ? "up" : delta < 0 ? "down" : null)}
+        ${kpiTile("Fatura Sayısı", fmt(k.invoice_count_30d), null)}
+        ${kpiTile("Ort. Satır Değeri", formatTRY(k.avg_line_value_30d), null)}
+        ${kpiTile("Top Müşteri", kpiData.top_customers?.[0]?.musteri_adi || "—", kpiData.top_customers?.[0] ? formatTRY(kpiData.top_customers[0].total) : null)}
+      `;
+
+      if (trend.length) {
+        const monthLabels = trend.map(r => {
+          const d = new Date(r.ay); return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,"0")}`;
+        });
+        const ciroVals = trend.map(r => parseFloat(r.ciro));
+        renderBarChart(chartEl, monthLabels, ciroVals, "Aylık Ciro (TL)", "#2563eb");
+      } else {
+        chartEl.innerHTML = `<div class="bi-no-data">Satış verisi bulunamadı.</div>`;
+      }
+    } catch(err) {
+      el.innerHTML = kpiError(err.message);
+    }
+  }
+
+  async function loadPricingKpis() {
+    const el = container.querySelector("#bi-kpis-pricing");
+    const chartEl = container.querySelector("#bi-chart-pricing");
+    try {
+      const [kpis, ccc] = await Promise.all([
+        apiFetch("/api/bi/pricing/kpis"),
+        apiFetch("/api/bi/pricing/ccc")
+      ]);
+      el.innerHTML = `
+        ${kpiTile("Ort. Brüt Marj", formatTRY(kpis.avg_brut_marj), null)}
+        ${kpiTile("Ort. Marj %", kpis.avg_marj_pct ? `%${parseFloat(kpis.avg_marj_pct).toFixed(1)}` : "—", null)}
+        ${kpiTile("Nakit Döngüsü (CCC)", `${ccc.ccc} gün`, `DIS:${ccc.dis} + DSO:${ccc.dso} - DPO:${ccc.dpo}`, ccc.ccc > 60 ? "down" : "up")}
+        ${kpiTile("Finansman Maliyeti/Birim", formatTRY(ccc.financing_cost_per_unit), `@%${(ccc.cost_of_capital*100).toFixed(0)} sermaye maliyeti`)}
+      `;
+
+      // CCC waterfall
+      const labels = ["DIS (Stok Süresi)", "DSO (Tahsilat)", "DPO (Ödeme)", "CCC"];
+      const values = [ccc.dis, ccc.dso, -ccc.dpo, ccc.ccc];
+      const colors = ["#7c3aed","#2563eb","#059669","#d97706"];
+      renderBarChart(chartEl, labels, values, "Nakit Döngüsü (Gün)", colors, true);
+
+      if (ccc.note) {
+        chartEl.insertAdjacentHTML("beforeend",
+          `<div class="bi-warning-banner">⚠️ ${esc(ccc.note)}</div>`);
+      }
+    } catch(err) {
+      el.innerHTML = kpiError(err.message);
+    }
+
+    // ── Tedarikçi Teşvik Yönetimi paneli ──────────────────────────
+    const pricingRoom = container.querySelector("#bi-room-pricing .bi-room-main");
+    if (pricingRoom && !pricingRoom.querySelector("#bi-brand-incentives-mount")) {
+      const mountDiv = document.createElement("div");
+      mountDiv.id = "bi-brand-incentives-mount";
+      mountDiv.style.cssText = "margin-top:24px;width:100%;";
+      pricingRoom.appendChild(mountDiv);
+      try {
+        const { initBrandIncentives } = await import("/components/brand-incentives.js");
+        initBrandIncentives(mountDiv, me, { apiFetch });
+      } catch(e) {
+        mountDiv.innerHTML = `<div class="bi-kpi-error">Teşvik paneli yüklenemedi: ${e.message}</div>`;
+      }
+    }
+  }
+
+  async function loadWarehouseKpis() {
+    const el = container.querySelector("#bi-kpis-warehouse");
+    const chartEl = container.querySelector("#bi-chart-warehouse");
+    try {
+      const [kpis, movements] = await Promise.all([
+        apiFetch("/api/bi/warehouse/kpis"),
+        apiFetch("/api/bi/warehouse/movements")
+      ]);
+      if (kpis.no_data) {
+        el.innerHTML = `<div class="bi-no-data">Stok verisi bulunamadı.</div>`;
+        return;
+      }
+      const k = kpis.kpis || {};
+      el.innerHTML = `
+        ${kpiTile("Toplam SKU", fmt(k.sku_sayisi), null)}
+        ${kpiTile("Stok Değeri", formatTRY(k.stok_degeri), `Veri: ${kpis.as_of || "—"}`)}
+        ${kpiTile("Kritik Stok", fmt(k.kritik_stok_sayisi) + " kalem", null, parseInt(k.kritik_stok_sayisi) > 0 ? "down" : "up")}
+        ${kpiTile("Sıfır Stok", fmt(k.sifir_stok_sayisi) + " kalem", null, parseInt(k.sifir_stok_sayisi) > 0 ? "down" : null)}
+      `;
+
+      if (movements.length) {
+        const labels = movements.slice(0,8).map(r => r.belge_turu || "?");
+        const values = movements.slice(0,8).map(r => parseFloat(r.hareket_sayisi));
+        renderBarChart(chartEl, labels, values, "Hareket Türleri (Adet)", "#059669");
+      }
+
+      if (kpis.dead_stock?.length) {
+        chartEl.insertAdjacentHTML("beforeend", `
+          <div class="bi-dead-stock">
+            <h4>90 Gün Hareketsiz Stok (TL değeri)</h4>
+            <div class="bi-dead-list">
+              ${kpis.dead_stock.slice(0,5).map(r =>
+                `<div class="bi-dead-item">
+                  <span>${esc(r.kalem_tanimi || r.kalem_kodu)}</span>
+                  <strong>${formatTRY(r.toplam_deger)}</strong>
+                </div>`).join("")}
+            </div>
+          </div>`);
+      }
+    } catch(err) {
+      el.innerHTML = kpiError(err.message);
+    }
+  }
+
+  async function loadItKpis() {
+    const el = container.querySelector("#bi-kpis-it");
+    const chartEl = container.querySelector("#bi-chart-it");
+    try {
+      const rows = await apiFetch("/api/bi/it/kpis");
+      if (!rows.length) {
+        el.innerHTML = `<div class="bi-no-data">Henüz veri alınmamış.</div>`;
+        return;
+      }
+      const tiles = rows.map(r => {
+        const saatOnce = r.saat_once ? `${parseFloat(r.saat_once).toFixed(1)} saat önce` : "—";
+        const durum = r.haftalik_hata > 0 ? "down" : "up";
+        return kpiTile(r.query_type, saatOnce, `Son: ${r.son_veri_tarihi||"—"}`, durum);
+      });
+      el.innerHTML = tiles.join("");
+
+      chartEl.innerHTML = `
+        <div class="bi-it-table">
+          <table>
+            <thead><tr><th>Sorgu</th><th>Son Veri</th><th>Son Güncelleme</th><th>Bugün</th><th>7g Hata</th></tr></thead>
+            <tbody>
+              ${rows.map(r => `
+                <tr>
+                  <td><code>${esc(r.query_type)}</code></td>
+                  <td>${r.son_veri_tarihi||"—"}</td>
+                  <td>${r.son_guncelleme ? new Date(r.son_guncelleme).toLocaleString("tr-TR") : "—"}</td>
+                  <td>${fmt(r.bugunki_satirlar||0)} satır</td>
+                  <td class="${r.haftalik_hata>0?"bi-red":"bi-green"}">${r.haftalik_hata||0}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>`;
+    } catch(err) {
+      el.innerHTML = kpiError(err.message);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Chat
+  // ═══════════════════════════════════════════════════════════════════════
+
+  async function sendChat(dept, message) {
+    const chatEl = container.querySelector(`#bi-chat-${dept}`);
+    if (!chatEl) return;
+
+    // Clear welcome message on first real chat
+    const welcome = chatEl.querySelector(".bi-chat-welcome");
+    if (welcome) welcome.remove();
+
+    appendChatBubble(chatEl, "user", message);
+    const assistantBubble = appendChatBubble(chatEl, "assistant", "");
+    const textEl = assistantBubble.querySelector(".bi-bubble-text");
+
+    try {
+      await streamChat(dept, message, (chunk) => {
+        textEl.textContent += chunk;
+        chatEl.scrollTop = chatEl.scrollHeight;
+      });
+    } catch(err) {
+      textEl.textContent = `Hata: ${err.message}`;
+      textEl.style.color = "#dc2626";
+    }
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  function appendChatBubble(chatEl, role, text) {
+    const div = document.createElement("div");
+    div.className = `bi-bubble bi-bubble-${role}`;
+    div.innerHTML = `<div class="bi-bubble-text">${esc(text)}</div>`;
+    chatEl.appendChild(div);
+    chatEl.scrollTop = chatEl.scrollHeight;
+    return div;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Chart (vanilla SVG bar chart — no external deps)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  function renderBarChart(container, labels, values, title, color, multiColor = false) {
+    if (!values.length) { container.innerHTML = `<div class="bi-no-data">Veri yok.</div>`; return; }
+    const W = 600, H = 220, PL = 70, PR = 20, PT = 36, PB = 54;
+    const cW = W - PL - PR, cH = H - PT - PB;
+    const maxV = Math.max(...values.map(Math.abs), 1);
+    const barW = Math.min(40, (cW / labels.length) - 8);
+
+    const colors = Array.isArray(color)
+      ? color
+      : values.map(v => v < 0 ? "#ef4444" : color);
+
+    const bars = labels.map((label, i) => {
+      const v = values[i];
+      const x = PL + (i + 0.5) * (cW / labels.length) - barW / 2;
+      const pct = Math.abs(v) / maxV;
+      const barH = pct * cH;
+      const y = v >= 0 ? PT + cH - barH : PT + cH;
+      const c = colors[i % colors.length];
+      const labelShort = label.length > 10 ? label.slice(0,9)+"…" : label;
+      return `
+        <rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="${c}" rx="3" opacity="0.9"/>
+        <text x="${x + barW/2}" y="${H - PB + 16}" text-anchor="middle" font-size="10" fill="#666">${esc(labelShort)}</text>
+        <text x="${x + barW/2}" y="${y - 4}" text-anchor="middle" font-size="9" fill="#444">${fmt(v)}</text>
+      `;
+    }).join("");
+
+    const yTicks = [0, 0.25, 0.5, 0.75, 1].map(p => {
+      const val = maxV * p;
+      const y2  = PT + cH - p * cH;
+      return `
+        <line x1="${PL}" y1="${y2}" x2="${W-PR}" y2="${y2}" stroke="#eee" stroke-width="1"/>
+        <text x="${PL-6}" y="${y2+4}" text-anchor="end" font-size="9" fill="#aaa">${fmt(val)}</text>
+      `;
+    }).join("");
+
+    container.innerHTML = `
+      <div class="bi-chart-title">${esc(title)}</div>
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-height:220px">
+        ${yTicks}
+        ${bars}
+        <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+cH}" stroke="#ddd" stroke-width="1"/>
+        <line x1="${PL}" y1="${PT+cH}" x2="${W-PR}" y2="${PT+cH}" stroke="#ddd" stroke-width="1"/>
+      </svg>
+    `;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Utilities
+  // ═══════════════════════════════════════════════════════════════════════
+
+  function kpiTile(label, value, sub, trend) {
+    const arrow = trend === "up" ? `<span class="bi-trend up">↑</span>` :
+                  trend === "down" ? `<span class="bi-trend down">↓</span>` : "";
+    return `
+      <div class="bi-kpi-tile">
+        <div class="bi-kpi-label">${esc(label)}</div>
+        <div class="bi-kpi-value">${esc(String(value ?? "—"))} ${arrow}</div>
+        ${sub ? `<div class="bi-kpi-sub">${esc(sub)}</div>` : ""}
+      </div>`;
+  }
+
+  function kpiError(msg) {
+    return `<div class="bi-kpi-error">Yüklenemedi: ${esc(msg)}</div>`;
+  }
+
+  function formatTRY(v) {
+    const n = parseFloat(v);
+    if (isNaN(n)) return "—";
+    return n.toLocaleString("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + " ₺";
+  }
+
+  function fmt(v) {
+    const n = parseFloat(v);
+    if (isNaN(n)) return "—";
+    return n.toLocaleString("tr-TR");
+  }
+
+  function esc(s) {
+    return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  function quickPrompts(dept) {
+    return {
+      sales: [
+        "Geçen aya göre ciro nasıl değişti?",
+        "En çok satan 5 markamız hangileri?",
+        "Hangi müşterilerimiz büyüme gösteriyor?"
+      ],
+      pricing: [
+        "Nakit döngümüz kaç gün?",
+        "Hangi ürünlerde marjımız düşüyor?",
+        "CCC'yi iyileştirmek için ne yapabiliriz?"
+      ],
+      warehouse: [
+        "Kritik stok seviyeleri hangi ürünlerde?",
+        "Son 90 günde hiç hareketi olmayan ürünler?",
+        "Stok devir hızımız nasıl?"
+      ],
+      it: [
+        "Hangi SAP verileri en güncel?",
+        "Brifing verilerim ne zaman yenilendi?",
+        "Veri aktarımında sorun var mı?"
+      ]
+    }[dept] || [];
+  }
+}
+
+// ─── Styles ────────────────────────────────────────────────────────────────────
+function biStyles() {
+  return `
+    #bi-surface { height:100vh; overflow:hidden; }
+    .bi-shell { display:flex; flex-direction:column; height:100vh; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:14px; background:#f5f6fa; }
+    .bi-header { display:flex; align-items:center; height:56px; background:#1a1a2e; padding:0 20px; gap:16px; flex-shrink:0; }
+    .bi-header-left { display:flex; align-items:center; width:200px; }
+    .bi-logo { display:flex; align-items:center; gap:10px; }
+    .bi-logo-text { color:#fff; font-size:15px; }
+    .bi-logo-text strong { color:#e2b04a; }
+    .bi-header-center { flex:1; display:flex; justify-content:center; }
+    .bi-dept-nav { display:flex; gap:4px; background:rgba(255,255,255,0.07); border-radius:10px; padding:4px; }
+    .bi-dept-tab { display:flex; align-items:center; gap:7px; padding:7px 16px; border:none; border-radius:7px; background:transparent; color:rgba(255,255,255,0.55); cursor:pointer; font-size:13px; font-weight:500; transition:all .15s; }
+    .bi-dept-tab:hover { background:rgba(255,255,255,0.1); color:#fff; }
+    .bi-dept-tab.active { background:#fff; color:var(--dept-color, #1a1a2e); font-weight:600; }
+    .bi-tab-icon { font-size:16px; }
+    .bi-header-right { display:flex; align-items:center; gap:12px; width:200px; justify-content:flex-end; }
+    .bi-tenant-name { color:rgba(255,255,255,0.45); font-size:12px; }
+    .bi-icon-btn { background:none; border:none; cursor:pointer; color:rgba(255,255,255,0.5); padding:6px; border-radius:6px; display:flex; }
+    .bi-icon-btn:hover { background:rgba(255,255,255,0.1); color:#fff; }
+    .bi-body { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+    /* Briefing */
+    .bi-briefing-bar { background:linear-gradient(135deg,#1e3a5f,#1a1a2e); flex-shrink:0; }
+    .bi-briefing { display:flex; align-items:flex-start; gap:14px; padding:12px 20px; }
+    .bi-briefing-icon { font-size:22px; margin-top:2px; }
+    .bi-briefing-body { flex:1; }
+    .bi-briefing-summary { color:#e8eef8; font-size:13px; line-height:1.5; margin-bottom:8px; }
+    .bi-briefing-pills { display:flex; flex-wrap:wrap; gap:8px; }
+    .bi-pill { padding:3px 10px; border-radius:20px; font-size:11px; font-weight:500; }
+    .bi-pill-blue   { background:rgba(37,99,235,.25); color:#93c5fd; }
+    .bi-pill-orange { background:rgba(217,119,6,.25); color:#fcd34d; }
+    .bi-pill-purple { background:rgba(124,58,237,.25); color:#c4b5fd; }
+    .bi-briefing-close { background:none; border:none; color:rgba(255,255,255,.3); cursor:pointer; font-size:16px; padding:4px; }
+    .bi-briefing-close:hover { color:#fff; }
+    .bi-briefing-loading { padding:12px 20px; color:rgba(255,255,255,.4); font-size:13px; }
+    /* Rooms */
+    .bi-rooms { flex:1; overflow:hidden; }
+    .bi-room { display:flex; height:100%; }
+    .bi-room-hidden { display:none; }
+    .bi-room-main { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:16px; }
+    /* KPI */
+    .bi-kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+    .bi-kpi-tile { background:#fff; border-radius:12px; border:1px solid #e8eaed; padding:16px; }
+    .bi-kpi-label { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:#888; font-weight:600; margin-bottom:6px; }
+    .bi-kpi-value { font-size:20px; font-weight:700; color:#1a1a2e; display:flex; align-items:center; gap:6px; }
+    .bi-kpi-sub { font-size:11px; color:#aaa; margin-top:4px; }
+    .bi-trend.up   { color:#059669; font-size:14px; }
+    .bi-trend.down { color:#dc2626; font-size:14px; }
+    .bi-kpi-loading { grid-column:1/-1; text-align:center; color:#aaa; padding:20px; }
+    .bi-kpi-error   { grid-column:1/-1; background:#fee2e2; color:#991b1b; border-radius:8px; padding:12px; }
+    /* Chart */
+    .bi-chart-area { background:#fff; border-radius:12px; border:1px solid #e8eaed; padding:20px; flex:1; min-height:260px; }
+    .bi-chart-title { font-size:13px; font-weight:600; color:#555; margin-bottom:12px; }
+    .bi-chart-placeholder { text-align:center; color:#ccc; padding:60px 0; }
+    .bi-no-data { text-align:center; color:#ccc; padding:40px; }
+    .bi-warning-banner { background:#fef3c7; border:1px solid #fcd34d; border-radius:8px; padding:10px 14px; margin-top:12px; font-size:13px; color:#92400e; }
+    /* Dead stock */
+    .bi-dead-stock { background:#fff; border-radius:12px; border:1px solid #e8eaed; padding:16px; margin-top:4px; }
+    .bi-dead-stock h4 { margin:0 0 12px; font-size:13px; color:#555; }
+    .bi-dead-item { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #f0f2f4; font-size:13px; }
+    .bi-dead-item:last-child { border-bottom:none; }
+    /* IT table */
+    .bi-it-table { overflow-x:auto; }
+    .bi-it-table table { width:100%; border-collapse:collapse; font-size:13px; }
+    .bi-it-table th { padding:10px 12px; text-align:left; background:#f9fafb; border-bottom:1px solid #e8eaed; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:#888; }
+    .bi-it-table td { padding:10px 12px; border-bottom:1px solid #f0f2f4; }
+    .bi-red { color:#dc2626; font-weight:600; }
+    .bi-green { color:#059669; font-weight:600; }
+    /* Chat */
+    .bi-chat-panel { width:320px; min-width:320px; background:#fff; border-left:1px solid #e8eaed; display:flex; flex-direction:column; }
+    .bi-avatar-header { display:flex; align-items:center; gap:12px; padding:16px; background:linear-gradient(135deg, color-mix(in srgb, var(--dept-color) 10%, white), white); border-bottom:1px solid #e8eaed; }
+    .bi-avatar-orb { width:40px; height:40px; border-radius:50%; background:var(--dept-color,#1a1a2e); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+    .bi-avatar-name { font-weight:700; font-size:14px; color:#1a1a2e; }
+    .bi-avatar-status { font-size:11px; color:#059669; margin-top:2px; }
+    .bi-chat-messages { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
+    .bi-chat-welcome p { font-size:13px; color:#555; line-height:1.5; margin:0 0 12px; }
+    .bi-quick-prompts { display:flex; flex-direction:column; gap:6px; }
+    .bi-quick-btn { background:#f5f6fa; border:1px solid #e8eaed; border-radius:8px; padding:8px 12px; text-align:left; cursor:pointer; font-size:12px; color:#444; transition:all .12s; }
+    .bi-quick-btn:hover { background:#eff6ff; border-color:#bfdbfe; color:#1d4ed8; }
+    .bi-bubble { max-width:88%; }
+    .bi-bubble-user { align-self:flex-end; }
+    .bi-bubble-assistant { align-self:flex-start; }
+    .bi-bubble-user .bi-bubble-text { background:#1a1a2e; color:#fff; padding:10px 14px; border-radius:14px 14px 4px 14px; font-size:13px; line-height:1.5; }
+    .bi-bubble-assistant .bi-bubble-text { background:#f5f6fa; color:#333; padding:10px 14px; border-radius:14px 14px 14px 4px; font-size:13px; line-height:1.6; white-space:pre-wrap; }
+    .bi-chat-form { display:flex; border-top:1px solid #e8eaed; padding:12px; gap:8px; }
+    .bi-chat-input { flex:1; border:1px solid #d0d5dd; border-radius:10px; padding:9px 12px; font-size:13px; outline:none; }
+    .bi-chat-input:focus { border-color:#1a1a2e; box-shadow:0 0 0 3px rgba(26,26,46,.08); }
+    .bi-chat-send { background:#1a1a2e; color:#fff; border:none; border-radius:10px; padding:9px 12px; cursor:pointer; display:flex; align-items:center; }
+    .bi-chat-send:hover { background:#252540; }
+    @media (max-width: 900px) {
+      .bi-kpi-row { grid-template-columns:repeat(2,1fr); }
+      .bi-chat-panel { width:260px; min-width:260px; }
+    }
+  `;
+}
+
+
+// =============================================================================
+// Sipariş Odası — loadSiparisRoom
+// API: GET /api/bi/orders/daily?segment=all|binek|ticari|kis[&mode=budget&budget=N]
+// Response: { items: [{kalem_tanimi,kalem_kodu,gunluk_satis,kac_gun_yeter,
+//              mevcut_stok,ort_birim_fiyat,son_birim_maliyet,marj_pct,
+//              stok_durumu,onerilen_adet,onerilen_maliyet}],
+//             summary: {kritik,budget,toplam_maliyet} }
+// =============================================================================
+function loadSiparisRoom(cont, _apiFetch) {
+  const room = cont.querySelector('#bi-room-siparis');
+  if (!room) return;
+
+  room.innerHTML = `
+    <div style="flex:1;overflow-y:auto;padding:24px;max-width:1200px;margin:0 auto;width:100%">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <h2 style="margin:0;font-size:22px;font-weight:700;color:#1a1a2e">Sipariş Planlama</h2>
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center">
+        <select id="sip-seg" style="padding:8px 12px;border:1px solid #cbd5e0;border-radius:6px;font-size:14px">
+          <option value="all">Tüm Kategoriler</option>
+          <option value="binek">Binek (YAZ/KIŞ/4M)</option>
+          <option value="ticari">Ticari (TBR/LSR/IND)</option>
+          <option value="kis">Kış</option>
+        </select>
+        <input id="sip-budget" type="number" min="0" placeholder="Bütçe limiti ₺ (opsiyonel)"
+          style="padding:8px 12px;border:1px solid #cbd5e0;border-radius:6px;font-size:14px;width:230px">
+        <button id="sip-btn-getir"
+          style="padding:8px 20px;background:#0891b2;color:#fff;border:none;border-radius:6px;
+                 font-size:14px;cursor:pointer;font-weight:600">Getir</button>
+      </div>
+      <div id="sip-kpis" style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap"></div>
+      <div id="sip-table" style="font-size:13px"></div>
+    </div>
+  `;
+
+  const numFmt = n => (n == null ? '—' : Number(n).toLocaleString('tr-TR', { maximumFractionDigits: 0 }));
+  const pctFmt = n => (n == null ? '—' : Number(n).toFixed(1) + '%');
+  const statusColor = s => s === 'KRİTİK' ? '#dc2626' : s === 'DÜŞÜK' ? '#d97706' : '#059669';
+  const statusBg    = s => s === 'KRİTİK' ? '#fee2e2' : s === 'DÜŞÜK' ? '#fef3c7' : '#d1fae5';
+
+  async function sipYukle() {
+    const seg    = document.getElementById('sip-seg').value;
+    const budget = parseFloat(document.getElementById('sip-budget').value || '0');
+    const kpiDiv = document.getElementById('sip-kpis');
+    const tblDiv = document.getElementById('sip-table');
+    kpiDiv.innerHTML = '<div style="color:#888;font-size:13px">Yükleniyor…</div>';
+    tblDiv.innerHTML = '';
+    try {
+      let url = '/api/bi/orders/daily?segment=' + seg;
+      if (budget > 0) url += '&mode=budget&budget=' + budget;
+      const data = await fetch(url, { credentials: 'include' }).then(r => r.json());
+      const items = data.items || [];
+      const kritik  = items.filter(i => i.stok_durumu === 'KRİTİK').length;
+      const dusuk   = items.filter(i => i.stok_durumu === 'DÜŞÜK').length;
+      const topMal  = items.reduce((a, i) => a + (i.onerilen_maliyet || 0), 0);
+      const topAdet = items.reduce((a, i) => a + (i.onerilen_adet || 0), 0);
+
+      kpiDiv.innerHTML = [
+        ['Toplam Ürün',   items.length,           '#1a1a2e', '#e2e8f0'],
+        ['Kritik Stok',   kritik,                 '#dc2626', '#fee2e2'],
+        ['Düşük Stok',    dusuk,                  '#d97706', '#fef3c7'],
+        ['Önerilen Adet', numFmt(topAdet),         '#0891b2', '#e0f2fe'],
+      ].map(([label, val, color, bg]) =>
+        `<div style="background:#fff;border:1px solid ${bg};border-radius:8px;padding:14px 20px;min-width:140px">
+           <div style="font-size:11px;color:#888;font-weight:600;text-transform:uppercase">${label}</div>
+           <div style="font-size:24px;font-weight:700;color:${color}">${val}</div>
+         </div>`
+      ).join('') +
+        `<div style="background:#fff;border:1px solid #e0f2fe;border-radius:8px;padding:14px 20px;min-width:200px">
+           <div style="font-size:11px;color:#888;font-weight:600;text-transform:uppercase">Önerilen Maliyet</div>
+           <div style="font-size:24px;font-weight:700;color:#0891b2">${numFmt(Math.round(topMal))} ₺</div>
+         </div>`;
+
+      if (!items.length) {
+        tblDiv.innerHTML = '<div style="padding:40px;text-align:center;color:#888">Öneri yok.</div>';
+        return;
+      }
+      tblDiv.innerHTML =
+        '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">' +
+        '<thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">' +
+        '<th style="padding:10px 12px;text-align:left">Ürün</th>' +
+        '<th style="padding:10px 12px;text-align:right">Mevcut</th>' +
+        '<th style="padding:10px 12px;text-align:right">Gnlk Satış</th>' +
+        '<th style="padding:10px 12px;text-align:right">Kaç Gün</th>' +
+        '<th style="padding:10px 12px;text-align:center">Durum</th>' +
+        '<th style="padding:10px 12px;text-align:right">Marj %</th>' +
+        '<th style="padding:10px 12px;text-align:right">Öneri Adet</th>' +
+        '<th style="padding:10px 12px;text-align:right">Öneri Maliyet</th>' +
+        '</tr></thead><tbody>' +
+        items.map(r => {
+          const gun = r.kac_gun_yeter >= 9999 ? '—' : r.kac_gun_yeter;
+          const gunColor = r.kac_gun_yeter < 7 ? '#dc2626' : r.kac_gun_yeter < 14 ? '#d97706' : '#059669';
+          const marjColor = (r.marj_pct || 0) > 20 ? '#059669' : (r.marj_pct || 0) > 10 ? '#d97706' : '#dc2626';
+          return `<tr style="border-bottom:1px solid #f0f0f0">
+            <td style="padding:9px 12px;max-width:260px">
+              <div style="font-weight:500;color:#1a1a2e">${r.kalem_tanimi || '—'}</div>
+              <div style="font-size:11px;color:#aaa">${r.kalem_kodu || ''}</div>
+            </td>
+            <td style="padding:9px 12px;text-align:right">${numFmt(r.mevcut_stok)}</td>
+            <td style="padding:9px 12px;text-align:right">${(r.gunluk_satis || 0).toFixed(2)}</td>
+            <td style="padding:9px 12px;text-align:right;font-weight:600;color:${gunColor}">${gun}</td>
+            <td style="padding:9px 12px;text-align:center">
+              <span style="background:${statusBg(r.stok_durumu)};color:${statusColor(r.stok_durumu)};
+                padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">${r.stok_durumu}</span>
+            </td>
+            <td style="padding:9px 12px;text-align:right;color:${marjColor}">${pctFmt(r.marj_pct)}</td>
+            <td style="padding:9px 12px;text-align:right;font-weight:600">${numFmt(r.onerilen_adet)}</td>
+            <td style="padding:9px 12px;text-align:right;font-weight:600;color:#0891b2">${numFmt(Math.round(r.onerilen_maliyet))} ₺</td>
+          </tr>`;
+        }).join('') +
+        '</tbody></table></div>';
+    } catch (e) {
+      kpiDiv.innerHTML = '';
+      tblDiv.innerHTML = '<div style="padding:20px;color:#dc2626">Hata: ' + e.message + '</div>';
+    }
+  }
+
+  document.getElementById('sip-btn-getir').onclick = sipYukle;
+  sipYukle();
+}
+
+// =============================================================================
+// Marka Fırsatları — loadMarkaRoom
+// API 1: GET /api/bi/brand-compare?ebat=X&kategori=ALL&months=12
+//   Response: { brands: [{marka,kalem_kodu,kalem_tanimi,total_units,total_revenue,
+//                avg_sale_price,avg_cost,margin_unit,margin_pct,
+//                avg_days_on_hand,days_to_clear}] }
+// API 2: GET /api/bi/brand-index?months=12&kategori=ALL
+//   Response: { brands: [{marka,weighted_avg_cost,total_units,global_index}], ref }
+// =============================================================================
+function loadMarkaRoom(cont, _apiFetch) {
+  const room = cont.querySelector('#bi-room-marka');
+  if (!room) return;
+
+  room.innerHTML = `
+    <div style="flex:1;overflow-y:auto;padding:24px;max-width:1200px;margin:0 auto;width:100%">
+      <h2 style="margin:0 0 20px;font-size:22px;font-weight:700;color:#1a1a2e">Marka Fırsatları</h2>
+      <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center">
+        <input id="mk-ebat" placeholder="Ebat * (ör. 205/55R16)"
+          style="padding:8px 12px;border:1px solid #cbd5e0;border-radius:6px;font-size:14px;width:210px">
+        <select id="mk-kat" style="padding:8px 12px;border:1px solid #cbd5e0;border-radius:6px;font-size:14px">
+          <option value="ALL">Tüm Kategoriler</option>
+          <option value="YAZ">YAZ</option>
+          <option value="KIS">KIŞ</option>
+          <option value="4 MEVSIM">4 MEVSİM</option>
+          <option value="TBR">TBR</option>
+        </select>
+        <select id="mk-months" style="padding:8px 12px;border:1px solid #cbd5e0;border-radius:6px;font-size:14px">
+          <option value="12">Son 12 ay</option>
+          <option value="6">Son 6 ay</option>
+          <option value="24">Son 24 ay</option>
+        </select>
+        <button id="mk-btn-ara"
+          style="padding:8px 20px;background:#9333ea;color:#fff;border:none;border-radius:6px;
+                 font-size:14px;cursor:pointer;font-weight:600">Analiz Et</button>
+      </div>
+      <div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:20px">
+        <button id="mk-tab-urun" onclick="mkTab('urun')"
+          style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;
+                 cursor:pointer;border-bottom:3px solid #9333ea;color:#9333ea;margin-bottom:-2px">Ürün Analizi</button>
+        <button id="mk-tab-endeks" onclick="mkTab('endeks')"
+          style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;
+                 cursor:pointer;border-bottom:3px solid transparent;color:#888;margin-bottom:-2px">Marka Endeksi</button>
+      </div>
+      <div id="mk-pane-urun"></div>
+      <div id="mk-pane-endeks" style="display:none"></div>
+    </div>
+  `;
+
+  window.mkTab = function(tab) {
+    ['urun', 'endeks'].forEach(t => {
+      document.getElementById('mk-pane-' + t).style.display = t === tab ? '' : 'none';
+      const btn = document.getElementById('mk-tab-' + t);
+      btn.style.borderBottom  = t === tab ? '3px solid #9333ea' : '3px solid transparent';
+      btn.style.color         = t === tab ? '#9333ea' : '#888';
+    });
+  };
+
+  const numFmt = n => (n == null ? '—' : Number(n).toLocaleString('tr-TR', { maximumFractionDigits: 0 }));
+  const pctFmt = n => (n == null ? '—' : Number(n).toFixed(1) + '%');
+  const marjColor = pct => (pct || 0) > 15 ? '#059669' : (pct || 0) > 8 ? '#d97706' : '#dc2626';
+
+  async function mkAra() {
+    const ebat   = (document.getElementById('mk-ebat').value || '').trim();
+    const kat    = document.getElementById('mk-kat').value;
+    const months = document.getElementById('mk-months').value;
+    if (!ebat) { alert('Lütfen bir ebat girin (ör. 205/55R16).'); return; }
+
+    const urunDiv   = document.getElementById('mk-pane-urun');
+    const endeksDiv = document.getElementById('mk-pane-endeks');
+    urunDiv.innerHTML   = '<div style="padding:20px;color:#888">Yükleniyor…</div>';
+    endeksDiv.innerHTML = '<div style="padding:20px;color:#888">Yükleniyor…</div>';
+
+    try {
+      const [cmp, idx] = await Promise.all([
+        fetch(`/api/bi/brand-compare?ebat=${encodeURIComponent(ebat)}&kategori=${kat}&months=${months}`,
+          { credentials: 'include' }).then(r => r.json()),
+        fetch(`/api/bi/brand-index?months=${months}&kategori=${kat}`,
+          { credentials: 'include' }).then(r => r.json()),
+      ]);
+
+      const brands = cmp.brands || [];
+      urunDiv.innerHTML = !brands.length
+        ? '<div style="padding:40px;text-align:center;color:#888">Bu ebat için veri bulunamadı.</div>'
+        : '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">' +
+          '<thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">' +
+          '<th style="padding:10px 12px;text-align:left">Marka</th>' +
+          '<th style="padding:10px 12px;text-align:left">Ürün</th>' +
+          '<th style="padding:10px 12px;text-align:right">Satış Adet</th>' +
+          '<th style="padding:10px 12px;text-align:right">Ort. Satış</th>' +
+          '<th style="padding:10px 12px;text-align:right">Ort. Maliyet</th>' +
+          '<th style="padding:10px 12px;text-align:right">Birim Kar</th>' +
+          '<th style="padding:10px 12px;text-align:right">Marj %</th>' +
+          '<th style="padding:10px 12px;text-align:right">Stok Gün</th>' +
+          '</tr></thead><tbody>' +
+          brands.map(r => `<tr style="border-bottom:1px solid #f0f0f0">
+            <td style="padding:9px 12px;font-weight:600;color:#1a1a2e">${r.marka || '—'}</td>
+            <td style="padding:9px 12px;max-width:220px">
+              <div style="font-size:12px;color:#555">${r.kalem_tanimi || '—'}</div>
+              <div style="font-size:11px;color:#aaa">${r.kalem_kodu || ''}</div>
+            </td>
+            <td style="padding:9px 12px;text-align:right">${numFmt(r.total_units)}</td>
+            <td style="padding:9px 12px;text-align:right">${numFmt(r.avg_sale_price)} ₺</td>
+            <td style="padding:9px 12px;text-align:right">${numFmt(r.avg_cost)} ₺</td>
+            <td style="padding:9px 12px;text-align:right;font-weight:600">${numFmt(r.margin_unit)} ₺</td>
+            <td style="padding:9px 12px;text-align:right;font-weight:600;color:${marjColor(r.margin_pct)}">${pctFmt(r.margin_pct)}</td>
+            <td style="padding:9px 12px;text-align:right">${r.days_to_clear || '—'}</td>
+          </tr>`).join('') +
+          '</tbody></table></div>';
+
+      const idxBrands = idx.brands || [];
+      endeksDiv.innerHTML = !idxBrands.length
+        ? '<div style="padding:40px;text-align:center;color:#888">Marka endeksi verisi yok.</div>'
+        : `<div style="margin-bottom:12px;font-size:13px;color:#555">Referans: <strong>${idx.ref || 'LASSA'}</strong> = 100</div>` +
+          '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">' +
+          '<thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">' +
+          '<th style="padding:10px 12px;text-align:left">Marka</th>' +
+          '<th style="padding:10px 12px;text-align:right">Ort. Maliyet</th>' +
+          '<th style="padding:10px 12px;text-align:right">Toplam Adet</th>' +
+          '<th style="padding:10px 12px;text-align:right">Endeks</th>' +
+          '</tr></thead><tbody>' +
+          idxBrands.map(r => {
+            const idx_val = r.global_index != null ? Number(r.global_index).toFixed(0) : '—';
+            const idxColor = (r.global_index || 100) < 90 ? '#059669' : (r.global_index || 100) > 110 ? '#dc2626' : '#374151';
+            return `<tr style="border-bottom:1px solid #f0f0f0">
+              <td style="padding:9px 12px;font-weight:600">${r.marka || '—'}</td>
+              <td style="padding:9px 12px;text-align:right">${numFmt(r.weighted_avg_cost)} ₺</td>
+              <td style="padding:9px 12px;text-align:right">${numFmt(r.total_units)}</td>
+              <td style="padding:9px 12px;text-align:right;font-weight:700;color:${idxColor}">${idx_val}</td>
+            </tr>`;
+          }).join('') +
+          '</tbody></table></div>';
+    } catch (e) {
+      urunDiv.innerHTML = '<div style="padding:20px;color:#dc2626">Hata: ' + e.message + '</div>';
+    }
+  }
+
+  document.getElementById('mk-btn-ara').onclick = mkAra;
+}
+
+// =============================================================================
+// Fiyat Endeksi — loadFiyatRoom
+// API 1: GET /api/price-list/index-data
+//   Response: { items:[{ebat,marka,kategori,liste_fiyati,desen,hiz_yuk,arac_tipi,kdv_haric}],
+//               iskonto:[{marka,sezon,arac_tipi,rim_alt,rim_ust,baz_iskonto1,baz_iskonto2,ds,skala_primi}],
+//               tesvik:[{marka,sezon,max_toplam_pct}] }
+// API 2: GET /api/price-list/rekabet
+//   Response: { rows:[{krb_marka,krb_ebat,krb_desen,krb_maliyet,
+//                em_fiyat_1..3,emr_fiyat_1,emr_marka,
+//                em_marj_tl,em_marj_pct,uyari,...}] }
+// =============================================================================
+function loadFiyatRoom(cont, _apiFetch) {
+  const room = cont.querySelector('#bi-room-fiyat');
+  if (!room) return;
+
+  room.innerHTML = `
+    <div style="flex:1;overflow-y:auto;padding:24px;max-width:1400px;margin:0 auto;width:100%">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <h2 style="margin:0;font-size:22px;font-weight:700;color:#1a1a2e">Fiyat Endeksi</h2>
+        <div id="fiyat-status" style="font-size:13px;color:#888"></div>
+      </div>
+      <div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;margin-bottom:20px">
+        <button id="fiyat-tab-liste" onclick="fiyatTab('liste')"
+          style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;
+                 cursor:pointer;border-bottom:3px solid #0f766e;color:#0f766e;margin-bottom:-2px">Fiyat Listesi</button>
+        <button id="fiyat-tab-rekabet" onclick="fiyatTab('rekabet')"
+          style="padding:10px 20px;border:none;background:none;font-size:14px;font-weight:600;
+                 cursor:pointer;border-bottom:3px solid transparent;color:#888;margin-bottom:-2px">Rekabet Analizi</button>
+      </div>
+      <div id="fiyat-pane-liste">
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+          <input id="fiyat-filter-ebat" placeholder="Ebat filtrele…"
+            style="padding:7px 12px;border:1px solid #cbd5e0;border-radius:6px;font-size:13px;width:180px">
+          <select id="fiyat-filter-marka"
+            style="padding:7px 12px;border:1px solid #cbd5e0;border-radius:6px;font-size:13px;min-width:160px">
+            <option value="">Tüm Markalar</option>
+          </select>
+          <button id="fiyat-btn-filtrele"
+            style="padding:7px 16px;background:#0f766e;color:#fff;border:none;border-radius:6px;
+                   font-size:13px;cursor:pointer">Filtrele</button>
+        </div>
+        <div id="fiyat-liste-table" style="font-size:13px"></div>
+      </div>
+      <div id="fiyat-pane-rekabet" style="display:none">
+        <div id="fiyat-rekabet-table" style="font-size:13px"></div>
+      </div>
+    </div>
+  `;
+
+  window.fiyatTab = function(tab) {
+    ['liste', 'rekabet'].forEach(t => {
+      document.getElementById('fiyat-pane-' + t).style.display = t === tab ? '' : 'none';
+      const btn = document.getElementById('fiyat-tab-' + t);
+      btn.style.borderBottom = t === tab ? '3px solid #0f766e' : '3px solid transparent';
+      btn.style.color        = t === tab ? '#0f766e' : '#888';
+    });
+    if (tab === 'rekabet') {
+      const rd = document.getElementById('fiyat-rekabet-table');
+      if (!rd.innerHTML.includes('<table')) rekavetYukle();
+    }
+  };
+
+  let _fData = null;
+
+  async function fiyatListeYukle() {
+    const statusDiv = document.getElementById('fiyat-status');
+    const listeDiv  = document.getElementById('fiyat-liste-table');
+    statusDiv.textContent = 'Yükleniyor…';
+    listeDiv.innerHTML = '<div style="padding:20px;color:#888">Fiyat listesi yükleniyor…</div>';
+    try {
+      const data = await fetch('/api/price-list/index-data', { credentials: 'include' }).then(r => r.json());
+      _fData = data;
+      // Populate marka filter
+      const sel = document.getElementById('fiyat-filter-marka');
+      const markalar = [...new Set((data.items || []).map(i => i.marka))].filter(Boolean).sort();
+      markalar.forEach(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; sel.appendChild(o); });
+      statusDiv.textContent = (data.items || []).length + ' ürün yüklendi';
+      fiyatGoster(data);
+    } catch (e) {
+      statusDiv.textContent = '';
+      listeDiv.innerHTML = '<div style="padding:20px;color:#dc2626">Hata: ' + e.message + '</div>';
+    }
+  }
+
+  function fiyatGoster(data) {
+    const ebatFlt  = (document.getElementById('fiyat-filter-ebat').value || '').trim().toLowerCase();
+    const markaFlt = document.getElementById('fiyat-filter-marka').value;
+    let items = (data.items || []);
+    if (ebatFlt)  items = items.filter(i => (i.ebat || '').toLowerCase().includes(ebatFlt));
+    if (markaFlt) items = items.filter(i => i.marka === markaFlt);
+
+    // İskonto lookup: marka+sezon → iskonto row
+    const iskMap = {};
+    for (const isk of (data.iskonto || [])) {
+      const key = isk.marka + '|' + isk.sezon;
+      if (!iskMap[key]) iskMap[key] = isk;
+    }
+    const efektifHesapla = (item) => {
+      const sezon = (item.kategori || '').toUpperCase().startsWith('K') ? 'KIS' : 'YAZ';
+      const isk = iskMap[item.marka + '|' + sezon] || iskMap[item.marka + '|YAZ'] || {};
+      const b1 = parseFloat(isk.baz_iskonto1 || 0);
+      const b2 = parseFloat(isk.baz_iskonto2 || 0);
+      const ds = parseFloat(isk.ds || 0);
+      const pr = parseFloat(isk.skala_primi || 0);
+      return item.liste_fiyati * (1 - b1 / 100) * (1 - b2 / 100) * (1 - ds / 100) * (1 - pr / 100);
+    };
+
+    const numFmt = n => (n == null ? '—' : Number(n).toLocaleString('tr-TR', { maximumFractionDigits: 2 }));
+    const listeDiv = document.getElementById('fiyat-liste-table');
+    if (!items.length) {
+      listeDiv.innerHTML = '<div style="padding:40px;text-align:center;color:#888">Sonuç yok.</div>';
+      return;
+    }
+    const shown = items.slice(0, 400);
+    listeDiv.innerHTML =
+      `<div style="margin-bottom:10px;font-size:12px;color:#888">Gösterilen: ${shown.length} / ${items.length}</div>` +
+      '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">' +
+      '<thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">' +
+      '<th style="padding:10px 12px;text-align:left">Ebat</th>' +
+      '<th style="padding:10px 12px;text-align:left">Marka</th>' +
+      '<th style="padding:10px 12px;text-align:left">Desen</th>' +
+      '<th style="padding:10px 12px;text-align:right">Liste Fiyatı</th>' +
+      '<th style="padding:10px 12px;text-align:right">Efektif Fiyat</th>' +
+      '<th style="padding:10px 12px;text-align:right">İndirim</th>' +
+      '</tr></thead><tbody>' +
+      shown.map(r => {
+        const ef = efektifHesapla(r);
+        const iskPct = r.liste_fiyati > 0 ? ((1 - ef / r.liste_fiyati) * 100).toFixed(1) : null;
+        return `<tr style="border-bottom:1px solid #f0f0f0">
+          <td style="padding:9px 12px;font-weight:600">${r.ebat || '—'}</td>
+          <td style="padding:9px 12px">${r.marka || '—'}</td>
+          <td style="padding:9px 12px;color:#555;font-size:12px">${r.desen || '—'}</td>
+          <td style="padding:9px 12px;text-align:right">${numFmt(r.liste_fiyati)} ₺</td>
+          <td style="padding:9px 12px;text-align:right;font-weight:600;color:#0f766e">${numFmt(ef)} ₺</td>
+          <td style="padding:9px 12px;text-align:right;color:#888">${iskPct ? '-' + iskPct + '%' : '—'}</td>
+        </tr>`;
+      }).join('') +
+      '</tbody></table></div>';
+  }
+
+  async function rekavetYukle() {
+    const div = document.getElementById('fiyat-rekabet-table');
+    div.innerHTML = '<div style="padding:20px;color:#888">Yükleniyor…</div>';
+    try {
+      const data = await fetch('/api/price-list/rekabet', { credentials: 'include' }).then(r => r.json());
+      const rows = data.rows || [];
+      if (!rows.length) {
+        div.innerHTML = '<div style="padding:40px;text-align:center;color:#888">Rekabet verisi yok.</div>';
+        return;
+      }
+      const numFmt = n => (n == null || n == 0 ? '—' : Number(n).toLocaleString('tr-TR', { maximumFractionDigits: 2 }));
+      div.innerHTML =
+        '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">' +
+        '<thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0">' +
+        '<th style="padding:9px 10px;text-align:left">Marka</th>' +
+        '<th style="padding:9px 10px;text-align:left">Ebat</th>' +
+        '<th style="padding:9px 10px;text-align:left">Desen</th>' +
+        '<th style="padding:9px 10px;text-align:right">Maliyet</th>' +
+        '<th style="padding:9px 10px;text-align:right">EMR Fiyat</th>' +
+        '<th style="padding:9px 10px;text-align:left">EMR Marka</th>' +
+        '<th style="padding:9px 10px;text-align:right">Marj ₺</th>' +
+        '<th style="padding:9px 10px;text-align:right">Marj %</th>' +
+        '<th style="padding:9px 10px;text-align:left">Uyarı</th>' +
+        '</tr></thead><tbody>' +
+        rows.map(r => {
+          const mPct   = r.em_marj_pct;
+          const mBg    = mPct > 0 ? '#d1fae5' : mPct < 0 ? '#fee2e2' : '';
+          const mColor = mPct > 0 ? '#059669' : mPct < 0 ? '#dc2626' : '#374151';
+          return `<tr style="border-bottom:1px solid #f0f0f0">
+            <td style="padding:8px 10px;font-weight:600">${r.krb_marka || '—'}</td>
+            <td style="padding:8px 10px">${r.krb_ebat || '—'}</td>
+            <td style="padding:8px 10px;color:#555;font-size:11px">${r.krb_desen || '—'}</td>
+            <td style="padding:8px 10px;text-align:right">${numFmt(r.krb_maliyet)} ₺</td>
+            <td style="padding:8px 10px;text-align:right;font-weight:600">${numFmt(r.emr_fiyat_1)} ₺</td>
+            <td style="padding:8px 10px;font-size:11px;color:#555">${r.emr_marka || '—'}</td>
+            <td style="padding:8px 10px;text-align:right;font-weight:600;background:${mBg};color:${mColor}">${numFmt(r.em_marj_tl)} ₺</td>
+            <td style="padding:8px 10px;text-align:right;background:${mBg};color:${mColor}">${mPct != null ? mPct.toFixed(1) + '%' : '—'}</td>
+            <td style="padding:8px 10px;font-size:11px;color:#dc2626">${r.uyari || ''}</td>
+          </tr>`;
+        }).join('') +
+        '</tbody></table></div>';
+    } catch (e) {
+      document.getElementById('fiyat-rekabet-table').innerHTML =
+        '<div style="padding:20px;color:#dc2626">Hata: ' + e.message + '</div>';
+    }
+  }
+
+  document.getElementById('fiyat-btn-filtrele').onclick = () => { if (_fData) fiyatGoster(_fData); };
+  fiyatListeYukle();
+}

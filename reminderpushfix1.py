@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+# REMINDER_PUSH_V1 (2026-07-21) — appends the reminder scheduler to server_container.mjs.
+# Self-migrates saha_rep_not.push_bildirildi (grandfathers existing rows). Requires PUSH_ENGINE_V1.
+# Idempotent. Run in /opt/krb-assessment.
+import base64
+def read(p): return open(p, encoding="utf-8").read()
+def write(p, s): open(p, "w", encoding="utf-8").write(s)
+FP = "server_container.mjs"
+s = read(FP)
+MODULE_B64 = (
+    "Ci8qIOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKV"
+    "kOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKV"
+    "kOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkOKVkAogICBSRU1JTkRFUl9QVVNIX1YxIOKAlCBzYWhhX3JlcF9ub3QgaGF0"
+    "xLFybGF0bWFsYXLEsSB2YWRlc2kgZ2VsaW5jZSAoaGF0aXJsYXRtYV90YXJpaGkgPD0gYnVnw7xuLAogICBFdXJvcGUvSXN0YW5idWwpIGlsZ2lsaSB0ZW1z"
+    "aWxjaXllIGJpciBrZXogcHVzaC4gS2VuZGkgbWlncmF0aW9uJ8SxbsSxIHlhcGFyOiBwdXNoX2JpbGRpcmlsZGkKICAga29sb251IHlva3NhIGVrbGVyIHZl"
+    "IE1FVkNVVCB0w7xtIGhhdMSxcmxhdG1hbGFyxLEgImJpbGRpcmlsZGkiIGnFn2FyZXRsZXIgKGRlcGxveSBhbsSxbmRhIGVza2kKICAgYmlyaWtpbWluIHRv"
+    "cGx1IHB1c2gndW51IMO2bmxlcikg4oCUIGLDtnlsZWNlIHlhbG7EsXogQlVOREFOIFNPTlJBIHZhZGVzaSBnZWxlbmxlciB0ZXRpa2xlbmlyLgogICBBcmth"
+    "IHBsYW4gacWfaTsgc29yZ3UgaGF0YXPEsSBla3JhbmxhcsSxIGvEsXJtYXogKHRyeS9jYXRjaCkuIDUgZGFraWthZGEgYmlyIMOnYWzEscWfxLFyLgogICDi"
+    "lZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDi"
+    "lZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDi"
+    "lZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZDilZAgKi8KbGV0IF9yZW1CdXN5ID0gZmFsc2U7Cgphc3luYyBmdW5jdGlvbiBfcmVt"
+    "aW5kZXJUaWNrKCkgewogIGlmIChfcmVtQnVzeSkgcmV0dXJuOwogIF9yZW1CdXN5ID0gdHJ1ZTsKICB0cnkgewogICAgY29uc3QgciA9IGF3YWl0IHBvb2wu"
+    "cXVlcnkoCiAgICAgICJTRUxFQ1QgaWQsIHRlbmFudF9pZCwgcmVwX2lkLCBpY2VyaWsgRlJPTSBzYWhhX3JlcF9ub3QgIiArCiAgICAgICJXSEVSRSByZXBf"
+    "aWQgSVMgTk9UIE5VTEwgQU5EIGhhdGlybGF0bWFfdGFyaWhpIElTIE5PVCBOVUxMICIgKwogICAgICAiQU5EIGhhdGlybGF0bWFfdGFyaWhpIDw9IChub3co"
+    "KSBBVCBUSU1FIFpPTkUgJ0V1cm9wZS9Jc3RhbmJ1bCcpOjpkYXRlICIgKwogICAgICAiQU5EIHB1c2hfYmlsZGlyaWxkaSA9IGZhbHNlIExJTUlUIDIwMCIK"
+    "ICAgICk7CiAgICBmb3IgKGNvbnN0IHJvdyBvZiByLnJvd3MpIHsKICAgICAgdHJ5IHsKICAgICAgICBhd2FpdCBwdXNoVG9Vc2Vycyhyb3cudGVuYW50X2lk"
+    "LCBbcm93LnJlcF9pZF0sICLij7AgSGF0xLFybGF0bWEiLCBTdHJpbmcocm93LmljZXJpayB8fCAiIikuc2xpY2UoMCwgMTQwKSwgeyByb29tOiAicmVjZXB0"
+    "aW9uIiwgdHlwZTogImhhdGlybGF0bWEiLCBpZDogcm93LmlkIH0pOwogICAgICAgIGF3YWl0IHBvb2wucXVlcnkoIlVQREFURSBzYWhhX3JlcF9ub3QgU0VU"
+    "IHB1c2hfYmlsZGlyaWxkaSA9IHRydWUgV0hFUkUgaWQgPSAkMSIsIFtyb3cuaWRdKTsKICAgICAgfSBjYXRjaCAoZSkge30KICAgIH0KICAgIGlmIChyLnJv"
+    "d3MubGVuZ3RoKSB7IHRyeSB7IGNvbnNvbGUubG9nKCJbcHVzaF0gaGF0aXJsYXRtYToiLCByLnJvd3MubGVuZ3RoKTsgfSBjYXRjaCAoZSkge30gfQogIH0g"
+    "Y2F0Y2ggKGUpIHsgdHJ5IHsgY29uc29sZS53YXJuKCJyZW1pbmRlclRpY2s6IiwgZS5tZXNzYWdlKTsgfSBjYXRjaCAoZXIpIHt9IH0KICBfcmVtQnVzeSA9"
+    "IGZhbHNlOwp9Cgphc3luYyBmdW5jdGlvbiBfcmVtaW5kZXJJbml0KCkgewogIHRyeSB7CiAgICBhd2FpdCBwb29sLnF1ZXJ5KAogICAgICAiRE8gJGRvJCBC"
+    "RUdJTiAiICsKICAgICAgIklGIE5PVCBFWElTVFMgKFNFTEVDVCAxIEZST00gaW5mb3JtYXRpb25fc2NoZW1hLmNvbHVtbnMgV0hFUkUgdGFibGVfbmFtZT0n"
+    "c2FoYV9yZXBfbm90JyBBTkQgY29sdW1uX25hbWU9J3B1c2hfYmlsZGlyaWxkaScpIFRIRU4gIiArCiAgICAgICJBTFRFUiBUQUJMRSBzYWhhX3JlcF9ub3Qg"
+    "QUREIENPTFVNTiBwdXNoX2JpbGRpcmlsZGkgYm9vbGVhbiBOT1QgTlVMTCBERUZBVUxUIGZhbHNlOyAiICsKICAgICAgIlVQREFURSBzYWhhX3JlcF9ub3Qg"
+    "U0VUIHB1c2hfYmlsZGlyaWxkaSA9IHRydWU7ICIgKwogICAgICAiRU5EIElGOyBFTkQgJGRvJDsiCiAgICApOwogICAgdHJ5IHsgY29uc29sZS5sb2coIltw"
+    "dXNoXSByZW1pbmRlciBzY2hlZHVsZXIgcmVhZHkiKTsgfSBjYXRjaCAoZSkge30KICB9IGNhdGNoIChlKSB7IHRyeSB7IGNvbnNvbGUud2FybigicmVtaW5k"
+    "ZXJJbml0OiIsIGUubWVzc2FnZSk7IH0gY2F0Y2ggKGVyKSB7fSB9CiAgX3JlbWluZGVyVGljaygpOwogIHNldEludGVydmFsKF9yZW1pbmRlclRpY2ssIDUg"
+    "KiA2MCAqIDEwMDApOwp9CgpzZXRUaW1lb3V0KGZ1bmN0aW9uICgpIHsgX3JlbWluZGVySW5pdCgpOyB9LCAzMDAwMCk7Cg=="
+)
+if "REMINDER_PUSH_V1" in s:
+    print("reminder: already present, skip")
+else:
+    mod = base64.b64decode(MODULE_B64).decode("utf-8")
+    s = s.rstrip() + "\n" + mod + "\n"
+    write(FP, s)
+    print("reminder: appended REMINDER_PUSH_V1")
+print("DONE.")

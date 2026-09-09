@@ -1,0 +1,1064 @@
+Pager usage is off.
+Timing is off.
+
+################ SECTION A — TABLE INVENTORY (ad + tahmini satir) ################
+                  table_name                   | approx_rows 
+-----------------------------------------------+-------------
+ agent_greeting_cache                          |          27
+ ai_analysis_context                           |           0
+ ai_finding_examples                           |           0
+ assessment_access_tokens                      |           0
+ assessment_blueprints                         |           0
+ assessment_categories                         |           0
+ assessment_invitation_logs                    |           0
+ assessment_participants                       |           0
+ assessment_projects                           |           4
+ assessment_reminder_logs                      |           0
+ assessment_sessions                           |           0
+ assessments                                   |           0
+ audit_events                                  |           0
+ bi_agent_memory                               |           0
+ bi_arac_kategorileri                          |           0
+ bi_arac_yetki                                 |           0
+ bi_ayar                                       |           0
+ bi_bildirim                                   |        1210
+ bi_bilinen_deger                              |           0
+ bi_bolum_icgoru                               |           0
+ bi_cari_bakiye                                |         410
+ bi_conversations                              |           0
+ bi_deploy_log                                 |          21
+ bi_ekonomik_parametreler                      |          54
+ bi_etkinlik                                   |         654
+ bi_fatura_tahsilat                            |           0
+ bi_finansal_icgoru                            |           2
+ bi_fingerprint_durum                          |           0
+ bi_fiyat_iskonto                              |           0
+ bi_fiyat_listesi_kalemler                     |           0
+ bi_fiyat_listesi_uploads                      |           0
+ bi_geri_bildirim                              |           5
+ bi_icgoru                                     |          20
+ bi_icgoru_geribildirim                        |           0
+ bi_ingestion_log                              |         783
+ bi_insa_gunlugu                               |          34
+ bi_itiraz                                     |           0
+ bi_kacan_satislar                             |           0
+ bi_kokpit_duzeltme                            |           0
+ bi_kokpit_takip                               |           0
+ bi_kokpit_tercih                              |           0
+ bi_kullanici_profil                           |           0
+ bi_maliyet_ay                                 |       66281
+ bi_maliyet_sku                                |        2607
+ bi_marj_atom                                  |       15631
+ bi_marj_fact                                  |       28968
+ bi_metrik_gecmis                              |           0
+ bi_morning_briefings                          |           2
+ bi_musteri_bakiye_olu_yedek                   |           0
+ bi_musteri_risk                               |       38933
+ bi_musteri_risk_gecmis                        |           0
+ bi_musteri_risk_odeme                         |           0
+ bi_musteri_risk_yedek_20260724                |           0
+ bi_musteri_risk_yedek_20260805                |           0
+ bi_musteri_risk_yedek_manual_0805             |           0
+ bi_nabiz                                      |           0
+ bi_nabiz_durum                                |           0
+ bi_odeme_gecmisi                              |      308390
+ bi_odeme_gecmisi_yedek_20260807               |           0
+ bi_on_siparis                                 |           0
+ bi_paylasim_log                               |           0
+ bi_pazar_fiyat                                |           0
+ bi_pazar_talep                                |           0
+ bi_price_monitor                              |           0
+ bi_push_token                                 |          13
+ bi_rakip_fiyat                                |           0
+ bi_rakip_fiyat_alarm                          |           0
+ bi_rakip_fiyat_gecmis                         |           0
+ bi_rakip_izle                                 |           0
+ bi_rakip_izle_ayar                            |           0
+ bi_saglik_agrega                              |           0
+ bi_saglik_alarm                               |           0
+ bi_saglik_config                              |           0
+ bi_saha_hafiza                                |           0
+ bi_saha_sesi                                  |           0
+ bi_satis_doviz_yedek_20260713_182902          |           0
+ bi_satis_faturalari                           |      369284
+ bi_satis_faturalari_yedek_20260713_052539     |           0
+ bi_satis_faturalari_yedek_20260713_052650     |           0
+ bi_satis_faturalari_yedek_20260713_054416     |           0
+ bi_satis_faturalari_yedek_20260713_070459     |           0
+ bi_satis_faturalari_yedek_20260713_070640     |           0
+ bi_satis_faturalari_yedek_20260713_070746     |           0
+ bi_sayi_koken                                 |           0
+ bi_scrape_run                                 |           0
+ bi_sinyal                                     |          34
+ bi_sinyal_aday                                |          62
+ bi_sinyal_gecmis                              |           0
+ bi_sistem_sorusu                              |           0
+ bi_stok_anlik                                 |        3167
+ bi_stok_durumu_olu_yedek                      |           0
+ bi_stok_hareket                               |      585212
+ bi_stok_hareketleri_olu_yedek                 |           0
+ bi_tahsilat                                   |        7448
+ bi_tahsilat_yedek_20260807                    |           0
+ bi_tahsilat_yedek_faza_20260807               |           0
+ bi_tedarikci_faturalari                       |      148131
+ bi_tedarikci_faturalari_yedek_20260713_072222 |           0
+ bi_tedarikci_kampanya                         |           0
+ bi_tedarikci_tesvik                           |           0
+ bi_tenant_hafiza                              |         169
+ bi_tesvik_segment_map                         |           0
+ bi_urun_master                                |           0
+ bi_yasa                                       |           0
+ bi_yetenek                                    |         362
+ brain_conversations                           |          18
+ brain_notes                                   |           0
+ brain_preferences                             |           0
+ brain_tasks                                   |           0
+ business_domains                              |           0
+ company_kpi_selections                        |           0
+ company_profiles                              |           0
+ company_progress_snapshots                    |           0
+ company_user_assignments                      |           9
+ consultant_company_assignments                |           0
+ demo_requests                                 |           0
+ departments                                   |           0
+ domain_perception_gaps                        |           0
+ domain_taxonomy                               |           0
+ evidence                                      |           0
+ finding_consultant_feedback                   |           0
+ finding_history                               |           0
+ findings                                      |           0
+ framework_activities                          |           0
+ framework_kpis                                |           0
+ framework_question_banks                      |           0
+ framework_scoring_config                      |           0
+ frameworks                                    |           0
+ generated_reports                             |           0
+ impact_dimensions                             |           0
+ industry_benchmarks                           |           0
+ intake_domain_mapping                         |           0
+ ip_blocks                                     |           0
+ kpi_definitions                               |           0
+ kpi_history                                   |           0
+ kpis                                          |           0
+ krb_audit_logs                                |           0
+ krb_issues                                    |           0
+ krb_qa_runs                                   |           0
+ login_attempt_log                             |           0
+ master_musteri                                |       39126
+ master_urun                                   |        9574
+ maturity_dimensions                           |           0
+ maturity_scores                               |           0
+ methodology_templates                         |           0
+ methodology_versions                          |           0
+ module_plans                                  |           0
+ opportunities                                 |           0
+ opportunity_classes                           |           0
+ ops_ayar                                      |           0
+ ops_health                                    |        2829
+ ops_incident                                  |          67
+ organization_memberships                      |          15
+ organizations                                 |          24
+ pain_point_evidence                           |           0
+ pain_points                                   |           0
+ participant_upload_batches                    |           0
+ password_reset_tokens                         |           0
+ platform_feedback                             |           0
+ platform_glossary                             |           0
+ platform_modules                              |           0
+ platform_tenants                              |           0
+ problem_types                                 |           0
+ process_inventory                             |           0
+ progress_insights                             |           0
+ project_context_intakes                       |           0
+ project_kpi_gaps                              |           0
+ project_kpi_measurements                      |           0
+ project_memberships                           |          15
+ project_participants                          |           0
+ project_stakeholders                          |           0
+ question_category_map                         |           0
+ question_domain_history                       |           0
+ question_domain_map                           |           0
+ question_effectiveness                        |           0
+ question_expected_impacts                     |           0
+ question_expected_problem_types               |           0
+ question_expected_root_causes                 |           0
+ question_option_translations                  |           0
+ question_options                              |           0
+ question_templates                            |           0
+ question_translations                         |           0
+ questions                                     |         376
+ recommendation_history                        |           0
+ recommendations                               |           0
+ rep_kimlik_koprusu                            |           0
+ response_analysis_domains                     |           0
+ response_analysis_impacts                     |           0
+ response_analysis_problem_types               |           0
+ response_analysis_root_causes                 |           0
+ response_answer_analysis                      |           0
+ response_answers                              |           0
+ responses                                     |           0
+ roadmap_items                                 |           0
+ roadmap_phases                                |           0
+ root_cause_types                              |           0
+ saha_bildirim_ayar                            |           0
+ saha_cari_cache                               |       39140
+ saha_denetim                                  |          20
+ saha_dosya                                    |           0
+ saha_duyuru                                   |           0
+ saha_duyuru_ek                                |           0
+ saha_duyuru_okundu                            |           2
+ saha_duyuru_yorum                             |           0
+ saha_eslestirme_oneri                         |           0
+ saha_giden_eposta                             |           0
+ saha_hata_log                                 |          69
+ saha_iskonto_ayar                             |           0
+ saha_iskonto_kural                            |           0
+ saha_iskonto_talep                            |           0
+ saha_kimlik_duzeltme                          |           0
+ saha_konusma                                  |           0
+ saha_konusma_mesaj                            |           0
+ saha_konusma_okundu                           |           0
+ saha_musteri                                  |          23
+ saha_musteri_aksiyon                          |           0
+ saha_musteri_lokasyon                         |           0
+ saha_musteri_tedarikci_destek                 |           0
+ saha_musteri_tedarikci_destek_log             |           0
+ saha_oneri                                    |           2
+ saha_oneri_ayar                               |           0
+ saha_oneri_mesaj                              |           7
+ saha_oneri_okuma                              |           4
+ saha_rakip_teklif                             |           3
+ saha_rapor_gunluk_log                         |           2
+ saha_rep_aktivite                             |        5543
+ saha_rep_baslangic                            |           0
+ saha_rep_conversations                        |           6
+ saha_rep_gelisim                              |           7
+ saha_rep_gunluk_baslangic                     |          12
+ saha_rep_icgoru_tepki                         |           0
+ saha_rep_not                                  |         255
+ saha_rep_ozellik                              |         777
+ saha_rep_profil                               |           0
+ saha_rep_sehir                                |           0
+ saha_rep_yonetici_notu                        |           0
+ saha_rota_log                                 |           0
+ saha_satis_skor                               |       39106
+ saha_sinyal                                   |         903
+ saha_teklif                                   |           0
+ saha_teklif_kalem                             |           0
+ saha_teklif_log                               |           0
+ saha_wa_oturum                                |           0
+ saha_ziyaret                                  |          78
+ saha_ziyaret_foto                             |           7
+ saha_ziyaret_gorulme                          |         915
+ saha_ziyaret_katilimci                        |           0
+ saha_ziyaret_mukerrer_yedek                   |           0
+ saha_ziyaret_silinen                          |           0
+ saha_ziyaret_tasima_log                       |           0
+ saha_ziyaret_yedek_ugur_fix                   |           0
+ saha_ziyaret_yorum                            |           4
+ sap_musteri_sahiplik                          |           0
+ sap_rep_musteri                               |           0
+ sap_sahiplik_haric                            |           0
+ security_audit_log                            |           0
+ security_events                               |           0
+ stakeholder_groups                            |           7
+ stakeholder_roles                             |          20
+ stakeholder_types                             |           0
+ survey_assignments                            |           0
+ survey_response_sessions                      |           0
+ survey_templates                              |           0
+ system_error_logs                             |           0
+ tenant_department                             |           0
+ tenant_department_membership                  |           0
+ tenant_subscriptions                          |           0
+ tenant_user_modules                           |          26
+ tenant_users                                  |           0
+ tenant_yetki_log                              |          17
+ tr_ilce_ref                                   |           0
+ user_invitations                              |           0
+ user_sessions                                 |         939
+ users                                         |          26
+ yedek_eslestirme                              |           0
+ yedek_il_ilce                                 |           0
+ yedek_lokasyon                                |           0
+ yedek_musteri                                 |           0
+ yedek_para_birimi                             |           0
+ yedek_rakip_segment                           |           0
+ yedek_rakip_teklif                            |           0
+ yedek_sehirler                                |           0
+ yedek_teklif                                  |           0
+ yedek_ziyaret                                 |           0
+ yedek_ziyaret_foto                            |           0
+
+
+################ SECTION B — COLUMN DEFINITIONS ################
+# platform_*, tenant_*, users/user_invitations + kurate BI/saha tablolari
+          table_name          | pos |       column_name       |        data_type         | is_nullable |                                      column_default                                       
+------------------------------+-----+-------------------------+--------------------------+-------------+-------------------------------------------------------------------------------------------
+ bi_icgoru                    |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ bi_icgoru                    |   2 | tenant_id               | uuid                     | YES         | 
+ bi_icgoru                    |   3 | bolum                   | text                     | YES         | 
+ bi_icgoru                    |   4 | tip                     | text                     | YES         | 
+ bi_icgoru                    |   5 | ozet                    | text                     | YES         | 
+ bi_icgoru                    |   6 | kanit                   | jsonb                    | YES         | 
+ bi_icgoru                    |   7 | surpriz_skoru           | numeric                  | YES         | 
+ bi_icgoru                    |   8 | guven                   | text                     | YES         | 
+ bi_icgoru                    |   9 | durum                   | text                     | YES         | 'yeni'::text
+ bi_icgoru                    |  10 | ts                      | timestamp with time zone | YES         | now()
+ bi_icgoru                    |  11 | anlati                  | text                     | YES         | 
+ bi_icgoru                    |  12 | oneri                   | text                     | YES         | 
+ bi_icgoru                    |  13 | kaynak                  | text                     | YES         | 
+ bi_icgoru                    |  14 | anlati_at               | timestamp with time zone | YES         | 
+ bi_insa_gunlugu              |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ bi_insa_gunlugu              |   2 | ts                      | timestamp with time zone | YES         | now()
+ bi_insa_gunlugu              |   3 | adim                    | text                     | YES         | 
+ bi_insa_gunlugu              |   4 | ne                      | text                     | YES         | 
+ bi_insa_gunlugu              |   5 | neden                   | text                     | YES         | 
+ bi_insa_gunlugu              |   6 | detay                   | jsonb                    | YES         | '{}'::jsonb
+ bi_marj_atom                 |   1 | tenant_id               | uuid                     | NO          | 
+ bi_marj_atom                 |   2 | kalem_kodu              | text                     | NO          | 
+ bi_marj_atom                 |   3 | ay                      | date                     | NO          | 
+ bi_marj_atom                 |   4 | marka                   | text                     | YES         | 
+ bi_marj_atom                 |   5 | ebat                    | text                     | YES         | 
+ bi_marj_atom                 |   6 | kategori                | text                     | YES         | 
+ bi_marj_atom                 |   7 | adet                    | numeric                  | YES         | 
+ bi_marj_atom                 |   8 | ciro                    | numeric                  | YES         | 
+ bi_marj_atom                 |   9 | ort_fiyat               | numeric                  | YES         | 
+ bi_marj_atom                 |  10 | birim_maliyet           | numeric                  | YES         | 
+ bi_marj_atom                 |  11 | maliyet_kaynak          | text                     | YES         | 
+ bi_marj_atom                 |  12 | brut_kar                | numeric                  | YES         | 
+ bi_marj_atom                 |  13 | marj_pct                | numeric                  | YES         | 
+ bi_marj_atom                 |  14 | hesaplanma_at           | timestamp with time zone | YES         | now()
+ bi_marj_atom                 |  15 | tesvik_kesin_pct        | numeric                  | YES         | 
+ bi_marj_atom                 |  16 | tesvik_max_pct          | numeric                  | YES         | 
+ bi_marj_atom                 |  17 | kesin_net_kar           | numeric                  | YES         | 
+ bi_marj_atom                 |  18 | kesin_net_marj_pct      | numeric                  | YES         | 
+ bi_marj_atom                 |  19 | pot_net_marj_pct        | numeric                  | YES         | 
+ bi_marj_atom                 |  20 | tesvik_kaynak           | text                     | YES         | 
+ bi_marj_atom                 |  21 | birim_maliyet_kanon     | numeric                  | YES         | 
+ bi_marj_atom                 |  22 | marj_pct_kanon          | numeric                  | YES         | 
+ bi_marj_atom                 |  23 | kanon_kapsam            | numeric                  | YES         | 
+ bi_marj_fact                 |   1 | tenant_id               | text                     | YES         | 
+ bi_marj_fact                 |   2 | ay                      | date                     | YES         | 
+ bi_marj_fact                 |   3 | sube                    | text                     | YES         | 
+ bi_marj_fact                 |   4 | satis_kanali            | text                     | YES         | 
+ bi_marj_fact                 |   5 | sehir                   | text                     | YES         | 
+ bi_marj_fact                 |   6 | satis_temsilcisi        | text                     | YES         | 
+ bi_marj_fact                 |   7 | marka                   | text                     | YES         | 
+ bi_marj_fact                 |   8 | ebat                    | text                     | YES         | 
+ bi_marj_fact                 |   9 | ebat_norm               | text                     | YES         | 
+ bi_marj_fact                 |  10 | kategori                | text                     | YES         | 
+ bi_marj_fact                 |  11 | jant_capi               | text                     | YES         | 
+ bi_marj_fact                 |  12 | musteri_kodu            | text                     | YES         | 
+ bi_marj_fact                 |  13 | musteri_adi             | text                     | YES         | 
+ bi_marj_fact                 |  14 | kalem_kodu              | text                     | YES         | 
+ bi_marj_fact                 |  15 | kalem_tanimi            | text                     | YES         | 
+ bi_marj_fact                 |  16 | adet                    | numeric                  | YES         | 
+ bi_marj_fact                 |  17 | ciro                    | numeric                  | YES         | 
+ bi_marj_fact                 |  18 | ort_fiyat               | numeric                  | YES         | 
+ bi_marj_fact                 |  19 | birim_maliyet           | numeric                  | YES         | 
+ bi_marj_fact                 |  20 | maliyet_kaynak          | text                     | YES         | 
+ bi_marj_fact                 |  21 | smm                     | numeric                  | YES         | 
+ bi_marj_fact                 |  22 | brut_kar                | numeric                  | YES         | 
+ bi_marj_fact                 |  23 | marj_pct                | numeric                  | YES         | 
+ bi_metrik_gecmis             |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ bi_metrik_gecmis             |   2 | tenant_id               | uuid                     | NO          | 
+ bi_metrik_gecmis             |   3 | metrik                  | text                     | NO          | 
+ bi_metrik_gecmis             |   4 | periyot                 | text                     | NO          | 
+ bi_metrik_gecmis             |   5 | donem                   | date                     | NO          | 
+ bi_metrik_gecmis             |   6 | deger                   | numeric                  | NO          | 
+ bi_metrik_gecmis             |   7 | birim                   | text                     | YES         | 
+ bi_metrik_gecmis             |   8 | guven                   | text                     | NO          | 'kesin'::text
+ bi_metrik_gecmis             |   9 | kaynak                  | text                     | YES         | 
+ bi_metrik_gecmis             |  10 | kaynak_export_date      | date                     | YES         | 
+ bi_metrik_gecmis             |  11 | meta                    | jsonb                    | YES         | '{}'::jsonb
+ bi_metrik_gecmis             |  12 | hesaplanma_at           | timestamp with time zone | YES         | now()
+ bi_metrik_gecmis             |  13 | boyut_tipi              | text                     | NO          | 'sirket'::text
+ bi_metrik_gecmis             |  14 | boyut_deger             | text                     | NO          | ''::text
+ bi_musteri_risk              |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ bi_musteri_risk              |   2 | tenant_id               | uuid                     | NO          | 
+ bi_musteri_risk              |   3 | export_date             | date                     | NO          | CURRENT_DATE
+ bi_musteri_risk              |   4 | ingested_at             | timestamp with time zone | NO          | now()
+ bi_musteri_risk              |   5 | muhatap_kodu            | text                     | NO          | 
+ bi_musteri_risk              |   6 | muhatap_adi             | text                     | YES         | 
+ bi_musteri_risk              |   7 | vergi_no                | text                     | YES         | 
+ bi_musteri_risk              |   8 | vergi_dairesi           | text                     | YES         | 
+ bi_musteri_risk              |   9 | grup                    | text                     | YES         | 
+ bi_musteri_risk              |  10 | musteri_mi              | boolean                  | NO          | true
+ bi_musteri_risk              |  11 | odeme_kosulu            | text                     | YES         | 
+ bi_musteri_risk              |  12 | satis_calisani          | text                     | YES         | 
+ bi_musteri_risk              |  13 | kredi_limiti            | numeric                  | YES         | 
+ bi_musteri_risk              |  14 | toplam_risk             | numeric                  | YES         | 
+ bi_musteri_risk              |  15 | vadesi_gecmis           | numeric                  | YES         | 
+ bi_musteri_risk              |  16 | limit_asimi             | numeric                  | YES         | 
+ bi_musteri_risk              |  17 | hesap_bakiyesi          | numeric                  | YES         | 
+ bi_musteri_risk              |  18 | cek_senet_riski         | numeric                  | YES         | 
+ bi_musteri_risk              |  19 | kullanilabilir_limit    | numeric                  | YES         | 
+ bi_musteri_risk              |  20 | taahhut_limiti          | numeric                  | YES         | 
+ bi_musteri_risk              |  21 | dbs_limit               | numeric                  | YES         | 
+ bi_musteri_risk              |  22 | odenmemis_cekler        | numeric                  | YES         | 
+ bi_musteri_risk              |  23 | odenmemis_senetler      | numeric                  | YES         | 
+ bi_musteri_risk              |  24 | bekleyen_siparis        | numeric                  | YES         | 
+ bi_musteri_risk              |  25 | ciro_2019               | numeric                  | YES         | 
+ bi_musteri_risk              |  26 | ciro_2020               | numeric                  | YES         | 
+ bi_musteri_risk              |  27 | ciro_2021               | numeric                  | YES         | 
+ bi_satis_faturalari          |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ bi_satis_faturalari          |   2 | tenant_id               | text                     | NO          | 
+ bi_satis_faturalari          |   3 | export_date             | date                     | NO          | CURRENT_DATE
+ bi_satis_faturalari          |   4 | fatura_tarihi           | date                     | NO          | 
+ bi_satis_faturalari          |   5 | fatura_no               | text                     | NO          | 
+ bi_satis_faturalari          |   6 | vade_tarihi             | date                     | YES         | 
+ bi_satis_faturalari          |   7 | depo_adi                | text                     | YES         | 
+ bi_satis_faturalari          |   8 | sube                    | text                     | YES         | 
+ bi_satis_faturalari          |   9 | fatura_kesen            | text                     | YES         | 
+ bi_satis_faturalari          |  10 | satis_temsilcisi        | text                     | YES         | 
+ bi_satis_faturalari          |  11 | musteri_kodu            | text                     | YES         | 
+ bi_satis_faturalari          |  12 | musteri_adi             | text                     | YES         | 
+ bi_satis_faturalari          |  13 | satis_kanali            | text                     | YES         | 
+ bi_satis_faturalari          |  14 | sehir                   | text                     | YES         | 
+ bi_satis_faturalari          |  15 | odeme_kosulu            | text                     | YES         | 
+ bi_satis_faturalari          |  16 | kalem_kodu              | text                     | YES         | 
+ bi_satis_faturalari          |  17 | kalem_tanimi            | text                     | YES         | 
+ bi_satis_faturalari          |  18 | grup_adi                | text                     | YES         | 
+ bi_satis_faturalari          |  19 | kategori                | text                     | YES         | 
+ bi_satis_faturalari          |  20 | kategori2               | text                     | YES         | 
+ bi_satis_faturalari          |  21 | kategori3               | text                     | YES         | 
+ bi_satis_faturalari          |  22 | ebat                    | text                     | YES         | 
+ bi_satis_faturalari          |  23 | jant_capi               | text                     | YES         | 
+ bi_satis_faturalari          |  24 | marka                   | text                     | YES         | 
+ bi_satis_faturalari          |  25 | miktar                  | numeric                  | YES         | 
+ bi_satis_faturalari          |  26 | birim_fiyat             | numeric                  | YES         | 
+ bi_satis_faturalari          |  27 | para_birimi             | text                     | YES         | 
+ bi_satis_faturalari          |  28 | satir_tutar             | numeric                  | YES         | 
+ bi_satis_faturalari          |  29 | vergi_no                | text                     | YES         | 
+ bi_satis_faturalari          |  30 | vergi_dairesi           | text                     | YES         | 
+ bi_satis_faturalari          |  31 | tc_no                   | text                     | YES         | 
+ bi_sinyal_aday               |   1 | tenant_id               | uuid                     | NO          | 
+ bi_sinyal_aday               |   2 | parmak                  | text                     | NO          | 
+ bi_sinyal_aday               |   3 | aile                    | text                     | YES         | 
+ bi_sinyal_aday               |   4 | boyut                   | text                     | YES         | 
+ bi_sinyal_aday               |   5 | deger                   | text                     | YES         | 
+ bi_sinyal_aday               |   6 | yon                     | text                     | YES         | 
+ bi_sinyal_aday               |   7 | ilk_gun                 | date                     | NO          | 
+ bi_sinyal_aday               |   8 | son_gun                 | date                     | NO          | 
+ bi_sinyal_aday               |   9 | gun_sayisi              | integer                  | NO          | 1
+ bi_sinyal_aday               |  10 | gorulme                 | integer                  | NO          | 1
+ bi_sinyal_aday               |  11 | son_z                   | numeric                  | YES         | 
+ bi_sinyal_aday               |  12 | son_tutar               | numeric                  | YES         | 
+ bi_sinyal_aday               |  13 | son_skor                | numeric                  | YES         | 
+ bi_sinyal_aday               |  14 | son_detay               | jsonb                    | YES         | 
+ bi_sinyal_aday               |  15 | durum                   | text                     | NO          | 'izleniyor'::text
+ bi_sinyal_aday               |  16 | guncelleme              | timestamp with time zone | NO          | now()
+ bi_stok_durumu               |   1 | id                      | uuid                     | YES         | 
+ bi_stok_durumu               |   2 | tenant_id               | uuid                     | YES         | 
+ bi_stok_durumu               |   3 | export_date             | date                     | YES         | 
+ bi_stok_durumu               |   4 | ingested_at             | timestamp with time zone | YES         | 
+ bi_stok_durumu               |   5 | kalem_kodu              | text                     | YES         | 
+ bi_stok_durumu               |   6 | kalem_tanimi            | text                     | YES         | 
+ bi_stok_durumu               |   7 | grup_adi                | text                     | YES         | 
+ bi_stok_durumu               |   8 | kategori                | text                     | YES         | 
+ bi_stok_durumu               |   9 | marka                   | text                     | YES         | 
+ bi_stok_durumu               |  10 | depo                    | text                     | YES         | 
+ bi_stok_durumu               |  11 | eldeki_miktar           | numeric                  | YES         | 
+ bi_stok_durumu               |  12 | siparis_miktar          | numeric                  | YES         | 
+ bi_stok_durumu               |  13 | min_stok                | numeric                  | YES         | 
+ bi_stok_durumu               |  14 | birim_maliyet           | numeric                  | YES         | 
+ bi_stok_durumu               |  15 | toplam_deger            | numeric                  | YES         | 
+ bi_tahsilat                  |   1 | tenant_id               | uuid                     | NO          | 
+ bi_tahsilat                  |   2 | muhatap_kodu            | text                     | YES         | 
+ bi_tahsilat                  |   3 | muhatap_adi             | text                     | YES         | 
+ bi_tahsilat                  |   4 | grup                    | text                     | YES         | 
+ bi_tahsilat                  |   5 | satis_calisani          | text                     | YES         | 
+ bi_tahsilat                  |   6 | tahsilat_adedi          | integer                  | YES         | 
+ bi_tahsilat                  |   7 | toplam_tahsilat         | numeric                  | YES         | 
+ bi_tahsilat                  |   8 | ort_tahsilat_suresi     | numeric                  | YES         | 
+ bi_tahsilat                  |   9 | ort_gecikme_gun         | numeric                  | YES         | 
+ bi_tahsilat                  |  10 | gec_odeme_orani         | numeric                  | YES         | 
+ bi_tahsilat                  |  11 | son12_adedi             | integer                  | YES         | 
+ bi_tahsilat                  |  12 | son12_tutar             | numeric                  | YES         | 
+ bi_tahsilat                  |  13 | son12_suresi            | numeric                  | YES         | 
+ bi_tahsilat                  |  14 | son12_gecikme_gun       | numeric                  | YES         | 
+ bi_tahsilat                  |  15 | son12_gec_orani         | numeric                  | YES         | 
+ bi_tahsilat                  |  16 | son_tahsilat_tarihi     | date                     | YES         | 
+ bi_tahsilat                  |  17 | musteri_mi              | boolean                  | YES         | 
+ bi_tahsilat                  |  18 | export_date             | date                     | YES         | CURRENT_DATE
+ bi_tedarikci_faturalari      |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ bi_tedarikci_faturalari      |   2 | tenant_id               | uuid                     | NO          | 
+ bi_tedarikci_faturalari      |   3 | export_date             | date                     | NO          | CURRENT_DATE
+ bi_tedarikci_faturalari      |   4 | ingested_at             | timestamp with time zone | NO          | now()
+ bi_tedarikci_faturalari      |   5 | fatura_tarihi           | date                     | YES         | 
+ bi_tedarikci_faturalari      |   6 | fatura_no               | text                     | YES         | 
+ bi_tedarikci_faturalari      |   7 | tedarikci_fatura_no     | text                     | YES         | 
+ bi_tedarikci_faturalari      |   8 | satin_alma_siparis_no   | text                     | YES         | 
+ bi_tedarikci_faturalari      |   9 | sube                    | text                     | YES         | 
+ bi_tedarikci_faturalari      |  10 | tedarikci_kodu          | text                     | YES         | 
+ bi_tedarikci_faturalari      |  11 | tedarikci_adi           | text                     | YES         | 
+ bi_tedarikci_faturalari      |  12 | kalem_kodu              | text                     | YES         | 
+ bi_tedarikci_faturalari      |  13 | grup_adi                | text                     | YES         | 
+ bi_tedarikci_faturalari      |  14 | kategori                | text                     | YES         | 
+ bi_tedarikci_faturalari      |  15 | jant_capi               | text                     | YES         | 
+ bi_tedarikci_faturalari      |  16 | marka                   | text                     | YES         | 
+ bi_tedarikci_faturalari      |  17 | kalem_tanimi            | text                     | YES         | 
+ bi_tedarikci_faturalari      |  18 | miktar                  | numeric                  | YES         | 
+ bi_tedarikci_faturalari      |  19 | birim_fiyat_kdv_haric   | numeric                  | YES         | 
+ bi_tedarikci_faturalari      |  20 | birim_fiyat_kdv_dahil   | numeric                  | YES         | 
+ bi_tedarikci_faturalari      |  21 | satir_kdv_haric         | numeric                  | YES         | 
+ bi_tedarikci_faturalari      |  22 | satir_kdv_dahil         | numeric                  | YES         | 
+ bi_tedarikci_faturalari      |  23 | vade_turu               | text                     | YES         | 
+ bi_tedarikci_faturalari      |  24 | vade_gun                | integer                  | YES         | 
+ bi_tedarikci_faturalari      |  25 | vade_tarihi             | date                     | YES         | 
+ bi_tedarikci_faturalari      |  26 | odeme_tarihi            | date                     | YES         | 
+ bi_tedarikci_faturalari      |  27 | odeme_durumu            | text                     | YES         | 
+ bi_tedarikci_faturalari      |  28 | kdv_orani               | numeric                  | YES         | 
+ bi_tedarikci_faturalari      |  29 | kdv_tutari              | numeric                  | YES         | 
+ bi_tedarikci_faturalari      |  30 | satir_iskonto_pct       | numeric                  | YES         | 
+ bi_tedarikci_faturalari      |  31 | liste_birim_fiyat       | numeric                  | YES         | 
+ bi_yetenek                   |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ bi_yetenek                   |   2 | ad                      | text                     | YES         | 
+ bi_yetenek                   |   3 | tur                     | text                     | YES         | 
+ bi_yetenek                   |   4 | ne_ise_yarar            | text                     | YES         | 
+ bi_yetenek                   |   5 | nasil                   | text                     | YES         | 
+ bi_yetenek                   |   6 | cekmece                 | text                     | YES         | 
+ bi_yetenek                   |   7 | durum                   | text                     | YES         | 'tanimsiz'::text
+ bi_yetenek                   |   8 | guven                   | text                     | YES         | 
+ bi_yetenek                   |   9 | kanit                   | jsonb                    | YES         | 
+ bi_yetenek                   |  10 | aktif                   | boolean                  | YES         | true
+ bi_yetenek                   |  11 | onaylayan               | text                     | YES         | 
+ bi_yetenek                   |  12 | eklendi_at              | timestamp with time zone | YES         | now()
+ bi_yetenek                   |  13 | guncellendi_at          | timestamp with time zone | YES         | now()
+ bi_yetenek                   |  14 | parmak_izi              | text                     | YES         | 
+ bi_yetenek                   |  15 | son_gorulme             | timestamp with time zone | YES         | 
+ platform_feedback            |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ platform_feedback            |   2 | user_id                 | uuid                     | NO          | 
+ platform_feedback            |   3 | user_email              | text                     | NO          | 
+ platform_feedback            |   4 | user_name               | text                     | YES         | 
+ platform_feedback            |   5 | message                 | text                     | NO          | 
+ platform_feedback            |   6 | created_at              | timestamp with time zone | NO          | now()
+ platform_glossary            |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ platform_glossary            |   2 | key                     | text                     | NO          | 
+ platform_glossary            |   3 | term                    | text                     | NO          | 
+ platform_glossary            |   4 | term_tr                 | text                     | YES         | 
+ platform_glossary            |   5 | definition              | text                     | NO          | 
+ platform_glossary            |   6 | calculation             | text                     | YES         | 
+ platform_glossary            |   7 | interpretation          | text                     | YES         | 
+ platform_glossary            |   8 | example                 | text                     | YES         | 
+ platform_glossary            |   9 | category                | text                     | NO          | 
+ platform_glossary            |  10 | context                 | ARRAY                    | YES         | 
+ platform_glossary            |  11 | sort_order              | integer                  | YES         | 0
+ platform_glossary            |  12 | is_active               | boolean                  | YES         | true
+ platform_glossary            |  13 | created_at              | timestamp with time zone | YES         | now()
+ platform_glossary            |  14 | updated_at              | timestamp with time zone | YES         | now()
+ platform_modules             |   1 | id                      | text                     | NO          | 
+ platform_modules             |   2 | name                    | text                     | NO          | 
+ platform_modules             |   3 | description             | text                     | YES         | 
+ platform_modules             |   4 | version                 | text                     | NO          | '1.0'::text
+ platform_modules             |   5 | active                  | boolean                  | NO          | true
+ platform_modules             |   6 | created_at              | timestamp with time zone | NO          | now()
+ platform_tenants             |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ platform_tenants             |   2 | name                    | text                     | NO          | 
+ platform_tenants             |   3 | slug                    | text                     | NO          | 
+ platform_tenants             |   4 | status                  | text                     | NO          | 'active'::text
+ platform_tenants             |   5 | timezone                | text                     | NO          | 'Europe/Istanbul'::text
+ platform_tenants             |   6 | currency                | text                     | NO          | 'TRY'::text
+ platform_tenants             |   7 | config_json             | jsonb                    | NO          | '{}'::jsonb
+ platform_tenants             |   8 | created_at              | timestamp with time zone | NO          | now()
+ platform_tenants             |   9 | created_by              | uuid                     | YES         | 
+ rep_kimlik_koprusu           |   1 | tenant_id               | uuid                     | NO          | 
+ rep_kimlik_koprusu           |   2 | sap_temsilci            | text                     | NO          | 
+ rep_kimlik_koprusu           |   3 | user_id                 | uuid                     | YES         | 
+ rep_kimlik_koprusu           |   4 | durum                   | text                     | NO          | 'eslesmedi'::text
+ rep_kimlik_koprusu           |   5 | kanal_etiket            | text                     | YES         | 
+ rep_kimlik_koprusu           |   6 | ciro_12ay               | numeric                  | YES         | 
+ rep_kimlik_koprusu           |   7 | musteri_12ay            | integer                  | YES         | 
+ rep_kimlik_koprusu           |   8 | ilk_satis               | date                     | YES         | 
+ rep_kimlik_koprusu           |   9 | son_satis               | date                     | YES         | 
+ rep_kimlik_koprusu           |  10 | guncellendi_at          | timestamp with time zone | YES         | now()
+ saha_musteri                 |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ saha_musteri                 |   2 | tenant_id               | uuid                     | NO          | 
+ saha_musteri                 |   3 | tip                     | text                     | NO          | 
+ saha_musteri                 |   4 | firma                   | text                     | NO          | 
+ saha_musteri                 |   5 | musteri_kodu            | text                     | YES         | 
+ saha_musteri                 |   6 | il                      | text                     | YES         | 
+ saha_musteri                 |   7 | ilce                    | text                     | YES         | 
+ saha_musteri                 |   8 | segment                 | text                     | YES         | 
+ saha_musteri                 |   9 | durum                   | text                     | NO          | 'YENI_NOKTA'::text
+ saha_musteri                 |  10 | lat                     | numeric                  | YES         | 
+ saha_musteri                 |  11 | lng                     | numeric                  | YES         | 
+ saha_musteri                 |  12 | sorumlu_rep             | uuid                     | YES         | 
+ saha_musteri                 |  13 | telefon                 | text                     | YES         | 
+ saha_musteri                 |  14 | yetkili                 | text                     | YES         | 
+ saha_musteri                 |  15 | notlar                  | text                     | YES         | 
+ saha_musteri                 |  16 | aktif                   | boolean                  | NO          | true
+ saha_musteri                 |  17 | created_by              | uuid                     | YES         | 
+ saha_musteri                 |  18 | created_at              | timestamp with time zone | NO          | now()
+ saha_musteri                 |  19 | updated_at              | timestamp with time zone | NO          | now()
+ saha_musteri                 |  20 | vergi_no                | text                     | YES         | 
+ saha_musteri                 |  21 | sektorler               | ARRAY                    | YES         | '{}'::text[]
+ saha_musteri                 |  22 | tedarikci_markalar      | ARRAY                    | YES         | '{}'::text[]
+ saha_musteri                 |  23 | tc_no                   | text                     | YES         | 
+ saha_musteri                 |  24 | kayit_kaynagi           | text                     | NO          | 'SAHA_ZIYARETI'::text
+ saha_musteri                 |  25 | arac_parki              | jsonb                    | YES         | 
+ saha_musteri                 |  26 | kullanilan_markalar     | ARRAY                    | YES         | 
+ saha_musteri                 |  27 | yillik_potansiyel       | integer                  | YES         | 
+ saha_musteri                 |  28 | raf_markalar            | ARRAY                    | YES         | 
+ saha_musteri                 |  29 | bayilikler              | ARRAY                    | YES         | 
+ saha_musteri                 |  30 | rakip_toptancilar       | ARRAY                    | YES         | 
+ saha_musteri                 |  31 | kis_stok                | integer                  | YES         | 
+ saha_musteri                 |  32 | yaz_stok                | integer                  | YES         | 
+ saha_musteri                 |  33 | profil_guncel_at        | timestamp with time zone | YES         | 
+ saha_rep_gelisim             |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ saha_rep_gelisim             |   2 | tenant_id               | uuid                     | NO          | 
+ saha_rep_gelisim             |   3 | user_id                 | uuid                     | NO          | 
+ saha_rep_gelisim             |   4 | gun                     | date                     | NO          | CURRENT_DATE
+ saha_rep_gelisim             |   5 | portre                  | text                     | YES         | 
+ saha_rep_gelisim             |   6 | guclu_yonler            | jsonb                    | YES         | 
+ saha_rep_gelisim             |   7 | gelisim_onerileri       | jsonb                    | YES         | 
+ saha_rep_gelisim             |   8 | bilinmeyen_bulgular     | jsonb                    | YES         | 
+ saha_rep_gelisim             |   9 | baglam                  | jsonb                    | YES         | 
+ saha_rep_gelisim             |  10 | model                   | text                     | YES         | 
+ saha_rep_gelisim             |  11 | guven                   | text                     | YES         | 'taslak'::text
+ saha_rep_gelisim             |  12 | hesaplandi_at           | timestamp with time zone | NO          | now()
+ saha_rep_not                 |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ saha_rep_not                 |   2 | tenant_id               | uuid                     | NO          | 
+ saha_rep_not                 |   3 | rep_id                  | uuid                     | NO          | 
+ saha_rep_not                 |   4 | icerik                  | text                     | NO          | 
+ saha_rep_not                 |   5 | hatirlatma_tarihi       | date                     | YES         | 
+ saha_rep_not                 |   6 | tamamlandi              | boolean                  | NO          | false
+ saha_rep_not                 |   7 | created_at              | timestamp with time zone | NO          | now()
+ saha_rep_not                 |   8 | updated_at              | timestamp with time zone | NO          | now()
+ saha_rep_not                 |   9 | musteri_id              | uuid                     | YES         | 
+ saha_rep_not                 |  10 | push_bildirildi         | boolean                  | NO          | false
+ saha_rep_ozellik             |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ saha_rep_ozellik             |   2 | tenant_id               | uuid                     | NO          | 
+ saha_rep_ozellik             |   3 | user_id                 | uuid                     | NO          | 
+ saha_rep_ozellik             |   4 | gun                     | date                     | NO          | 
+ saha_rep_ozellik             |   5 | alan                    | text                     | NO          | 
+ saha_rep_ozellik             |   6 | ozellik                 | text                     | NO          | 
+ saha_rep_ozellik             |   7 | deger                   | numeric                  | YES         | 
+ saha_rep_ozellik             |   8 | metin                   | text                     | YES         | 
+ saha_rep_ozellik             |   9 | kapsam                  | numeric                  | YES         | 0
+ saha_rep_ozellik             |  10 | guven                   | text                     | YES         | 'yok'::text
+ saha_rep_ozellik             |  11 | payload                 | jsonb                    | YES         | '{}'::jsonb
+ saha_rep_ozellik             |  12 | hesaplandi_at           | timestamp with time zone | NO          | now()
+ saha_rota_log                |   1 | id                      | bigint                   | NO          | nextval('saha_rota_log_id_seq'::regclass)
+ saha_rota_log                |   2 | tenant_id               | uuid                     | NO          | 
+ saha_rota_log                |   3 | rep_id                  | uuid                     | NO          | 
+ saha_rota_log                |   4 | gun                     | date                     | NO          | 
+ saha_rota_log                |   5 | musteri_id              | uuid                     | NO          | 
+ saha_rota_log                |   6 | skor                    | numeric                  | YES         | 
+ saha_rota_log                |   7 | sira                    | integer                  | YES         | 
+ saha_rota_log                |   8 | commit_mi               | boolean                  | YES         | false
+ saha_rota_log                |   9 | onerildi_ts             | timestamp with time zone | NO          | now()
+ saha_teklif                  |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ saha_teklif                  |   2 | tenant_id               | uuid                     | NO          | 
+ saha_teklif                  |   3 | musteri_id              | uuid                     | NO          | 
+ saha_teklif                  |   4 | ziyaret_id              | uuid                     | YES         | 
+ saha_teklif                  |   5 | iskonto_talep_id        | uuid                     | YES         | 
+ saha_teklif                  |   6 | rep_id                  | uuid                     | YES         | 
+ saha_teklif                  |   7 | marka                   | text                     | NO          | 
+ saha_teklif                  |   8 | model                   | text                     | YES         | 
+ saha_teklif                  |   9 | ebat                    | text                     | YES         | 
+ saha_teklif                  |  10 | kategori                | text                     | YES         | 
+ saha_teklif                  |  11 | sezon                   | text                     | YES         | 
+ saha_teklif                  |  12 | jant_grubu              | text                     | YES         | 
+ saha_teklif                  |  13 | alt_grup                | text                     | YES         | 
+ saha_teklif                  |  14 | adet                    | integer                  | NO          | 1
+ saha_teklif                  |  15 | birim_fiyat             | numeric                  | YES         | 
+ saha_teklif                  |  16 | toplam_tutar            | numeric                  | YES         | 
+ saha_teklif                  |  17 | iskonto_orani           | numeric                  | YES         | 
+ saha_teklif                  |  18 | durum                   | text                     | NO          | 'BEKLEMEDE'::text
+ saha_teklif                  |  19 | sonuc_tarihi            | date                     | YES         | 
+ saha_teklif                  |  20 | kayip_nedeni            | text                     | YES         | 
+ saha_teklif                  |  21 | rakip_marka             | text                     | YES         | 
+ saha_teklif                  |  22 | rakip_model             | text                     | YES         | 
+ saha_teklif                  |  23 | rakip_fiyat             | numeric                  | YES         | 
+ saha_teklif                  |  24 | notlar                  | text                     | YES         | 
+ saha_teklif                  |  25 | created_by              | uuid                     | YES         | 
+ saha_teklif                  |  26 | created_at              | timestamp with time zone | NO          | now()
+ saha_teklif                  |  27 | updated_at              | timestamp with time zone | NO          | now()
+ saha_teklif                  |  28 | kalem_kodu              | text                     | YES         | 
+ saha_teklif                  |  29 | liste_fiyati            | numeric                  | YES         | 
+ saha_teklif                  |  30 | tesvik_garantili_pct    | numeric                  | YES         | 
+ saha_teklif                  |  31 | tesvik_maksimum_pct     | numeric                  | YES         | 
+ saha_teklif                  |  32 | tedarikci_destek_pct    | numeric                  | YES         | 
+ saha_teklif                  |  33 | kampanya_id             | integer                  | YES         | 
+ saha_teklif                  |  34 | kampanya_indirim_turu   | text                     | YES         | 
+ saha_teklif                  |  35 | kampanya_indirim_deger  | numeric                  | YES         | 
+ saha_teklif                  |  36 | musteri_ek_iskonto_pct  | numeric                  | YES         | 
+ saha_teklif                  |  37 | onay_seviyesi           | text                     | YES         | 
+ saha_teklif                  |  38 | talep_fiyat             | numeric                  | YES         | 
+ saha_teklif                  |  39 | mevcut_stok             | numeric                  | YES         | 
+ saha_teklif                  |  40 | kaynak                  | text                     | YES         | 
+ saha_teklif                  |  41 | vade_gun                | integer                  | YES         | 
+ saha_teklif                  |  42 | vade_turu               | text                     | YES         | 
+ saha_teklif                  |  43 | kok_teklif_id           | uuid                     | YES         | 
+ saha_teklif                  |  44 | revizyon_no             | integer                  | NO          | 1
+ saha_ziyaret                 |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ saha_ziyaret                 |   2 | tenant_id               | uuid                     | NO          | 
+ saha_ziyaret                 |   3 | musteri_id              | uuid                     | NO          | 
+ saha_ziyaret                 |   4 | rep_id                  | uuid                     | YES         | 
+ saha_ziyaret                 |   5 | rep_adi                 | text                     | YES         | 
+ saha_ziyaret                 |   6 | tip                     | text                     | NO          | 
+ saha_ziyaret                 |   7 | durum                   | text                     | NO          | 'PLANLANDI'::text
+ saha_ziyaret                 |   8 | planlanan_tarih         | date                     | YES         | 
+ saha_ziyaret                 |   9 | ziyaret_tarihi          | date                     | YES         | 
+ saha_ziyaret                 |  10 | checkin_at              | timestamp with time zone | YES         | 
+ saha_ziyaret                 |  11 | checkin_lat             | numeric                  | YES         | 
+ saha_ziyaret                 |  12 | checkin_lng             | numeric                  | YES         | 
+ saha_ziyaret                 |  13 | katilimci               | text                     | YES         | 
+ saha_ziyaret                 |  14 | notlar                  | text                     | YES         | 
+ saha_ziyaret                 |  15 | detay                   | jsonb                    | NO          | '{}'::jsonb
+ saha_ziyaret                 |  16 | kaynak                  | text                     | NO          | 'APP'::text
+ saha_ziyaret                 |  17 | created_by              | uuid                     | YES         | 
+ saha_ziyaret                 |  18 | created_at              | timestamp with time zone | NO          | now()
+ saha_ziyaret                 |  19 | updated_at              | timestamp with time zone | NO          | now()
+ saha_ziyaret                 |  20 | lokasyon_id             | uuid                     | YES         | 
+ saha_ziyaret                 |  21 | notlar_orijinal         | text                     | YES         | 
+ saha_ziyaret                 |  22 | duzenlendi_at           | timestamp with time zone | YES         | 
+ saha_ziyaret                 |  23 | duzenleyen              | uuid                     | YES         | 
+ sap_musteri_sahiplik         |   1 | tenant_id               | uuid                     | NO          | 
+ sap_musteri_sahiplik         |   2 | musteri_kodu            | text                     | NO          | 
+ sap_musteri_sahiplik         |   3 | ana_sorumlu_user_id     | uuid                     | YES         | 
+ sap_musteri_sahiplik         |   4 | ana_sorumlu_sap         | text                     | YES         | 
+ sap_musteri_sahiplik         |   5 | skor                    | numeric                  | YES         | 
+ sap_musteri_sahiplik         |   6 | ciro_pay                | numeric                  | YES         | 
+ sap_musteri_sahiplik         |   7 | ay_pay                  | numeric                  | YES         | 
+ sap_musteri_sahiplik         |   8 | saha_rep_say            | integer                  | YES         | 
+ sap_musteri_sahiplik         |   9 | toplam_ciro_12ay        | numeric                  | YES         | 
+ sap_musteri_sahiplik         |  10 | hesaplandi_at           | timestamp with time zone | YES         | now()
+ tenant_department            |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ tenant_department            |   2 | tenant_id               | uuid                     | NO          | 
+ tenant_department            |   3 | key                     | text                     | NO          | 
+ tenant_department            |   4 | ad                      | text                     | NO          | 
+ tenant_department            |   5 | ikon                    | text                     | YES         | '🏷️'::text
+ tenant_department            |   6 | template_json           | jsonb                    | NO          | '{"scope": {"level": "kendi", "regions": [], "segments": []}, "capabilities": []}'::jsonb
+ tenant_department            |   7 | aktif                   | boolean                  | NO          | true
+ tenant_department            |   8 | created_at              | timestamp with time zone | NO          | now()
+ tenant_department_membership |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ tenant_department_membership |   2 | tenant_id               | uuid                     | NO          | 
+ tenant_department_membership |   3 | department_id           | uuid                     | NO          | 
+ tenant_department_membership |   4 | user_id                 | uuid                     | NO          | 
+ tenant_department_membership |   5 | created_at              | timestamp with time zone | NO          | now()
+ tenant_subscriptions         |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ tenant_subscriptions         |   2 | tenant_id               | uuid                     | NO          | 
+ tenant_subscriptions         |   3 | module_id               | text                     | NO          | 
+ tenant_subscriptions         |   4 | plan_id                 | uuid                     | NO          | 
+ tenant_subscriptions         |   5 | status                  | text                     | NO          | 'active'::text
+ tenant_subscriptions         |   6 | trial_ends_at           | timestamp with time zone | YES         | 
+ tenant_subscriptions         |   7 | current_period_start    | timestamp with time zone | NO          | now()
+ tenant_subscriptions         |   8 | current_period_end      | timestamp with time zone | YES         | 
+ tenant_subscriptions         |   9 | config_json             | jsonb                    | NO          | '{}'::jsonb
+ tenant_subscriptions         |  10 | created_at              | timestamp with time zone | NO          | now()
+ tenant_subscriptions         |  11 | created_by              | uuid                     | YES         | 
+ tenant_user_modules          |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ tenant_user_modules          |   2 | tenant_id               | uuid                     | NO          | 
+ tenant_user_modules          |   3 | user_id                 | uuid                     | NO          | 
+ tenant_user_modules          |   4 | module_id               | text                     | NO          | 
+ tenant_user_modules          |   5 | module_role             | text                     | NO          | 'viewer'::text
+ tenant_user_modules          |   6 | permissions_json        | jsonb                    | NO          | '{}'::jsonb
+ tenant_user_modules          |   7 | active                  | boolean                  | NO          | true
+ tenant_user_modules          |   8 | granted_by              | uuid                     | YES         | 
+ tenant_user_modules          |   9 | created_at              | timestamp with time zone | NO          | now()
+ tenant_user_modules          |  10 | updated_at              | timestamp with time zone | NO          | now()
+ tenant_users                 |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ tenant_users                 |   2 | tenant_id               | uuid                     | NO          | 
+ tenant_users                 |   3 | user_id                 | uuid                     | NO          | 
+ tenant_users                 |   4 | tenant_role             | text                     | NO          | 'member'::text
+ tenant_users                 |   5 | active                  | boolean                  | NO          | true
+ tenant_users                 |   6 | invited_by              | uuid                     | YES         | 
+ tenant_users                 |   7 | created_at              | timestamp with time zone | NO          | now()
+ tenant_yetki_log             |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ tenant_yetki_log             |   2 | tenant_id               | uuid                     | NO          | 
+ tenant_yetki_log             |   3 | actor_id                | uuid                     | YES         | 
+ tenant_yetki_log             |   4 | target_user_id          | uuid                     | YES         | 
+ tenant_yetki_log             |   5 | department_id           | uuid                     | YES         | 
+ tenant_yetki_log             |   6 | eylem                   | text                     | NO          | 
+ tenant_yetki_log             |   7 | detay                   | jsonb                    | YES         | '{}'::jsonb
+ tenant_yetki_log             |   8 | ts                      | timestamp with time zone | YES         | now()
+ user_invitations             |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ user_invitations             |   2 | tenant_id               | uuid                     | NO          | 
+ user_invitations             |   3 | invited_email           | text                     | NO          | 
+ user_invitations             |   4 | invited_by              | uuid                     | NO          | 
+ user_invitations             |   5 | token_hash              | text                     | NO          | 
+ user_invitations             |   6 | module_id               | text                     | YES         | 
+ user_invitations             |   7 | module_role             | text                     | NO          | 'viewer'::text
+ user_invitations             |   8 | permissions_json        | jsonb                    | NO          | '{}'::jsonb
+ user_invitations             |   9 | status                  | text                     | NO          | 'pending'::text
+ user_invitations             |  10 | accepted_by_user_id     | uuid                     | YES         | 
+ user_invitations             |  11 | expires_at              | timestamp with time zone | NO          | (now() + '7 days'::interval)
+ user_invitations             |  12 | created_at              | timestamp with time zone | NO          | now()
+ user_invitations             |  13 | modules_json            | jsonb                    | YES         | 
+ users                        |   1 | id                      | uuid                     | NO          | gen_random_uuid()
+ users                        |   2 | email                   | USER-DEFINED             | NO          | 
+ users                        |   3 | full_name               | text                     | YES         | 
+ users                        |   4 | auth_provider           | text                     | NO          | 'local'::text
+ users                        |   5 | status                  | text                     | NO          | 'active'::text
+ users                        |   6 | created_at              | timestamp with time zone | NO          | now()
+ users                        |   7 | updated_at              | timestamp with time zone | NO          | now()
+ users                        |   8 | password_hash           | text                     | YES         | 
+ users                        |   9 | password_reset_required | boolean                  | NO          | false
+ users                        |  10 | credentials_sent_at     | timestamp with time zone | YES         | 
+ users                        |  11 | role                    | text                     | NO          | 'participant'::text
+ users                        |  12 | name                    | text                     | YES         | 
+ users                        |  13 | last_login_at           | timestamp with time zone | YES         | 
+ users                        |  14 | telefon                 | text                     | YES         | 
+ users                        |  15 | totp_secret             | text                     | YES         | 
+ users                        |  16 | totp_enabled            | boolean                  | NO          | false
+
+
+################ SECTION C — NOT NULL, DEFAULTSIZ kolonlar (seed zorunlu alanlari) ################
+          table_name          |  column_name  |  data_type   
+------------------------------+---------------+--------------
+ bi_marj_atom                 | ay            | date
+ bi_marj_atom                 | kalem_kodu    | text
+ bi_marj_atom                 | tenant_id     | uuid
+ bi_metrik_gecmis             | deger         | numeric
+ bi_metrik_gecmis             | donem         | date
+ bi_metrik_gecmis             | metrik        | text
+ bi_metrik_gecmis             | periyot       | text
+ bi_metrik_gecmis             | tenant_id     | uuid
+ bi_musteri_risk              | muhatap_kodu  | text
+ bi_musteri_risk              | tenant_id     | uuid
+ bi_satis_faturalari          | fatura_no     | text
+ bi_satis_faturalari          | fatura_tarihi | date
+ bi_satis_faturalari          | tenant_id     | text
+ bi_tahsilat                  | tenant_id     | uuid
+ bi_tedarikci_faturalari      | tenant_id     | uuid
+ platform_feedback            | message       | text
+ platform_feedback            | user_email    | text
+ platform_feedback            | user_id       | uuid
+ platform_glossary            | category      | text
+ platform_glossary            | definition    | text
+ platform_glossary            | key           | text
+ platform_glossary            | term          | text
+ platform_modules             | id            | text
+ platform_modules             | name          | text
+ platform_tenants             | name          | text
+ platform_tenants             | slug          | text
+ rep_kimlik_koprusu           | sap_temsilci  | text
+ rep_kimlik_koprusu           | tenant_id     | uuid
+ saha_musteri                 | firma         | text
+ saha_musteri                 | tenant_id     | uuid
+ saha_musteri                 | tip           | text
+ saha_rep_not                 | icerik        | text
+ saha_rep_not                 | rep_id        | uuid
+ saha_rep_not                 | tenant_id     | uuid
+ saha_ziyaret                 | musteri_id    | uuid
+ saha_ziyaret                 | tenant_id     | uuid
+ saha_ziyaret                 | tip           | text
+ sap_musteri_sahiplik         | musteri_kodu  | text
+ sap_musteri_sahiplik         | tenant_id     | uuid
+ tenant_department            | ad            | text
+ tenant_department            | key           | text
+ tenant_department            | tenant_id     | uuid
+ tenant_department_membership | department_id | uuid
+ tenant_department_membership | tenant_id     | uuid
+ tenant_department_membership | user_id       | uuid
+ tenant_subscriptions         | module_id     | text
+ tenant_subscriptions         | plan_id       | uuid
+ tenant_subscriptions         | tenant_id     | uuid
+ tenant_user_modules          | module_id     | text
+ tenant_user_modules          | tenant_id     | uuid
+ tenant_user_modules          | user_id       | uuid
+ tenant_users                 | tenant_id     | uuid
+ tenant_users                 | user_id       | uuid
+ tenant_yetki_log             | eylem         | text
+ tenant_yetki_log             | tenant_id     | uuid
+ user_invitations             | invited_by    | uuid
+ user_invitations             | invited_email | text
+ user_invitations             | tenant_id     | uuid
+ user_invitations             | token_hash    | text
+ users                        | email         | USER-DEFINED
+
+
+################ SECTION D — MEVCUT TENANTLAR ################
+                  id                  |         name         | slug |    timezone     | currency | has_alias | has_profile |                                config_preview                                 
+--------------------------------------+----------------------+------+-----------------+----------+-----------+-------------+-------------------------------------------------------------------------------
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | Kardeşler Rot Balans | krb  | Europe/Istanbul | TRY      | t         | f           | {"alias": "KRB", "sap_version": "B1_HANA_10_SP2402", "cost_of_capital": 0.40}
+
+
+################ SECTION E — ABONELIK / PLAN / MODUL tablolari (spekulatif, yoksa hata verip devam) ################
+# --- platform_subscriptions
+ERROR:  relation "platform_subscriptions" does not exist
+LINE 1: SELECT * FROM platform_subscriptions LIMIT 30;
+                      ^
+# --- platform_plans
+ERROR:  relation "platform_plans" does not exist
+LINE 1: SELECT * FROM platform_plans LIMIT 30;
+                      ^
+# --- platform_modules
+      id      |        name         |                 description                 | version | active |          created_at           
+--------------+---------------------+---------------------------------------------+---------+--------+-------------------------------
+ assessment   | Derive Assessment   | Digital transformation assessment framework | 1.0     | t      | 2026-06-12 03:29:32.476528+00
+ intelligence | Derive Intelligence | AI-powered Virtual Management Office        | 1.0     | t      | 2026-06-12 03:29:32.476528+00
+ saha         | KRB Saha            | Saha ziyaretleri ve iskonto onay yönetimi   | 1.0     | t      | 2026-07-04 01:56:11.700891+00
+
+# --- tenant_subscriptions
+                  id                  |              tenant_id               |  module_id   |               plan_id                | status | trial_ends_at |     current_period_start      |      current_period_end       | config_json |          created_at           | created_by 
+--------------------------------------+--------------------------------------+--------------+--------------------------------------+--------+---------------+-------------------------------+-------------------------------+-------------+-------------------------------+------------
+ fc2e9113-8de0-4183-9619-a10e76490b99 | f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | intelligence | 30acd5f2-2e65-4942-8a4a-deffc44b52dc | active |               | 2026-06-12 03:29:32.908863+00 | 2027-06-12 03:29:32.908863+00 | {}          | 2026-06-12 03:29:32.908863+00 | 
+ 88da22c6-dc66-4413-bf3d-b84c06cbe27e | f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | saha         | 7ef953ab-8a39-4070-b0d3-dff2e07a2d27 | active |               | 2026-07-04 01:56:11.706627+00 |                               | {}          | 2026-07-04 01:56:11.706627+00 | 
+
+# --- subscriptions
+# --- plans
+ERROR:  relation "subscriptions" does not exist
+LINE 1: SELECT * FROM subscriptions LIMIT 30;
+                      ^
+ERROR:  relation "plans" does not exist
+LINE 1: SELECT * FROM plans LIMIT 30;
+                      ^
+# --- modules
+# --- distinct module_id gorunen yerler
+ERROR:  relation "modules" does not exist
+LINE 1: SELECT * FROM modules LIMIT 30;
+                      ^
+  module_id   
+--------------
+ intelligence
+ saha
+
+
+################ SECTION F — KRB kullanici/rol kablolamasi (demo admin sablonu) ################
+              tenant_id               |               user_id                | tenant_role  |             email              
+--------------------------------------+--------------------------------------+--------------+--------------------------------
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 44ec101f-9797-407c-8a29-1d0bb1317339 | member       | uyildiz@krb.com.tr
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | d4149f8e-fc1a-4ad6-aa24-1596c7236fdb | member       | aatay@krb.com.tr
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 399df061-ee02-493b-9d1e-789d1003d40e | member       | kayaz@krb.com.tr
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 5421b8b6-8292-47e8-b52a-94e3afed8f67 | member       | myener@krb.com.tr
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 80fff50c-ffc7-4623-a382-a814263609c4 | member       | hbilgi@krb.com.tr
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 6e1275a3-4f83-4606-a390-66c4ae99a7eb | member       | fatih@roomsium.com
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | ae0c55f9-68cc-421d-96d9-409222452f1a | member       | eyildiz@krb.com.tr
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | bd1787e9-2eb8-415b-9423-af3766f0fab4 | member       | akarakaya@krb.com.tr
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | ab23df67-75c8-40ff-bac9-2de66c6a76b6 | member       | kpicakci@krb.com.tr
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 0c5e2e6e-64a8-4c9b-9c45-81060ce6b042 | member       | oyilmaz@krb.com.tr
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 79d8adeb-c58f-4564-b625-a023e141e14b | member       | ybilen@krb.com.tr
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 0e666965-711f-4ca8-9428-9de6e1328406 | tenant_admin | test.platform@deriveglobal.com
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 08c5ed19-7e4f-41d2-8502-9dd01777906d | tenant_admin | fbilen@krb.com.tr
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | d28b7879-b34f-4de5-bd44-25e64e2ca734 | tenant_admin | yonetim@krb.com.tr
+
+# --- tenant_user_modules (KRB) ornek
+              tenant_id               |               user_id                |  module_id   | module_role |                                                                                                                                                                                                                                                                                                                                                                                  permissions_json                                                                                                                                                                                                                                                                                                                                                                                   
+--------------------------------------+--------------------------------------+--------------+-------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 5421b8b6-8292-47e8-b52a-94e3afed8f67 | intelligence | viewer      | {"departments": ["rakip"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 0e666965-711f-4ca8-9428-9de6e1328406 | intelligence | admin       | {"departments": ["sales", "pricing", "warehouse", "it", "orders", "rakip", "brand-analysis", "price-list"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 44ec101f-9797-407c-8a29-1d0bb1317339 | intelligence | viewer      | {"departments": ["rakip"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 79d8adeb-c58f-4564-b625-a023e141e14b | saha         | rep         | {"scope": {"level": "kendi", "regions": [], "segments": []}, "saha_tip": "TICARI", "departments": ["ozet", "ciro", "risk", "etki", "portfoy", "rotam", "kapsam", "ziyaretanaliz", "pipeline", "pazar", "bugun", "ziyaretler", "plan", "musteriler", "musterikart", "teklif", "notlarim", "rep-brain", "harita", "piyasa", "rakip", "oneriler", "rapor", "yon-portfoy", "duyurular", "mesajlar"], "personal_deny": [], "personal_grant": []}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | d28b7879-b34f-4de5-bd44-25e64e2ca734 | saha         | admin       | {"scope": {"level": "tumu", "regions": [], "segments": []}, "departments": ["ozet", "ciro", "risk", "etki", "portfoy", "rotam", "kapsam", "ziyaretanaliz", "pipeline", "pazar", "bugun", "ziyaretler", "plan", "musteriler", "musterikart", "teklif", "notlarim", "rep-brain", "harita", "piyasa", "rakip", "oneriler", "rapor", "kokpit", "ceo", "yon-portfoy", "duyurular", "mesajlar", "temsilciler", "sistem"], "personal_deny": [], "personal_grant": []}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 79d8adeb-c58f-4564-b625-a023e141e14b | intelligence | viewer      | {"departments": ["rakip"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | bd1787e9-2eb8-415b-9423-af3766f0fab4 | intelligence | viewer      | {"departments": ["rakip"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | d28b7879-b34f-4de5-bd44-25e64e2ca734 | intelligence | admin       | {"departments": ["sales", "pricing", "warehouse", "it", "orders", "rakip", "brand-analysis", "price-list", "ikodasi", "finansodasi"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | ab23df67-75c8-40ff-bac9-2de66c6a76b6 | intelligence | viewer      | {"departments": ["rakip"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | ae0c55f9-68cc-421d-96d9-409222452f1a | intelligence | viewer      | {"departments": ["rakip"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 80fff50c-ffc7-4623-a382-a814263609c4 | intelligence | viewer      | {"departments": ["rakip"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 0c5e2e6e-64a8-4c9b-9c45-81060ce6b042 | intelligence | viewer      | {"departments": ["rakip"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 08c5ed19-7e4f-41d2-8502-9dd01777906d | saha         | admin       | {"scope": {"level": "tumu", "regions": [], "segments": []}, "departments": ["ozet", "ciro", "risk", "etki", "portfoy", "rotam", "kapsam", "ziyaretanaliz", "pipeline", "pazar", "bugun", "ziyaretler", "plan", "musteriler", "musterikart", "teklif", "notlarim", "rep-brain", "harita", "piyasa", "rakip", "oneriler", "rapor", "kokpit", "ceo", "yon-portfoy", "duyurular", "mesajlar", "temsilciler", "sistem"], "personal_deny": [], "personal_grant": []}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 08c5ed19-7e4f-41d2-8502-9dd01777906d | intelligence | admin       | {"departments": ["sales", "pricing", "warehouse", "it", "orders", "rakip", "brand-analysis", "price-list", "ikodasi", "finansodasi"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | bd1787e9-2eb8-415b-9423-af3766f0fab4 | saha         | rep         | {"scope": {"level": "kendi", "regions": [], "segments": []}, "saha_tip": "TICARI", "departments": ["ozet", "ciro", "risk", "etki", "portfoy", "rotam", "kapsam", "ziyaretanaliz", "pipeline", "pazar", "bugun", "ziyaretler", "plan", "musteriler", "musterikart", "teklif", "notlarim", "rep-brain", "harita", "piyasa", "rakip", "oneriler", "rapor", "yon-portfoy", "duyurular", "mesajlar"], "personal_deny": [], "personal_grant": []}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 80fff50c-ffc7-4623-a382-a814263609c4 | saha         | rep         | {"scope": {"level": "kendi", "regions": [], "segments": []}, "saha_tip": "TICARI", "departments": ["ozet", "ciro", "risk", "etki", "portfoy", "rotam", "kapsam", "ziyaretanaliz", "pipeline", "pazar", "bugun", "ziyaretler", "plan", "musteriler", "musterikart", "teklif", "notlarim", "rep-brain", "harita", "piyasa", "rakip", "oneriler", "rapor", "yon-portfoy", "duyurular", "mesajlar"], "personal_deny": [], "personal_grant": []}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 5421b8b6-8292-47e8-b52a-94e3afed8f67 | saha         | rep         | {"scope": {"level": "kendi", "regions": [], "segments": []}, "saha_tip": "TICARI", "departments": ["ozet", "ciro", "risk", "etki", "portfoy", "rotam", "kapsam", "ziyaretanaliz", "pipeline", "pazar", "bugun", "ziyaretler", "plan", "musteriler", "musterikart", "teklif", "notlarim", "rep-brain", "harita", "piyasa", "rakip", "oneriler", "rapor", "yon-portfoy", "duyurular", "mesajlar"], "personal_deny": [], "personal_grant": []}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 399df061-ee02-493b-9d1e-789d1003d40e | saha         | manager     | {"scope": {"level": "tumu", "regions": [], "segments": []}, "departments": ["ozet", "ciro", "risk", "etki", "portfoy", "rotam", "kapsam", "ziyaretanaliz", "pipeline", "pazar", "bugun", "ziyaretler", "plan", "musteriler", "musterikart", "teklif", "notlarim", "harita", "piyasa", "rakip", "oneriler", "rapor", "kokpit", "yon-portfoy", "duyurular", "mesajlar", "temsilciler", "sistem", "ebatkart", "sahasesi-tum", "rep-aktivite", "memnuniyet"], "personal_deny": ["rep-brain", "ceo"], "personal_grant": ["ebatkart", "sahasesi-tum", "rep-aktivite", "memnuniyet"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | d4149f8e-fc1a-4ad6-aa24-1596c7236fdb | saha         | manager     | {"scope": {"level": "tumu", "regions": [], "segments": []}, "departments": ["ozet", "ciro", "risk", "etki", "portfoy", "rotam", "kapsam", "ziyaretanaliz", "pipeline", "pazar", "bugun", "ziyaretler", "plan", "musteriler", "musterikart", "teklif", "notlarim", "harita", "piyasa", "rakip", "oneriler", "sahasesi-tum", "sahasesi-temsilci", "rapor", "kokpit", "yon-portfoy", "duyurular", "mesajlar"], "personal_deny": [], "personal_grant": ["ozet", "ciro", "risk", "etki", "portfoy", "rotam", "kapsam", "ziyaretanaliz", "pipeline", "pazar", "bugun", "ziyaretler", "plan", "musteriler", "musterikart", "teklif", "notlarim", "harita", "piyasa", "rakip", "oneriler", "sahasesi-tum", "sahasesi-temsilci", "rapor", "kokpit", "yon-portfoy", "duyurular", "mesajlar"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 0c5e2e6e-64a8-4c9b-9c45-81060ce6b042 | saha         | rep         | {"scope": {"level": "kendi", "regions": [], "segments": []}, "saha_tip": "TICARI", "departments": ["ozet", "ciro", "risk", "etki", "portfoy", "rotam", "kapsam", "ziyaretanaliz", "pipeline", "pazar", "bugun", "ziyaretler", "plan", "musteriler", "musterikart", "teklif", "notlarim", "rep-brain", "harita", "piyasa", "rakip", "oneriler", "rapor", "yon-portfoy", "duyurular", "mesajlar"], "personal_deny": [], "personal_grant": []}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 399df061-ee02-493b-9d1e-789d1003d40e | intelligence | analyst     | {"departments": ["sales", "pricing", "warehouse", "orders", "rakip", "brand-analysis", "price-list", "finansodasi"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | ab23df67-75c8-40ff-bac9-2de66c6a76b6 | saha         | rep         | {"scope": {"level": "kendi", "regions": [], "segments": []}, "saha_tip": "TICARI", "departments": ["ozet", "ciro", "risk", "etki", "portfoy", "rotam", "kapsam", "ziyaretanaliz", "pipeline", "pazar", "bugun", "ziyaretler", "plan", "musteriler", "musterikart", "teklif", "notlarim", "rep-brain", "harita", "piyasa", "rakip", "oneriler", "rapor", "yon-portfoy", "duyurular", "mesajlar"], "personal_deny": [], "personal_grant": ["rotam"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | d4149f8e-fc1a-4ad6-aa24-1596c7236fdb | intelligence | analyst     | {"departments": ["sales", "pricing", "warehouse", "orders", "rakip", "brand-analysis", "price-list", "finansodasi"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | ae0c55f9-68cc-421d-96d9-409222452f1a | saha         | rep         | {"scope": {"level": "kendi", "regions": [], "segments": []}, "saha_tip": "TUKETICI", "departments": ["ozet", "ciro", "risk", "etki", "portfoy", "rotam", "kapsam", "ziyaretanaliz", "pipeline", "pazar", "bugun", "ziyaretler", "plan", "musteriler", "musterikart", "teklif", "notlarim", "rep-brain", "harita", "piyasa", "rakip", "oneriler", "rapor", "yon-portfoy", "duyurular", "mesajlar"], "personal_deny": [], "personal_grant": []}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 6e1275a3-4f83-4606-a390-66c4ae99a7eb | intelligence | manager     | {"departments": ["sales", "pricing", "warehouse", "orders", "it", "rakip", "brand-analysis", "price-list"]}
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 44ec101f-9797-407c-8a29-1d0bb1317339 | saha         | rep         | {"scope": {"level": "kendi", "regions": [], "segments": []}, "saha_tip": "TICARI", "departments": ["ozet", "ciro", "risk", "etki", "portfoy", "rotam", "kapsam", "ziyaretanaliz", "pipeline", "pazar", "bugun", "ziyaretler", "plan", "musteriler", "musterikart", "teklif", "notlarim", "rep-brain", "harita", "piyasa", "rakip", "oneriler", "rapor", "yon-portfoy", "duyurular", "mesajlar"], "personal_deny": [], "personal_grant": []}
+
+# --- users tablosu: auth kolon adlari (1 ornek, sifre HASH gizli degil-onemli degil ama yine de kirp)
+                  id                  |       email        |                                                                                          users_columns                                                                                          
+--------------------------------------+--------------------+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 6e1275a3-4f83-4606-a390-66c4ae99a7eb | fatih@roomsium.com | id, email, full_name, auth_provider, status, created_at, updated_at, password_hash, password_reset_required, credentials_sent_at, role, name, last_login_at, telefon, totp_secret, totp_enabled
+
+
+################ SECTION G — KRB VERI HACMI + TARIH ARALIGI (demo hacmini gercekci olcmek icin) ################
+           tbl           |   n    
+-------------------------+--------
+ bi_marj_atom            |  15631
+ bi_marj_fact            |  28968
+ bi_metrik_gecmis        |   4231
+ bi_musteri_risk         |  38933
+ bi_satis_faturalari     | 370215
+ bi_stok_durumu          |   3167
+ bi_tahsilat             |   7448
+ bi_tedarikci_faturalari | 148131
+ rep_kimlik_koprusu      |     69
+ saha_musteri            |   1687
+ saha_rep_not            |    255
+ saha_ziyaret            |   3604
+ sap_musteri_sahiplik    |   1142
+
+
+################ SECTION H — ORNEK SATIRLAR (deger sekli/format; demo verisini gercekci kurmak icin) ################
+# bi_satis_faturalari (2 satir)
+                  id                  |              tenant_id               | export_date | fatura_tarihi | fatura_no | vade_tarihi |      depo_adi      |  sube  | fatura_kesen | satis_temsilcisi | musteri_kodu | musteri_adi |    satis_kanali     |  sehir  |         odeme_kosulu          | kalem_kodu |         kalem_tanimi          | grup_adi  |   kategori    |    kategori2     | kategori3 | ebat | jant_capi | marka | miktar | birim_fiyat | para_birimi | satir_tutar | vergi_no | vergi_dairesi |    tc_no    
+--------------------------------------+--------------------------------------+-------------+---------------+-----------+-------------+--------------------+--------+--------------+------------------+--------------+-------------+---------------------+---------+-------------------------------+------------+-------------------------------+-----------+---------------+------------------+-----------+------+-----------+-------+--------+-------------+-------------+-------------+----------+---------------+-------------
+ b196f312-a467-4b24-a264-61b909b45376 | f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 2021-12-31  | 2021-12-22    | 11440     | 2021-12-22  | IZMIT SUBE DEPO    | IZMIT  | Melek Durak  | Özkan Erbaş      | M4126693     | YUSUF KUŞAR | MAĞAZA SATIŞ/İZMİT  | KOCAELİ | Peşin - Kredi Kartı Tek Çekim | AA008904   | YUASA 3000 75AH               | AKU       | TUKETICI AKÜ  | STARTER TÜKETİCİ |           |      |           | YUASA | 1.0000 |    677.9660 | TRY         |    677.9700 |          |               | 12439280526
+ 9e190c67-b05a-4609-b9b9-07f5a776e3c1 | f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 2021-12-31  | 2021-12-28    | 12684     | 2022-01-27  | SEMBOL SERVİS DEPO | SEMBOL | Gülçin Beyaz | Ümit Oktay       | M5401067     | METİN SAY   | MAĞAZA SATIŞ/SEMBOL | SAKARYA | 30 Gün Vade                   | YKT-10047  | FAVORIT 10W40 4 LT MOTOR YAĞI | YAG KATKI | MOTOR YAGLARI | MOTOR YAGLARI    |           |      |           | DIGER | 1.0000 |    169.4900 | TRY         |    169.4900 |          |               | 47731192352
+
+# bi_marj_atom (2 satir)
+              tenant_id               | kalem_kodu |     ay     | marka |    ebat     |       kategori       |  adet  |    ciro    | ort_fiyat | birim_maliyet | maliyet_kaynak | brut_kar | marj_pct |         hesaplanma_at         | tesvik_kesin_pct | tesvik_max_pct | kesin_net_kar | kesin_net_marj_pct | pot_net_marj_pct | tesvik_kaynak | birim_maliyet_kanon | marj_pct_kanon | kanon_kapsam 
+--------------------------------------+------------+------------+-------+-------------+----------------------+--------+------------+-----------+---------------+----------------+----------+----------+-------------------------------+------------------+----------------+---------------+--------------------+------------------+---------------+---------------------+----------------+--------------
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | LKY-2137   | 2024-07-01 | AVON+ | 13R22.5     | MÜŞTERİ TBR YENİLEME | 6.0000 | 30000.0000 |      5000 |          4476 | donem          |     3144 |     10.5 | 2026-07-31 17:28:18.297907+00 |                  |                |          3144 |               10.5 |             10.5 | kapsam-disi   |                4476 |           10.5 |          100
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | LKY-2139   | 2024-07-01 | AVON+ | 315/80R22.5 | MÜŞTERİ TBR YENİLEME | 2.0000 |  8749.6200 |      4375 |          4471 | donem          |     -192 |     -2.2 | 2026-07-31 17:28:18.297907+00 |                  |                |          -192 |               -2.2 |             -2.2 | kapsam-disi   |                4471 |           -2.2 |          100
+
+# bi_musteri_risk (2 satir)
+                  id                  |              tenant_id               | export_date |          ingested_at          | muhatap_kodu |                            muhatap_adi                             | vergi_no | vergi_dairesi |     grup      | musteri_mi | odeme_kosulu | satis_calisani | kredi_limiti | toplam_risk | vadesi_gecmis | limit_asimi | hesap_bakiyesi | cek_senet_riski | kullanilabilir_limit | taahhut_limiti | dbs_limit | odenmemis_cekler | odenmemis_senetler | bekleyen_siparis | ciro_2019 | ciro_2020 | ciro_2021 
+--------------------------------------+--------------------------------------+-------------+-------------------------------+--------------+--------------------------------------------------------------------+----------+---------------+---------------+------------+--------------+----------------+--------------+-------------+---------------+-------------+----------------+-----------------+----------------------+----------------+-----------+------------------+--------------------+------------------+-----------+-----------+-----------
+ 7b387f68-cf4a-4d74-9560-4c20abd3f51c | f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 2026-08-11  | 2026-08-11 16:00:32.092472+00 | M4113596     | BAŞATLI BORU PROFİL SAN TİC A.Ş                                    |          |               | FILO TUKETICI | t          |              | Eren Hacıoğlu  |      5000.00 |      400.00 |          0.00 |        0.00 |         400.00 |                 |                      |                |           |                  |                    |             0.00 |           |           |          
+ 44d0fd30-07f6-4454-a78d-8b9a8e995ed6 | f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 2026-08-11  | 2026-08-11 16:00:32.092472+00 | M4145442     | BR ELEKTRİK  İNŞAAT TAAHHÜT NAKLİYE SANAYİ TİCARET LİMİTED ŞİRKETİ |          |               | FILO TUKETICI | t          |              | Eren Hacıoğlu  |         1.00 |    29290.00 |          0.00 |    29289.00 |       29290.00 |                 |                      |                |           |                  |                    |             0.00 |           |           |          
+
+# bi_metrik_gecmis (3 satir)
+                  id                  |              tenant_id               | metrik | periyot |   donem    | deger | birim |  guven   |     kaynak     | kaynak_export_date |                                meta                                 |         hesaplanma_at         | boyut_tipi | boyut_deger 
+--------------------------------------+--------------------------------------+--------+---------+------------+-------+-------+----------+----------------+--------------------+---------------------------------------------------------------------+-------------------------------+------------+-------------
+ 6b80e2e7-38b2-4795-be18-b745ab3ec32a | f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | dso    | ay      | 2022-10-01 |    90 | gun   | yaklasik | reconstruction |                    | {"tam": true, "yontem": "alacak_recon/gunluk_kredili ~%7 yaklasik"} | 2026-07-15 03:59:12.998627+00 | sirket     | 
+ 5ea54df2-0f91-4aed-9dca-e68cfc66af15 | f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | dso    | ay      | 2022-11-01 |    96 | gun   | yaklasik | reconstruction |                    | {"tam": true, "yontem": "alacak_recon/gunluk_kredili ~%7 yaklasik"} | 2026-07-15 03:59:12.998627+00 | sirket     | 
+ 871cfe45-f946-46d1-919a-7d7d8f87b43f | f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | dso    | ay      | 2022-12-01 |    85 | gun   | yaklasik | reconstruction |                    | {"tam": true, "yontem": "alacak_recon/gunluk_kredili ~%7 yaklasik"} | 2026-07-15 03:59:12.998627+00 | sirket     | 
+
+# bi_tahsilat (2 satir)
+              tenant_id               | muhatap_kodu |      muhatap_adi      |   grup    | satis_calisani | tahsilat_adedi | toplam_tahsilat | ort_tahsilat_suresi | ort_gecikme_gun | gec_odeme_orani | son12_adedi | son12_tutar | son12_suresi | son12_gecikme_gun | son12_gec_orani | son_tahsilat_tarihi | musteri_mi | export_date 
+--------------------------------------+--------------+-----------------------+-----------+----------------+----------------+-----------------+---------------------+-----------------+-----------------+-------------+-------------+--------------+-------------------+-----------------+---------------------+------------+-------------
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | EM000001     | E TİCARET TRENDYOL    | E-TICARET | Ahmet Zengin   |            205 |      1424600.00 |               19.41 |           19.41 |           98.61 |         205 |  1424600.00 |        19.41 |             19.41 |           98.61 | 2026-06-30          | t          | 2026-08-11
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | EM000002     | E TİCARET HEPSİBURADA | E-TICARET | Ahmet Zengin   |             62 |       909918.55 |               16.65 |           16.65 |           95.95 |          62 |   909918.55 |        16.65 |             16.65 |           95.95 | 2026-06-30          | t          | 2026-08-11
+
+# bi_stok_durumu (2 satir)
+                  id                  |              tenant_id               | export_date |          ingested_at          | kalem_kodu |       kalem_tanimi       | grup_adi | kategori  | marka |     depo     | eldeki_miktar | siparis_miktar | min_stok | birim_maliyet | toplam_deger 
+--------------------------------------+--------------------------------------+-------------+-------------------------------+------------+--------------------------+----------+-----------+-------+--------------+---------------+----------------+----------+---------------+--------------
+ e040d021-6df2-479e-b98e-b64158aaf512 | f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 2026-08-11  | 2026-08-11 16:00:29.291419+00 | CLTC-1091  | 315/70R22.5 İKAME LASTİK | 2. EL    | TBR İKAME | DIGER | MATADOR DEPO |         10.00 |           0.00 |     0.00 |      700.0000 |      7000.00
+ c221358f-0014-490f-bcd3-1af1480888ae | f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 2026-08-11  | 2026-08-11 16:00:29.291419+00 | CLTC-1091  | 315/70R22.5 İKAME LASTİK | 2. EL    | TBR İKAME | DIGER | TICARI DEPO  |          3.00 |           1.00 |     0.00 |      700.0000 |      2100.00
+
+# saha_musteri (2 satir)
+                  id                  |              tenant_id               |   tip    |                 firma                  | musteri_kodu |   il    |   ilce    | segment |   durum    | lat | lng |             sorumlu_rep              |  telefon  |        yetkili         |                           notlar                            | aktif |              created_by              |          created_at           |          updated_at           | vergi_no | sektorler | tedarikci_markalar |    tc_no    |    kayit_kaynagi     | arac_parki | kullanilan_markalar | yillik_potansiyel |               raf_markalar                |   bayilikler    | rakip_toptancilar | kis_stok | yaz_stok |       profil_guncel_at        
+--------------------------------------+--------------------------------------+----------+----------------------------------------+--------------+---------+-----------+---------+------------+-----+-----+--------------------------------------+-----------+------------------------+-------------------------------------------------------------+-------+--------------------------------------+-------------------------------+-------------------------------+----------+-----------+--------------------+-------------+----------------------+------------+---------------------+-------------------+-------------------------------------------+-----------------+-------------------+----------+----------+-------------------------------
+ dd12a9dd-11e5-579c-992b-b0b72a987902 | f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | TICARI   | AKÇANSA                                |              | YALOVA  | ALTINOVA  |         | ESKI_NOKTA |     |     | ab23df67-75c8-40ff-bac9-2de66c6a76b6 |           |                        | BİRLEŞTİRİLDİ (şube) → acde648f-42c4-54c0-b5f3-c1dcf4221b6a | f     | ab23df67-75c8-40ff-bac9-2de66c6a76b6 | 2026-07-26 20:36:22.015113+00 | 2026-07-27 03:46:42.67793+00  |          | {}        | {}                 |             | EXCEL_IMPORT_KONTROL |            |                     |                   |                                           |                 |                   |          |          | 
+ cfe7a648-b869-4ec4-88bf-ed632e9bb66b | f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | TUKETICI | TACİ OTO LASTİK TACEDDİN KARAOSMANOĞLU | M4148211     | KOCAELİ | BAŞİSKELE |         | YENI_NOKTA |     |     | bd1787e9-2eb8-415b-9423-af3766f0fab4 | 053652539 | Tacettin Karaosmanoğlu |                                                             | t     | ae0c55f9-68cc-421d-96d9-409222452f1a | 2026-07-22 14:58:49.674505+00 | 2026-07-22 15:54:39.589132+00 |          | {}        | {}                 | 10664697638 | SAHA_ZIYARETI        |            |                     |                   | {Continental,Goodyear,Kumho,Nexen,Sailun} | {"Lastik Park"} | {Yuke,Mutaf}      |       40 |          | 2026-07-22 15:54:39.589132+00
+
+# saha_ziyaret (2 satir)
+                  id                  |              tenant_id               |              musteri_id              |                rep_id                |    rep_adi    |   tip    |   durum    | planlanan_tarih | ziyaret_tarihi |          checkin_at           | checkin_lat | checkin_lng |  katilimci   |                                                                                      notlar                                                                                       |                                                                                          detay                                                                                           |     kaynak      |              created_by              |          created_at           |          updated_at           | lokasyon_id | notlar_orijinal | duzenlendi_at | duzenleyen 
+--------------------------------------+--------------------------------------+--------------------------------------+--------------------------------------+---------------+----------+------------+-----------------+----------------+-------------------------------+-------------+-------------+--------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+-----------------+--------------------------------------+-------------------------------+-------------------------------+-------------+-----------------+---------------+------------
+ f1705797-8642-4456-947d-ee2704564431 | f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 42f53f2f-abb4-4e9d-9d5a-6e830c8ec11f | ae0c55f9-68cc-421d-96d9-409222452f1a |               | TUKETICI | TAMAMLANDI |                 | 2026-07-15     | 2026-07-15 07:36:02.528104+00 |   40.746155 |   29.947165 | Savaş seyhan | Genel ziyaret yapıldı. Savaş bey ile görüşüldü. Cari hesap ekstresi incelendi ve detaylı anlatım yapıldı. Geçen yıl kış lastiği alımlarının kaç adet olduğu bilgisi paylaşılacak. | {"kis_stok": 0, "rakipler": ["Ayko", "Çakıroğlu", "Batı Lastik"], "yaz_stok": null, "bayilikler": ["Petlas"], "raf_markalari": ["Lassa", "Continental", "Hankook", "Laufenn", "Sailun"]} | APP             | ae0c55f9-68cc-421d-96d9-409222452f1a | 2026-07-15 07:35:59.230248+00 | 2026-07-15 07:36:02.528104+00 |             |                 |               | 
+ 4aef2a6e-1ae0-4d58-a80f-558e874d2fd8 | f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | 2a41439c-2a11-4e23-be55-28fac879f0cf | 80fff50c-ffc7-4623-a382-a814263609c4 | Hüseyin Bilgi | TICARI   | TAMAMLANDI |                 | 2026-07-06     |                               |             |             |              | ayhan kaya ziyaret edildi 385/55 lastik talebi vardı hutrac satışı yapıldı gelince sevk edilecek kardeşi ibrahim kaya içinde alım yapacak .                                       | {"il": "DÜZCE", "ilce": "KAYNAŞLI"}                                                                                                                                                      | EXCEL_MIGRASYON | 80fff50c-ffc7-4623-a382-a814263609c4 | 2026-07-11 04:58:00.016659+00 | 2026-07-11 04:58:00.016659+00 |             |                 |               | 
+
+# rep_kimlik_koprusu (3 satir)
+              tenant_id               |   sap_temsilci    |               user_id                | durum | kanal_etiket | ciro_12ay | musteri_12ay | ilk_satis  | son_satis  |        guncellendi_at         
+--------------------------------------+-------------------+--------------------------------------+-------+--------------+-----------+--------------+------------+------------+-------------------------------
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | Adnan Karakaya    | bd1787e9-2eb8-415b-9423-af3766f0fab4 | saha  |              |  52025510 |          362 | 2021-10-02 | 2026-08-08 | 2026-08-08 19:46:19.766632+00
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | Ali Kemal Pıçakçı | ab23df67-75c8-40ff-bac9-2de66c6a76b6 | saha  |              |  56163362 |          104 | 2022-11-30 | 2026-08-07 | 2026-08-08 19:46:19.766632+00
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | Eftal Yıldız      | ae0c55f9-68cc-421d-96d9-409222452f1a | saha  |              | 123358519 |          132 | 2026-02-17 | 2026-08-08 | 2026-08-08 19:46:19.766632+00
+
+# sap_musteri_sahiplik (2 satir)
+              tenant_id               | musteri_kodu |         ana_sorumlu_user_id          | ana_sorumlu_sap |  skor  | ciro_pay | ay_pay | saha_rep_say | toplam_ciro_12ay |         hesaplandi_at         
+--------------------------------------+--------------+--------------------------------------+-----------------+--------+----------+--------+--------------+------------------+-------------------------------
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | EM000123     | ae0c55f9-68cc-421d-96d9-409222452f1a | Eftal Yıldız    | 1.0000 |   1.0000 | 1.0000 |            1 |            91883 | 2026-08-08 22:32:50.593939+00
+ f8a5d20f-ecf8-4ce2-a492-69268fbb03fa | M0100081     | 44ec101f-9797-407c-8a29-1d0bb1317339 | Uğur Yıldız     | 1.0000 |   1.0000 | 1.0000 |            1 |            80467 | 2026-08-08 22:32:50.593939+00
+
+
+################ SECTION I — company_profile / kimlik prompt izleri (KRB sizinti denetimi icin) ################
+# KRB config_json.company_profile var mi, uzunlugu ne
+ slug | has_profile | profile_len | alias 
+------+-------------+-------------+-------
+ krb  | f           |           0 | KRB
+
+
+################ RECON SONU — recon_out.txt olarak geri gonder ################

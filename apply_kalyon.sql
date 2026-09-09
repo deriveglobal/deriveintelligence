@@ -1,0 +1,13 @@
+-- KALYON İNŞAAT: İSTANBUL/ÜSKÜDAR HQ; Bursa+Kocaeli şantiyeleri şube. Kalyoncular Lastik AYRI (dokunma).
+BEGIN;
+INSERT INTO saha_musteri_lokasyon (id,tenant_id,musteri_id,ad,il,ilce,lat,lng,created_by) SELECT 'c599f238-8093-5239-8379-7f3d5c331a64','f8a5d20f-ecf8-4ce2-a492-69268fbb03fa','3db272f1-ce77-5e36-a7eb-46e6066acc14',firma,il,ilce,lat,lng,sorumlu_rep FROM saha_musteri WHERE id='7fc96750-eddb-5840-b7e3-7393fe018052' AND tenant_id='f8a5d20f-ecf8-4ce2-a492-69268fbb03fa' ON CONFLICT (id) DO NOTHING;
+UPDATE saha_ziyaret SET musteri_id='3db272f1-ce77-5e36-a7eb-46e6066acc14', lokasyon_id='c599f238-8093-5239-8379-7f3d5c331a64', updated_at=now() WHERE tenant_id='f8a5d20f-ecf8-4ce2-a492-69268fbb03fa' AND musteri_id='7fc96750-eddb-5840-b7e3-7393fe018052';
+UPDATE saha_iskonto_talep SET musteri_id='3db272f1-ce77-5e36-a7eb-46e6066acc14' WHERE tenant_id='f8a5d20f-ecf8-4ce2-a492-69268fbb03fa' AND musteri_id='7fc96750-eddb-5840-b7e3-7393fe018052';
+UPDATE saha_teklif SET musteri_id='3db272f1-ce77-5e36-a7eb-46e6066acc14' WHERE tenant_id='f8a5d20f-ecf8-4ce2-a492-69268fbb03fa' AND musteri_id='7fc96750-eddb-5840-b7e3-7393fe018052';
+UPDATE saha_musteri SET aktif=false, updated_at=now(), notlar=COALESCE(notlar||' | ','')||'ŞUBE → 3db272f1-ce77-5e36-a7eb-46e6066acc14' WHERE id='7fc96750-eddb-5840-b7e3-7393fe018052' AND tenant_id='f8a5d20f-ecf8-4ce2-a492-69268fbb03fa';
+INSERT INTO saha_musteri_lokasyon (id,tenant_id,musteri_id,ad,il,ilce,lat,lng,created_by) SELECT '6d3aeb06-9e4b-5eb0-99d7-034bfbc29f0a','f8a5d20f-ecf8-4ce2-a492-69268fbb03fa','3db272f1-ce77-5e36-a7eb-46e6066acc14',firma,il,ilce,lat,lng,sorumlu_rep FROM saha_musteri WHERE id='1beaeb93-ff4c-53b5-a4c6-c228e48d4edb' AND tenant_id='f8a5d20f-ecf8-4ce2-a492-69268fbb03fa' ON CONFLICT (id) DO NOTHING;
+UPDATE saha_ziyaret SET musteri_id='3db272f1-ce77-5e36-a7eb-46e6066acc14', lokasyon_id='6d3aeb06-9e4b-5eb0-99d7-034bfbc29f0a', updated_at=now() WHERE tenant_id='f8a5d20f-ecf8-4ce2-a492-69268fbb03fa' AND musteri_id='1beaeb93-ff4c-53b5-a4c6-c228e48d4edb';
+UPDATE saha_iskonto_talep SET musteri_id='3db272f1-ce77-5e36-a7eb-46e6066acc14' WHERE tenant_id='f8a5d20f-ecf8-4ce2-a492-69268fbb03fa' AND musteri_id='1beaeb93-ff4c-53b5-a4c6-c228e48d4edb';
+UPDATE saha_teklif SET musteri_id='3db272f1-ce77-5e36-a7eb-46e6066acc14' WHERE tenant_id='f8a5d20f-ecf8-4ce2-a492-69268fbb03fa' AND musteri_id='1beaeb93-ff4c-53b5-a4c6-c228e48d4edb';
+UPDATE saha_musteri SET aktif=false, updated_at=now(), notlar=COALESCE(notlar||' | ','')||'ŞUBE → 3db272f1-ce77-5e36-a7eb-46e6066acc14' WHERE id='1beaeb93-ff4c-53b5-a4c6-c228e48d4edb' AND tenant_id='f8a5d20f-ecf8-4ce2-a492-69268fbb03fa';
+COMMIT;

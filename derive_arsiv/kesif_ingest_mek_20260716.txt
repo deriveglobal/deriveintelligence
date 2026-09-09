@@ -1,0 +1,1 @@
+bash: /opt/krb-assessment/kesif_ingest_mekanizma.sh: No such file or directory

@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""SL_CONNECTOR — CO1 Service Layer (185.86.246.212:8090) → erp_ingest DB feed.
+
+Gecelik otomatik besleme. Her raporu Basic-auth ile çeker, JSON'u sl_ingest ile yükler.
+erp_ingest motorunun TÜM güvenceleri (kapılar, dedup, VADESI_CAP, MERGE_KORU, FIFO, turet) korunur.
+
+⚠ TESLİM BEKLENEN (CO1/Aydın, Swagger'dan) — aşağıda "FILL" işaretli yerler:
+   1. Her raporun tam PATH'i (Swagger'dan).
+   2. Basic-auth kullanıcı/şifre → env SL_USER / SL_PASS.
+   3. (gerekirse) CO1 JSON alan adı ≠ Excel başlığı ise ALAN_MAP override.
+
+Kullanım (sunucudan, container içinde ya da host'ta python3):
+   SL_USER=... SL_PASS=... python3 sl_connector.py --probe tahsilat   # sadece çek + alan/imza göster
+   SL_USER=... SL_PASS=... python3 sl_connector.py --dry              # tüm raporlar, DB'ye DOKUNMADAN kapı testi
+   SL_USER=... SL_PASS=... python3 sl_connector.py                    # GERÇEK yükleme (sıra: satış EN SON)
+   ...          python3 sl_connector.py --only cari_bakiye            # tek rapor
+"""
+import os, sys, json, time, base64
+import urllib.request, urllib.error
+import sl_ingest
+
+BASE_URL = os.getenv("SL_BASE_URL", "http://185.86.246.212:8090").rstrip("/")
+SL_USER  = os.getenv("SL_USER", "")
+SL_PASS  = os.getenv("SL_PASS", "")
+TENANT   = os.getenv("SL_TENANT", "f8a5d20f-ecf8-4ce2-a492-69268fbb03fa")
+TIMEOUT  = int(os.getenv("SL_TIMEOUT", "180"))
+
+FILL = "__FILL_FROM_SWAGGER__"
+
+# ⚠ SIRA KRİTİK: satış EN SON (marj_fact = satış × maliyet; maliyet tabloları stok_hareket +
+#   tedarikçi'den kurulur, o yüzden onlar ÖNCE). Snapshot'lar arası sıra önemsiz.
+# alan_map: motor_alani -> CO1 JSON anahtari. CO1 İngilizce PascalCase; motor Türkçe Excel başlığı bekler.
+# SIRA: satış EN SON (marj_fact = satış × maliyet; maliyet tabloları stok_hareket + tedarikçi'den kurulur).
+REPORTS = [
+    {"tip": "stok_hareket", "path": "/api/MovementProductReport", "alan_map": {
+        "belge_tarihi": "DocumentDate", "belge_turu": "DocumentType", "belge_no": "DocumentNumber",
+        "muhatap_kodu": "CardCode", "muhatap_adi": "CardName", "satis_calisani": "SalesEmployee",
+        "depo": "WarehouseName", "kalem_kodu": "ItemCode", "grup_adi": "ItemGroup", "kategori": "Category1",
+        "marka": "BrandName", "kalem_tanimi": "ItemDescription", "birim_maliyet": "Price",
+        "giris": "IncomingQuantity", "giris_tutari": "IncomingAmount", "cikis": "OutgoingQuantity",
+        "cikis_tutari": "OutgoingAmount", "stok_bakiye_tutari": "Balance", "notlar": "Comments"}},
+
+    {"tip": "tedarikci_faturalari", "path": "/api/VendorInvoiceTaxReport", "alan_map": {
+        "fatura_tarihi": "DocDate", "fatura_no": "DocumentNumber", "tedarikci_fatura_no": "VendorReferenceNo",
+        "satin_alma_siparis_no": "PurchaseOrderNumber", "sube": "BranchName", "tedarikci_kodu": "VendorCode",
+        "tedarikci_adi": "VendorName", "kalem_kodu": "ItemCode", "kalem_tanimi": "ItemName",
+        "grup_adi": "ItemGroup", "kategori": "Category1", "jant_capi": "RimDiameter", "marka": "BrandName",
+        "miktar": "Quantity", "satir_kdv_haric": "LineTotal", "satir_kdv_dahil": "GrossTotal",
+        "satir_iskonto_pct": "LineDiscountRate", "liste_birim_fiyat": "ListPrice"}},
+        # not: vade_turu (Payment Terms) CO1 tedarikçi raporunda YOK → "" (DPO'yu etkiler, kritik değil)
+
+    {"tip": "cari_bakiye", "path": "/api/RelatedCustomerBalanceDto", "alan_map": {
+        "tedarikci_kodu": "CardCode", "tedarikci_adi": "CardName", "tedarikci_bakiye": "Balance",
+        "musteri_kodu": "RelatedCardCode", "musteri_bakiye": "RelatedBalance"}},
+
+    {"tip": "stok_anlik", "path": "/api/StockReport", "alan_map": {
+        "depo": "WarehouseName", "kalem_kodu": "ItemCode", "kalem_tanimi": "ItemName",
+        "grup_adi": "ItemGroupName", "marka": "BrandName", "sezon": "Category1Name",
+        "kategori2": "Category2Name", "kategori3": "Category3Name", "adet": "OnHand",
+        "taahhut": "CommittedQuantity", "kullanilabilir": "AvailableQuantity",
+        "liste_fiyati": "Price", "min_seviye": "MinLevel", "max_seviye": "MaxLevel"}},
+
+    # ── DIŞARIDA: alacak_yaslandirma (AgingReport) — DRY doğruladı: 15-GÜN PENCERELİ (kısmi) ──
+    # ham=736 satır / 370 cari (tam açık-kalem ~6531 satır / 1382 cari idi). tam_degistir ile bu KISMİ aging
+    # yazılırsa gecikmiş ~92M'den küçük bir tutara düşer (MERGE_KORU cari'yi tutar ama riskini 0'lar).
+    # → CO1'den AgingReport'un TAM açık-kalem (15-gün filtresiz) dönmesi gerekiyor; gelince geri eklenecek.
+    # {"tip": "alacak_yaslandirma", "path": "/api/AgingReport", "alan_map": {
+    #     "muhatap_kodu":"CardCode","muhatap_adi":"CardName","grup":"CustomerGroup","satis_calisani":"SalesEmployee",
+    #     "hesap_bakiyesi":"Balance","kredi_limiti":"CreditLine","_acik":"OpenAmount","_gun":"OverdueDays"}},
+
+    {"tip": "satis_faturalari", "path": "/api/CustomerInvoiceReturnDetailReport", "alan_map": {
+        "fatura_tarihi": "DocDate", "vade_tarihi": "DocDueDate", "fatura_no": "DocumentNumber",
+        "depo_adi": "WarehouseName", "sube": "BranchName", "fatura_kesen": "CreatedBy",
+        "satis_temsilcisi": "SalesEmployee", "musteri_kodu": "CardCode", "musteri_adi": "CardName",
+        "satis_kanali": "SalesChannelName", "sehir": "CityName", "odeme_kosulu": "PaymentTerm",
+        "kalem_kodu": "ItemCode", "kalem_tanimi": "ItemName", "grup_adi": "ItemGroup",
+        "kategori": "Category1", "kategori2": "Category2", "kategori3": "Category3",
+        "ebat": "Size", "jant_capi": "RimDiameter", "marka": "BrandName", "vergi_no": "TaxId",
+        "vergi_dairesi": "TaxOffice", "para_birimi": "Currency", "miktar": "Quantity",
+        "birim_fiyat": "PriceAfterDiscount", "satir_tutar": "LineTotal"}},   # ⚠ EN SON
+
+    # ── DIŞARIDA: tahsilat (IncomingPaymentReport) ──
+    # IncomingPaymentReport yalnız ödeme-belgesi taşıyor (DocumentDate + tutar kırılımı); motorun gerçek-DSO
+    # için beklediği Fatura Tarihi/Vade/Tahsilat Süresi/Vadesi Geçen Gün YOK → ort_tahsilat_suresi/gecikme 0 çıkar.
+    # Ayrıca bi_tahsilat TAM-GEÇMİŞ (2021→) tam_degistir; 15-günlük feed yıllarca-veriyi siler. → gecelik feed DIŞI.
+    # Otomatik istenirse Aydın'dan TAM-GEÇMİŞ "Tahsilat Durumu" raporu (zamanlama alanlı) gerekir.
+    # {"tip": "tahsilat", "path": "/api/IncomingPaymentReport", "alan_map": {...}},
+]
+
+
+def _records_from(payload):
+    """JSON gövdesinden kayıt listesi çıkar. Düz liste, OData {value:[]}, {data:[]}, {rows:[]} destekli."""
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        for anahtar in ("Data", "value", "data", "rows", "result", "Table", "items"):
+            if isinstance(payload.get(anahtar), list):
+                return payload[anahtar]
+        # tek nesne → tek kayıt
+        return [payload]
+    return []
+
+
+def fetch(path):
+    if path == FILL:
+        raise SystemExit("⚠ Bu rapor için PATH henüz Swagger'dan doldurulmadı (REPORTS içindeki 'path').")
+    url = BASE_URL + (path if path.startswith("/") else "/" + path)
+    tok = base64.b64encode(f"{SL_USER}:{SL_PASS}".encode()).decode()
+    req = urllib.request.Request(url, headers={
+        "Accept": "application/json", "Authorization": "Basic " + tok})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:   # stdlib — container'da ek dep YOK
+        raw = resp.read()
+    payload = json.loads(raw.decode("utf-8"))
+    # CO1 sarmalı: {"Success":true,"Data":[...],"Error":...,"SapCode":...}
+    if isinstance(payload, dict) and payload.get("Success") is False:
+        raise RuntimeError(f"servis Success=false: {payload.get('Error')} (SapCode={payload.get('SapCode')})")
+    return _records_from(payload)
+
+
+def probe(tip):
+    """Sadece çek + alan adlarını ve imza uyumunu göster (DB'ye dokunmaz). İlk gece kontrolü."""
+    conf = next((c for c in REPORTS if c["tip"] == tip), None)
+    if not conf:
+        raise SystemExit(f"bilinmeyen tip: {tip}")
+    recs = fetch(conf["path"])
+    im = sl_ingest.alan_kontrol(recs, tip, conf["alan_map"])
+    ornek = recs[0] if recs else {}
+    print(json.dumps({
+        "tip": tip, "kayit_sayisi": len(recs),
+        "alan_ok": im["ok"], "kritik_eksik": im.get("kritik_eksik"), "alan_eksik": im.get("eksik"),
+        "gelen_alanlar": im.get("gelen_alanlar"),
+        "ornek_kayit": ornek,
+    }, ensure_ascii=False, indent=2, default=str))
+
+
+def run(dry=False, only=None):
+    if not SL_USER or not SL_PASS:
+        raise SystemExit("⚠ SL_USER / SL_PASS ortam değişkenleri gerekli (CO1 Basic-auth).")
+    ozet = []
+    for conf in REPORTS:
+        tip = conf["tip"]
+        if only and tip != only:
+            continue
+        t0 = time.time()
+        try:
+            recs = fetch(conf["path"])
+            if dry:
+                res = sl_ingest.kuru_json(recs, tip, conf["alan_map"])
+            else:
+                res = sl_ingest.yukle_json(recs, tip, TENANT, conf["alan_map"])
+        except Exception as e:
+            res = {"ok": False, "tip": tip, "hata": f"{type(e).__name__}: {e}"}
+        res["_sn"] = round(time.time() - t0, 1)
+        ozet.append(res)
+        print(json.dumps(res, ensure_ascii=False, default=str))
+        # ⚠ bir rapor kapıdan düşerse DİĞERLERİNİ engelleme — her rapor bağımsız (motorla aynı ilke)
+    basarili = sum(1 for r in ozet if r.get("ok"))
+    print(f"\n=== ÖZET: {basarili}/{len(ozet)} rapor OK "
+          f"({'DRY-RUN' if dry else 'GERÇEK'}), tenant={TENANT} ===")
+    return ozet
+
+
+if __name__ == "__main__":
+    a = sys.argv[1:]
+    if a and a[0] == "--probe":
+        probe(a[1] if len(a) > 1 else "tahsilat")
+    elif a and a[0] == "--dry":
+        run(dry=True, only=(a[1] if len(a) > 1 else None))
+    elif a and a[0] == "--only":
+        run(dry=False, only=a[1])
+    else:
+        run(dry=False)

@@ -2,3 +2,6 @@
 .DS_Store
 node_modules
 npm-debug.log
+derive_arsiv/
+backups/
+*.csv

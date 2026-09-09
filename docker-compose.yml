@@ -32,6 +32,11 @@ services:
       MICROSOFT_CLIENT_SECRET: "${MICROSOFT_CLIENT_SECRET:-}"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       BI_INGEST_TOKEN: YJu5oRCEg7XbszHx49DNQ8KQHez1KGjqxJ3lmTpjTc0NSOP8
+    volumes:
+      - /opt/krb-assessment/fcm-sa.json:/app/fcm-sa.json:ro
+      - /opt/krb-assessment/apns-key.p8:/app/apns-key.p8:ro
+      - /opt/krb-assessment/shells/derive-intelligence.apk:/app/shells/derive-intelligence.apk:ro
+      - /opt/krb-assessment/shells/indir.html:/app/shells/indir.html:ro
     ports:
       - "8080:3000"
 

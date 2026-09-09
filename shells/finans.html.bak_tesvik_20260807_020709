@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="tr" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Derive · Finans Odası</title>
+<style>
+:root{
+  --page:#09090b; --s1:#111116; --s2:#16161c; --s3:#1d1d25; --s4:#24242e;
+  --ink0:#f5f5f1; --ink1:#adaca6; --ink2:#75746f; --ink3:#4c4c4a;
+  --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.13);
+  --accent:#34d3bf; --accent2:#2b93c9; --accent-dim:#1f7d73; --glow:rgba(52,211,191,.14);
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --crit:#d03b3b;
+  --up:#2fd06f; --down:#e5595a;
+  --stok:#fab219; --alacak:#3987e5; --borc:#199e70;
+  color-scheme:dark; --r:16px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--page);color:var(--ink0);
+  font-family:system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+body{padding:22px}
+.num{font-variant-numeric:tabular-nums}
+
+/* prototype bar */
+.stage{max-width:1300px;margin:0 auto}
+.protobar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:8px 4px 18px;
+  color:var(--ink2);font-size:12px;letter-spacing:.04em}
+.seg{display:flex;background:var(--s2);border:1px solid var(--line);border-radius:999px;padding:3px}
+.seg button{background:none;border:none;color:var(--ink1);font:inherit;font-size:12px;
+  padding:6px 15px;border-radius:999px;cursor:pointer}
+.seg button.on{background:var(--accent);color:#052825;font-weight:640}
+.ribbon{margin-left:auto;display:flex;align-items:center;gap:8px;color:var(--warn);
+  font-size:11px;letter-spacing:.05em;text-transform:uppercase}
+.ribbon .dot{width:6px;height:6px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 4px rgba(250,178,25,.15)}
+
+.frame{margin:0 auto;transition:max-width .35s}
+.frame.desktop{max-width:1300px}
+.frame.mobile{max-width:398px}
+
+.app{background:var(--s1);border:1px solid var(--line);border-radius:24px;overflow:hidden;
+  box-shadow:0 40px 120px -40px rgba(0,0,0,.9)}
+.topbar{display:flex;align-items:center;gap:15px;padding:17px 24px;border-bottom:1px solid var(--line);
+  background:linear-gradient(180deg,#131319,#0f0f13)}
+.brand{display:flex;align-items:center;gap:11px;font-weight:600}
+.brand .mk{width:26px;height:26px;border-radius:8px;
+  background:conic-gradient(from 210deg,var(--accent),#2b7d9c,var(--accent));box-shadow:0 0 20px var(--glow)}
+.brand b{font-weight:680}.brand .sub{color:var(--ink2)}.brand .fin{color:var(--accent);font-weight:680}
+.live{display:flex;align-items:center;gap:7px;color:var(--ink1);font-size:12px}
+.live .p{width:7px;height:7px;border-radius:50%;background:var(--up);animation:pulse 2.4s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(47,208,111,.5)}50%{box-shadow:0 0 0 6px rgba(47,208,111,0)}}
+.fresh{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink1);
+  background:var(--s2);border:1px solid var(--line);padding:7px 13px;border-radius:999px}
+.fresh .s{color:var(--up)}
+.rooms{display:flex;gap:4px;padding:11px 18px;border-bottom:1px solid var(--line);overflow-x:auto}
+.rooms button{white-space:nowrap;background:none;border:1px solid transparent;color:var(--ink1);
+  font:inherit;font-size:13.5px;padding:9px 15px;border-radius:11px;cursor:pointer;display:flex;gap:8px;align-items:center}
+.rooms button:hover{color:var(--ink0);background:var(--s2)}
+.rooms button.on{background:var(--s3);color:var(--ink0);border-color:var(--line2)}
+.rooms button .n{color:var(--ink3);font-size:11px}
+.rooms button.on .n{color:var(--accent)}
+.body{padding:24px}
+
+/* ===== ECONOMIST big picture ===== */
+.econ{display:flex;gap:16px;padding:20px;border:1px solid var(--line);border-radius:var(--r);margin-bottom:22px;
+  background:radial-gradient(130% 150% at 0% 0%,rgba(52,211,191,.09),transparent 55%),var(--s2)}
+.econ .av{width:44px;height:44px;border-radius:13px;flex-shrink:0;
+  background:linear-gradient(150deg,var(--accent),var(--accent2));color:#052825;
+  display:grid;place-items:center;font-size:20px;box-shadow:0 0 26px var(--glow);animation:breathe 3.8s ease-in-out infinite}
+@keyframes breathe{0%,100%{box-shadow:0 0 22px var(--glow)}50%{box-shadow:0 0 42px var(--glow);transform:scale(1.04)}}
+
+/* heartbeat monitor — the room is alive */
+.heartbeat{display:flex;align-items:center;gap:13px;margin-bottom:18px;padding:8px 14px;
+  background:var(--s2);border:1px solid var(--line);border-radius:11px;font-size:12px;color:var(--ink1)}
+.hbmon{width:130px;height:20px;flex-shrink:0}
+.hbmon .base{stroke:var(--line2)}
+.hbmon .pulse{stroke:var(--accent);stroke-dasharray:22 260;stroke-dashoffset:282;animation:ecg 2.1s linear infinite;filter:drop-shadow(0 0 4px var(--accent))}
+@keyframes ecg{to{stroke-dashoffset:0}}
+.hbdot{width:7px;height:7px;border-radius:50%;background:var(--up);flex-shrink:0;animation:pulse 2.1s infinite}
+.hbtext{transition:opacity .5s;color:var(--ink1)}
+
+/* time selector (cockpit-parity; prod → parametreli uç) */
+.timesel{display:flex;align-items:center;gap:14px;padding:11px 24px;border-bottom:1px solid var(--line);flex-wrap:wrap;background:var(--s1)}
+.timesel .tl{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink2)}
+.tchips{display:flex;gap:3px;background:var(--s2);border:1px solid var(--line);border-radius:999px;padding:3px}
+.tchips button{background:none;border:none;color:var(--ink1);font:inherit;font-size:12.5px;padding:6px 13px;border-radius:999px;cursor:pointer}
+.tchips button.on{background:var(--accent);color:#052825;font-weight:640}
+.tsum{font-size:12.5px;color:var(--ink1)}
+.tsum b{color:var(--ink0);font-weight:660}
+.tsum .tnote{color:var(--ink3);font-size:11.5px}
+.frame.mobile .timesel{padding:10px 15px}.frame.mobile .tsum{width:100%}
+.econ .c{flex:1}
+.econ .lab{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);
+  display:flex;align-items:center;gap:9px;margin-bottom:8px}
+.econ .lab .wave{display:flex;gap:2.5px;align-items:center;height:12px}
+.econ .lab .wave i{width:2.5px;background:var(--accent);border-radius:2px;animation:eq 1.1s ease-in-out infinite}
+.econ .lab .wave i:nth-child(1){height:5px}.econ .lab .wave i:nth-child(2){height:11px;animation-delay:.15s}
+.econ .lab .wave i:nth-child(3){height:7px;animation-delay:.3s}.econ .lab .wave i:nth-child(4){height:12px;animation-delay:.45s}
+@keyframes eq{0%,100%{transform:scaleY(.4)}50%{transform:scaleY(1)}}
+.econ p{font-size:15.5px;line-height:1.6;color:var(--ink0);font-weight:420;letter-spacing:-.005em}
+.econ p+p{margin-top:10px}
+.econ b{color:#fff;font-weight:640}
+.econ .why{color:var(--accent);border-bottom:1px dashed var(--accent-dim);cursor:pointer}
+.econ .recs{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+.econ .rec{display:flex;gap:10px;align-items:flex-start;background:var(--s3);border:1px solid var(--line);
+  border-radius:11px;padding:11px 13px;font-size:13.5px;line-height:1.45}
+.econ .rec .tg{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:#052825;background:var(--accent);
+  padding:2px 8px;border-radius:6px;font-weight:640;flex-shrink:0;margin-top:1px}
+.econ .foot{margin-top:13px;display:flex;gap:14px;align-items:center;color:var(--ink2);font-size:12px;flex-wrap:wrap}
+.econ .foot .listen{color:var(--ink1);cursor:pointer;display:flex;gap:6px;align-items:center}
+.econ .foot .listen:hover{color:var(--accent)}
+.fb{display:flex;gap:6px}.fb button{background:var(--s3);border:1px solid var(--line);color:var(--ink1);
+  border-radius:8px;padding:3px 10px;cursor:pointer;font:inherit;font-size:12px}
+.fb button:hover{border-color:var(--accent-dim);color:var(--ink0)}
+
+/* ===== MONEY JOURNEY ===== */
+.journey{background:var(--s2);border:1px solid var(--line);border-radius:var(--r);padding:22px 22px 24px;margin-bottom:16px}
+.journey .top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:10px}
+.journey h3{font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink1);font-weight:600}
+.journey .head{font-size:19px;font-weight:600;letter-spacing:-.02em;margin-top:7px;color:var(--ink0)}
+.journey .head b{color:var(--accent)}
+.journey .verdict{text-align:right}
+.journey .verdict .big{font-size:46px;font-weight:700;letter-spacing:-.03em;line-height:1;color:var(--accent)}
+.journey .verdict .big small{font-size:18px;color:var(--ink1);font-weight:500}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:11.5px;font-weight:600;margin-top:8px}
+.pill.risk{background:rgba(208,59,59,.14);color:#ff8b8b}
+.pill.ok{background:rgba(12,163,12,.16);color:#4fd44f}
+
+/* stations row */
+.stations{display:flex;align-items:stretch;gap:0;margin:6px 0 8px;position:relative}
+.st{flex:1;display:flex;flex-direction:column;align-items:center;text-align:center;position:relative;z-index:2}
+.st .icon{width:52px;height:52px;border-radius:15px;background:var(--s3);border:1px solid var(--line2);
+  display:grid;place-items:center;font-size:23px;position:relative}
+.st.cash .icon{background:linear-gradient(150deg,rgba(52,211,191,.2),rgba(52,211,191,.05));border-color:var(--accent-dim)}
+.st .nm{font-size:12.5px;color:var(--ink0);margin-top:9px;font-weight:560}
+.st .dsc{font-size:11px;color:var(--ink2);margin-top:2px;max-width:120px;line-height:1.3}
+.leg{flex:0 0 auto;width:14%;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;
+  padding-top:14px;position:relative;z-index:1}
+.leg .line{width:100%;height:2px;background:linear-gradient(90deg,var(--line2),var(--ink3));position:relative}
+.leg .line::after{content:"▸";position:absolute;right:-4px;top:-9px;color:var(--ink3);font-size:13px}
+.leg .days{font-size:13px;font-weight:680;margin-top:9px;font-variant-numeric:tabular-nums}
+.leg .lbl{font-size:10.5px;color:var(--ink2);margin-top:2px;text-align:center;line-height:1.25}
+.leg.stok .days{color:var(--stok)} .leg.alacak .days{color:var(--alacak)}
+/* traveling dot */
+.track{position:absolute;top:26px;left:6%;right:6%;height:2px;z-index:0}
+.money-dot{position:absolute;top:19px;left:0;width:12px;height:12px;border-radius:50%;background:var(--accent);
+  box-shadow:0 0 12px var(--accent);z-index:3;animation:travel 7s linear infinite}
+@keyframes travel{0%{left:6%;opacity:0}5%{opacity:1}95%{opacity:1}100%{left:92%;opacity:0}}
+
+/* the math bar (formula as picture) */
+.mathbar{margin-top:22px;padding-top:20px;border-top:1px solid var(--line)}
+.mathbar .cap{font-size:11px;color:var(--ink2);margin-bottom:11px;letter-spacing:.02em}
+.mbar{display:flex;height:38px;border-radius:9px;overflow:hidden;background:var(--s3)}
+.mbar .seg{display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:640;color:#0a0a0a;
+  position:relative;border-right:2px solid var(--s2)}
+.mbar .seg.stok{background:var(--stok)}.mbar .seg.alacak{background:var(--alacak);color:#fff}
+.mbar .seg.dpo{background:repeating-linear-gradient(45deg,var(--borc),var(--borc) 6px,#12805c 6px,#12805c 12px);color:#fff}
+.mbar .seg small{position:absolute;bottom:-19px;left:0;color:var(--ink2);font-size:10.5px;font-weight:400;white-space:nowrap}
+.mathbar .eq{margin-top:30px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  font-size:13.5px;color:var(--ink1);font-variant-numeric:tabular-nums}
+.mathbar .eq b{color:var(--ink0)} .mathbar .eq .res{color:var(--accent);font-weight:680;font-size:15px}
+.mathbar .eq .op{color:var(--ink3)}
+
+/* ===== metric grid (self-explaining) ===== */
+h2.sec{font-size:12.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink1);
+  margin:26px 0 14px;font-weight:600;display:flex;align-items:center}
+h2.sec .sn{color:var(--ink3);font-size:11px;margin-right:10px}
+h2.sec::after{content:"";flex:1;height:1px;background:var(--line);margin-left:14px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.m{background:var(--s2);border:1px solid var(--line);border-radius:14px;padding:17px 18px;position:relative}
+.m .row1{display:flex;align-items:center;gap:9px}
+.m .k{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink1);font-weight:560}
+.m .badge{font-size:9px;letter-spacing:.07em;text-transform:uppercase;padding:2px 7px;border-radius:5px;font-weight:640}
+.m .badge.live{background:rgba(47,208,111,.15);color:var(--up)}
+.m .badge.prov{background:rgba(250,178,25,.13);color:var(--warn)}
+.m .v{font-size:30px;font-weight:680;letter-spacing:-.025em;margin:11px 0 3px;font-variant-numeric:tabular-nums}
+.m .v small{font-size:15px;color:var(--ink1);font-weight:500}
+.m .plain{font-size:13px;color:var(--ink0);line-height:1.45;font-weight:420}
+.m .meta{margin-top:12px;padding-top:11px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
+.m .meta .r{display:flex;gap:8px;font-size:11.5px;line-height:1.4}
+.m .meta .r .t{color:var(--ink3);flex:0 0 46px;text-transform:uppercase;letter-spacing:.04em;font-size:10px;padding-top:1px}
+.m .meta .r .x{color:var(--ink1);flex:1}
+.m .meta .r.why .x{color:var(--ink0)}
+.m .stat{position:absolute;top:16px;right:16px;width:8px;height:8px;border-radius:50%}
+.m .stat.ok{background:var(--good)}.m .stat.mid{background:var(--warn)}.m .stat.risk{background:var(--crit)}
+
+/* trend + laws */
+.learn{display:grid;grid-template-columns:1.5fr 1fr;gap:16px;margin-top:8px}
+.card{background:var(--s2);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+.card .ch{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.card .ch h3{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink1);font-weight:600}
+.card .ch .sub{font-size:12px;color:var(--ink2)}
+.trend svg{width:100%;height:172px;display:block;overflow:visible;margin-top:8px}
+.cross{stroke:var(--line2);stroke-width:1;stroke-dasharray:3 3;opacity:0}
+.tip{position:absolute;pointer-events:none;background:#000;border:1px solid var(--line2);border-radius:9px;
+  padding:7px 10px;font-size:12px;opacity:0;transform:translate(-50%,-125%);transition:opacity .1s;white-space:nowrap;z-index:5}
+.tip b{color:var(--accent)}
+.laws .list{display:flex;flex-direction:column;gap:9px;margin-top:10px}
+.law{display:flex;gap:11px;background:var(--s3);border:1px solid var(--line);border-radius:12px;padding:12px 13px}
+.law .ic{width:26px;height:26px;border-radius:8px;background:var(--glow);color:var(--accent);
+  display:grid;place-items:center;font-size:13px;flex-shrink:0}
+.law .t{font-size:13px;color:var(--ink0);line-height:1.4}
+.law .mm{font-size:11px;color:var(--ink2);margin-top:4px;display:flex;gap:8px;align-items:center}
+.law .st{padding:1px 7px;border-radius:6px;font-size:10px}
+.law .st.on{background:rgba(12,163,12,.15);color:#4fd44f}.law .st.ta{background:rgba(250,178,25,.13);color:var(--warn)}
+
+.ask{margin-top:16px;display:flex;gap:12px;align-items:center;background:var(--s2);border:1px solid var(--line);
+  border-radius:var(--r);padding:13px 15px}
+.ask .mic{width:38px;height:38px;border-radius:11px;background:var(--accent);color:#052825;
+  display:grid;place-items:center;font-size:17px;flex-shrink:0;box-shadow:0 0 24px var(--glow)}
+.ask input{flex:1;background:none;border:none;color:var(--ink0);font:inherit;font-size:15px;outline:none}
+.ask input::placeholder{color:var(--ink2)}
+.ask .send{background:var(--s3);border:1px solid var(--line2);color:var(--ink1);border-radius:10px;padding:9px 15px;cursor:pointer;font:inherit;font-size:13px}
+.ask .send:hover{color:var(--ink0);border-color:var(--accent-dim)}
+
+/* signals feeding the economist */
+.signals{margin-top:15px;padding-top:14px;border-top:1px solid var(--line)}
+.sighdr{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink2);margin-bottom:10px}
+.sigrow{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.sig{background:var(--s3);border:1px solid var(--line);border-radius:11px;padding:11px 12px}
+.sig .src{font-size:10px;font-weight:640;letter-spacing:.03em;padding:2px 8px;border-radius:6px;display:inline-block}
+.sig .src.v{background:rgba(57,135,229,.16);color:#7db4f5}
+.sig .src.p{background:rgba(250,178,25,.14);color:var(--warn)}
+.sig .src.a{background:rgba(52,211,191,.14);color:var(--accent)}
+.sig .src.n{background:rgba(214,81,129,.16);color:#e58bad}
+.sig p{font-size:12px;line-height:1.45;color:var(--ink0);margin:8px 0 7px;font-weight:420}
+.sig p b{color:#fff;font-weight:640}
+.sig .who{font-size:10.5px;color:var(--ink3)}
+
+/* scenario */
+.scen{background:var(--s2);border:1px solid var(--line);border-radius:var(--r);padding:16px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.chips button{background:var(--s3);border:1px solid var(--line);color:var(--ink1);font:inherit;font-size:12.5px;
+  padding:8px 13px;border-radius:999px;cursor:pointer;transition:.15s}
+.chips button:hover{color:var(--ink0);border-color:var(--line2)}
+.chips button.on{background:var(--accent);color:#052825;font-weight:620;border-color:transparent}
+.scen-ans{background:linear-gradient(180deg,rgba(52,211,191,.06),transparent),var(--s3);
+  border:1px solid var(--line);border-radius:13px;padding:16px 17px}
+.scen-ans .q{font-size:12px;color:var(--ink2);margin-bottom:11px;display:flex;gap:8px;align-items:center}
+.scen-ans .q b{color:var(--ink0);font-weight:560}
+.scen-ans .verdict-tag{margin-left:auto;font-size:10px;text-transform:uppercase;letter-spacing:.05em;
+  padding:3px 9px;border-radius:6px;font-weight:640}
+.scen-ans .verdict-tag.no{background:rgba(208,59,59,.14);color:#ff8b8b}
+.scen-ans .verdict-tag.yes{background:rgba(12,163,12,.16);color:#4fd44f}
+.scen-ans .verdict-tag.care{background:rgba(250,178,25,.13);color:var(--warn)}
+.scen-ans .nums{display:flex;gap:22px;flex-wrap:wrap;margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--line)}
+.scen-ans .nn{display:flex;flex-direction:column}
+.scen-ans .nn .l{font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;color:var(--ink2)}
+.scen-ans .nn .b{font-size:20px;font-weight:680;font-variant-numeric:tabular-nums;margin-top:3px}
+.scen-ans .body-t{font-size:13.5px;line-height:1.55;color:var(--ink0)}
+.scen-ans .body-t b{color:#fff;font-weight:620}
+.scen-ans .body-t .accent{color:var(--accent)}
+.scen-ans .lst{color:var(--ink1);cursor:pointer;font-size:12px;margin-top:10px;display:inline-flex;gap:6px}
+.scen-ans .lst:hover{color:var(--accent)}
+.frame.mobile .sigrow{grid-template-columns:1fr 1fr}
+.frame.mobile .scen-ans .nums{gap:16px}
+@media(max-width:920px){.sigrow{grid-template-columns:1fr 1fr}}
+
+/* discover — overdue pattern small multiples */
+.sm-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:8px}
+.sm{background:var(--s3);border:1px solid var(--line);border-radius:12px;padding:14px}
+.smh{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;color:var(--ink1)}
+.smh .d{font-size:10.5px;font-weight:640;padding:1px 7px;border-radius:6px}
+.smh .d.bad{background:rgba(208,59,59,.14);color:#ff8b8b}
+.smh .d.flat{background:var(--s4);color:var(--ink2)}
+.sm svg{width:100%;height:44px;display:block;margin:11px 0 7px}
+.sm .smv{font-size:22px;font-weight:680;font-variant-numeric:tabular-nums}
+.sm .smv small{font-size:12px;color:var(--ink2);font-weight:500}
+.pattern{display:flex;gap:12px;margin-top:15px;padding-top:15px;border-top:1px solid var(--line)}
+.pattern .pic{width:30px;height:30px;border-radius:9px;background:var(--glow);color:var(--accent);
+  display:grid;place-items:center;flex-shrink:0}
+.pattern .hd{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--ink2);
+  display:flex;gap:9px;align-items:center;margin-bottom:6px}
+.pattern .conf{background:rgba(250,178,25,.13);color:var(--warn);padding:1px 8px;border-radius:5px;font-size:9.5px;letter-spacing:.03em}
+.pattern p{font-size:13.5px;line-height:1.5;color:var(--ink0)}
+.pattern p b{color:#fff;font-weight:620}
+.frame.mobile .sm-grid{grid-template-columns:1fr}
+@media(max-width:920px){.sm-grid{grid-template-columns:1fr}}
+
+/* converse — talk to the room */
+.converse{margin-top:22px;background:radial-gradient(130% 220% at 50% 130%,rgba(52,211,191,.09),transparent 62%),var(--s2);
+  border:1px solid var(--line);border-radius:var(--r);padding:18px}
+.cvlog{display:flex;flex-direction:column;gap:11px;margin-bottom:14px}
+.cvlog:empty{display:none}
+.bub{max-width:84%;font-size:14px;line-height:1.55;padding:12px 15px;border-radius:15px}
+.bub.q{align-self:flex-end;background:var(--s4);color:var(--ink0);border-bottom-right-radius:5px}
+.bub.a{align-self:flex-start;background:linear-gradient(180deg,rgba(52,211,191,.1),transparent),var(--s3);
+  border:1px solid var(--line);border-bottom-left-radius:5px;color:var(--ink0)}
+.bub.a .who{display:flex;align-items:center;gap:8px;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);margin-bottom:9px}
+.bub.a .who .wave{display:flex;gap:2px;height:11px;align-items:center}
+.bub.a .who .wave i{width:2px;background:var(--accent);border-radius:2px;height:6px;animation:eq 1.1s ease-in-out infinite}
+.bub.a .who .wave i:nth-child(2){height:11px;animation-delay:.15s}.bub.a .who .wave i:nth-child(3){height:7px;animation-delay:.3s}
+.bub.a b{color:#fff;font-weight:620}.bub.a .accent{color:var(--accent)}
+.bub.a .nums{display:flex;gap:18px;flex-wrap:wrap;margin:2px 0 10px}
+.bub.a .nums .nn{display:flex;flex-direction:column}
+.bub.a .nums .l{font-size:10px;text-transform:uppercase;letter-spacing:.03em;color:var(--ink2)}
+.bub.a .nums .b{font-size:18px;font-weight:680;font-variant-numeric:tabular-nums;margin-top:2px}
+.bub.a .why{color:var(--accent);border-bottom:1px dashed var(--accent-dim)}
+.thinking{align-self:flex-start;display:flex;gap:5px;padding:13px 15px}
+.thinking i{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:blink 1.2s infinite}
+.thinking i:nth-child(2){animation-delay:.2s}.thinking i:nth-child(3){animation-delay:.4s}
+@keyframes blink{0%,100%{opacity:.25;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
+.cvbar{display:flex;align-items:center;gap:13px;position:relative;background:var(--s1);
+  border:1px solid var(--line2);border-radius:14px;padding:15px 16px;transition:.2s}
+.cvbar:focus-within{border-color:var(--accent-dim);box-shadow:0 0 0 3px var(--glow)}
+.cvbar .orb{width:11px;height:11px;border-radius:50%;background:var(--accent);flex-shrink:0;box-shadow:0 0 14px var(--accent);animation:pulse 2.4s infinite}
+.cvbar input{flex:1;background:none;border:none;color:var(--ink0);font:inherit;font-size:15.5px;outline:none;z-index:2}
+.cvhint{position:absolute;left:41px;color:var(--ink2);font-size:15.5px;pointer-events:none;z-index:1;transition:opacity .4s;font-style:italic}
+.cvgo{background:var(--accent);color:#052825;border:none;width:34px;height:34px;border-radius:10px;cursor:pointer;font-size:15px;flex-shrink:0}
+.cvsub{text-align:center;font-size:11px;color:var(--ink2);margin-top:11px;letter-spacing:.02em}
+
+/* impact simulator */
+.sim{background:radial-gradient(120% 180% at 100% 0%,rgba(52,211,191,.09),transparent 55%),var(--s2);
+  border:1px solid var(--line);border-radius:var(--r);padding:20px;margin-bottom:6px}
+.simhdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:16px;gap:12px}
+.simhdr h3{font-size:15px;font-weight:660;letter-spacing:-.01em}
+.simsub{font-size:12.5px;color:var(--ink1);margin-top:4px}.simsub b{color:var(--accent);font-weight:600}
+.simreset{background:var(--s3);border:1px solid var(--line);color:var(--ink1);font:inherit;font-size:12px;
+  padding:7px 13px;border-radius:9px;cursor:pointer;white-space:nowrap}
+.simreset:hover{color:var(--ink0);border-color:var(--line2)}
+.simgrid{display:grid;grid-template-columns:1fr 1.1fr;gap:22px}
+.levers{display:flex;flex-direction:column;gap:16px;justify-content:center}
+.lev .lh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.lev label{font-size:12.5px;color:var(--ink1)}.lev label span{color:var(--ink3);font-size:10px;letter-spacing:.05em;margin-left:5px}
+.lev .lval{font-size:13px;color:var(--ink2)}.lev .lval b{color:var(--ink0);font-size:17px;font-weight:680;font-variant-numeric:tabular-nums}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:5px;border-radius:99px;
+  background:var(--s4);outline:none;cursor:pointer}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:19px;height:19px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 12px var(--glow),0 2px 6px rgba(0,0,0,.5);cursor:grab}
+input[type=range]::-moz-range-thumb{width:19px;height:19px;border:none;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--glow)}
+.effect{background:var(--s1);border:1px solid var(--line);border-radius:14px;padding:18px}
+.freed{border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:14px}
+.freed .fl{font-size:11.5px;color:var(--ink1);text-transform:uppercase;letter-spacing:.05em}
+.freed .fv{font-size:44px;font-weight:720;letter-spacing:-.03em;color:var(--accent);margin:6px 0 4px;font-variant-numeric:tabular-nums;line-height:1}
+.freed .fv small{font-size:18px;color:var(--ink1);font-weight:500}
+.freed .ftang{font-size:12.5px;color:var(--ink1)}
+.ebars{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
+.er{display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.er .el{color:var(--ink1)}.er .ev{color:var(--ink2);font-variant-numeric:tabular-nums}
+.er .ev b{color:var(--ink0);font-size:16px;font-weight:660}
+.dlt{font-size:11.5px;font-style:normal;font-weight:640;margin-left:4px}
+.dlt.good{color:var(--up)}.dlt.bad{color:var(--down)}
+.vessel{height:16px;border-radius:99px;background:var(--s4);overflow:hidden;display:flex}
+.vfill{height:100%;background:var(--stok);transition:width .25s ease}
+.vfree{height:100%;background:var(--accent);transition:width .25s ease;opacity:.9}
+.vlbl{display:flex;justify-content:space-between;margin-top:8px;font-size:10.5px;color:var(--ink2)}
+.frame.mobile .simgrid{grid-template-columns:1fr}
+@media(max-width:920px){.simgrid{grid-template-columns:1fr}}
+
+/* creative 100₺ / concentration bars */
+.hb{display:flex;height:52px;border-radius:11px;overflow:hidden;background:var(--s3);margin-top:10px}
+.hs{display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:15px;font-weight:700;
+  border-right:2px solid var(--s2);font-variant-numeric:tabular-nums;min-width:0;overflow:hidden;white-space:nowrap;line-height:1.1}
+.hs small{font-size:9.5px;font-weight:500;opacity:.85;text-transform:uppercase;letter-spacing:.03em;margin-top:2px}
+.hs.smm{background:var(--ink3);color:var(--ink0)}
+.hs.fin{background:var(--crit);color:#fff}
+.hs.net{background:var(--accent);color:#052825}
+.hs.rota{background:var(--crit);color:#fff}
+.hs.yedi{background:var(--serious);color:#1a1a12}
+.hs.oth{background:var(--s4);color:var(--ink1)}
+.hnote{font-size:13px;color:var(--ink1);line-height:1.55;margin-top:14px}
+.hnote b{color:#fff;font-weight:620}.hnote .accent{color:var(--accent);font-weight:660}
+/* generic segment colors (aging / breakdown / speed) */
+.hs.g{background:var(--good);color:#04240a}
+.hs.a{background:var(--warn);color:#241a04}
+.hs.serious2{background:var(--serious);color:#241207}
+.hs.r{background:#d9603a;color:#fff}
+.hs.rr{background:var(--crit);color:#fff}
+.hs.b{background:var(--alacak);color:#fff}
+.hs.t{background:var(--accent);color:#052825}
+.hs.n{background:var(--s4);color:var(--ink1)}
+/* brand economics bars */
+.brands{display:flex;flex-direction:column;gap:9px;margin-top:12px}
+.brow{display:flex;align-items:center;gap:12px}
+.brow .bn{width:104px;font-size:12.5px;color:var(--ink1);flex-shrink:0;text-align:right}
+.brow .btrack{flex:1;height:22px;background:var(--s3);border-radius:6px;position:relative;overflow:hidden}
+.brow .btrack .tgt{position:absolute;top:0;bottom:0;width:2px;background:var(--ink1);opacity:.5;z-index:2}
+.brow .bbar{height:100%;border-radius:6px;transition:width .5s ease}
+.brow .bbar.g{background:var(--good)}.brow .bbar.a{background:var(--warn)}.brow .bbar.r{background:var(--crit)}
+.brow .bp{width:56px;font-size:12.5px;font-weight:660;font-variant-numeric:tabular-nums;flex-shrink:0}
+.frame.mobile .brow .bn{width:78px;font-size:11px}
+@media(max-width:920px){.brow .bn{width:78px;font-size:11px}}
+
+.view{display:none}.view.on{display:block}
+.soon{color:var(--ink2);font-size:13px;margin-top:8px;line-height:1.6}
+
+/* drawer */
+.drawer{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;z-index:50;backdrop-filter:blur(3px);
+  align-items:flex-end;justify-content:center}
+.drawer.open{display:flex}
+.drawer .panel{background:var(--s1);border:1px solid var(--line2);border-radius:22px 22px 0 0;width:100%;
+  max-width:660px;padding:24px;animation:up .3s}
+@keyframes up{from{transform:translateY(40px);opacity:.6}to{transform:translateY(0);opacity:1}}
+.drawer .x{float:right;background:var(--s3);border:1px solid var(--line);color:var(--ink1);width:30px;height:30px;border-radius:9px;cursor:pointer}
+.drawer h4{font-size:18px;margin-bottom:4px}.drawer .lead{color:var(--ink1);margin-bottom:16px;font-size:13px}
+.chain{display:flex;flex-direction:column;gap:11px}
+.chain .step{display:flex;gap:12px}
+.chain .b{width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:6px;flex-shrink:0;box-shadow:0 0 0 4px var(--glow)}
+.chain .tx{font-size:14px;line-height:1.5}.chain .tx small{display:block;color:var(--ink2);font-size:12px;margin-top:2px}
+
+/* mobile */
+.frame.mobile .body{padding:15px}
+.frame.mobile .grid{grid-template-columns:1fr}
+.frame.mobile .learn{grid-template-columns:1fr}
+.frame.mobile .stations{flex-direction:column;gap:0}
+.frame.mobile .st{flex-direction:row;gap:14px;text-align:left;width:100%;justify-content:flex-start}
+.frame.mobile .st .dsc{max-width:none}
+.frame.mobile .leg{width:100%;flex-direction:row;justify-content:flex-start;gap:12px;padding:8px 0 8px 19px}
+.frame.mobile .leg .line{width:2px;height:26px;background:var(--ink3)}
+.frame.mobile .leg .line::after{content:"▾";right:auto;left:-5px;top:auto;bottom:-9px}
+.frame.mobile .leg .days{margin-top:0}
+.frame.mobile .track,.frame.mobile .money-dot{display:none}
+.frame.mobile .journey .top{flex-direction:column}
+.frame.mobile .journey .verdict{text-align:left}
+.frame.mobile .econ{flex-direction:column}
+.frame.mobile .mbar .seg small{font-size:9px}
+.frame.mobile .brand .sub,.frame.mobile .live{display:none}
+.frame.mobile .fresh{margin-left:auto}
+@media(max-width:920px){.grid{grid-template-columns:1fr}.learn{grid-template-columns:1fr}
+  .stations{flex-direction:column}.st{flex-direction:row;gap:14px;text-align:left;justify-content:flex-start}
+  .st .dsc{max-width:none}.leg{width:100%;flex-direction:row;justify-content:flex-start;gap:12px;padding:8px 0 8px 19px}
+  .leg .line{width:2px;height:26px}.leg .line::after{content:"▾";right:auto;left:-5px;top:auto;bottom:-9px}.leg .days{margin-top:0}
+  .track,.money-dot{display:none}.journey .top,.econ{flex-direction:column}.journey .verdict{text-align:left}}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="frame desktop" id="frame"><div class="app">
+    <div class="topbar">
+      <div class="brand"><span class="mk"></span><b>DERİVE</b><span class="sub">▸</span><span class="fin">Finans</span></div>
+      <div class="live"><span class="p" id="finLiveDot"></span><span id="finLive">canlı</span></div>
+      <div class="fresh" id="finFresh">🔄 <span class="s" id="finAsOf">yükleniyor…</span></div>
+    </div>
+    <div class="rooms" id="rooms">
+      <button class="on" data-view="ccc"><span class="n">01</span>Nakit Yolculuğu</button>
+      <button data-view="kar"><span class="n">02</span>Kârlılık</button>
+      <button data-view="alacak"><span class="n">03</span>Alacak &amp; Risk</button>
+      <button data-view="stok"><span class="n">04</span>Stok</button>
+    </div>
+
+    <div class="timesel">
+      <span class="tl">Zaman</span>
+      <div class="tchips" id="tchips">
+        <button data-w="buay">Bu ay</button>
+        <button data-w="3">3 Ay</button>
+        <button data-w="6">6 Ay</button>
+        <button data-w="12" class="on">12 Ay</button>
+        <button data-w="yb">Yıl Başı</button>
+      </div>
+      <div class="tsum" id="tsum"></div>
+    </div>
+
+    <div class="body">
+     
+     <!-- ============ NAKİT YOLCULUĞU ============ -->
+     <div class="view on" data-v="ccc">
+
+      <!-- ECONOMIST -->
+      
+
+      <!-- MONEY JOURNEY -->
+      <div class="journey">
+        <div class="top">
+          <div><h3>Nakit Yolculuğu</h3>
+            <div class="head">Paran şu yolu izliyor: nakit → stok → satış → alacak → <b>geri nakit</b></div></div>
+          <div class="verdict"><div class="big num"><span id="jCcc">—</span><small> gün</small></div>
+            <div><span class="pill" id="jVerdict">—</span></div>
+            <div style="color:var(--ink2);font-size:11px;margin-top:6px">paran bu kadar süre bağlı kalıyor</div></div>
+        </div>
+
+        <div class="stations">
+          <div class="money-dot"></div>
+          <div class="st cash"><div class="icon">💵</div><div class="nm">Nakit</div><div class="dsc">tedarikçiye ödeyip mal alırsın</div></div>
+          <div class="leg"><div class="line"></div><div class="days" style="color:var(--ink2)">alış</div><div class="lbl">mal deposuna girer</div></div>
+          <div class="st"><div class="icon">📦</div><div class="nm">Stok</div><div class="dsc">satılana kadar rafta</div></div>
+          <div class="leg stok"><div class="line"></div><div class="days num" id="jDioG">—</div><div class="lbl">rafta bekleme<br>(DIO)</div></div>
+          <div class="st"><div class="icon">🛒</div><div class="nm">Satış</div><div class="dsc">malı sattın (çoğu vadeli)</div></div>
+          <div class="leg alacak"><div class="line"></div><div class="days num" id="jDsoG">—</div><div class="lbl">tahsilat bekleme<br>(DSO)</div></div>
+          <div class="st cash"><div class="icon">💵</div><div class="nm">Geri Nakit</div><div class="dsc">tahsil ettin, döngü kapandı</div></div>
+        </div>
+
+        <div class="mathbar">
+          <div class="cap" id="jCap">—</div>
+          <div class="mbar">
+            <div class="seg stok" id="mbDio"><small>stok (DIO)</small></div>
+            <div class="seg alacak" id="mbDso"><small>alacak (DSO)</small></div>
+            <div class="seg dpo" id="mbDpo"><small>ödeme vaden (DPO) finanse eder</small></div>
+          </div>
+          <div class="eq"><b id="eqDio">DIO —</b><span class="op">+</span><b id="eqDso">DSO —</b><span class="op">−</span><b id="eqDpo">DPO —</b>
+            <span class="op">=</span><span class="res" id="eqCcc">CCC —</span>
+            <span style="color:var(--ink3);margin-left:6px" id="eqDonem">· dönem: son 12 ay (Tem'25–Haz'26)</span></div>
+        </div>
+      </div>
+
+      <!-- IMPACT SIMULATOR -->
+      <div class="sim">
+        <div class="simhdr">
+          <div><h3>⚡ Ne olurdu?</h3><div class="simsub">Bir kolu çek — nakit döngüsünün <b>gerçek etkisini</b> anında gör</div></div>
+          <button class="simreset" id="simReset">↺ bugüne dön</button>
+        </div>
+        <div class="simgrid">
+          <div class="levers">
+            <div class="lev"><div class="lh"><label>Stok günü <span>DIO</span></label><div class="lval"><b id="vDio">—</b> gün</div></div>
+              <input type="range" id="sDio" min="40" max="300" value="170"></div>
+            <div class="lev"><div class="lh"><label>Tahsilat günü <span>DSO</span></label><div class="lval"><b id="vDso">—</b> gün</div></div>
+              <input type="range" id="sDso" min="30" max="220" value="120"></div>
+            <div class="lev"><div class="lh"><label>Ödeme günü <span>DPO</span></label><div class="lval"><b id="vDpo">—</b> gün</div></div>
+              <input type="range" id="sDpo" min="30" max="320" value="230"></div>
+          </div>
+          <div class="effect">
+            <div class="freed">
+              <div class="fl">Serbest kalan nakit <span style="color:var(--ink3)">· bugüne göre</span></div>
+              <div class="fv"><span id="freedV">+0</span> <small>M ₺</small></div>
+              <div class="ftang" id="tang">kolu çek, etkisini gör…</div>
+            </div>
+            <div class="ebars">
+              <div class="er"><span class="el">Nakit döngüsü</span><span class="ev"><b id="cccOut">—</b> gün <i id="cccD" class="dlt"></i></span></div>
+              <div class="er"><span class="el">Bağlı ticari sermaye</span><span class="ev"><b id="twcOut">—</b> M ₺ <i id="twcD" class="dlt"></i></span></div>
+              <div class="er"><span class="el">Yıllık finansman tasarrufu <span style="color:var(--ink3)">·%50</span></span><span class="ev"><b id="finOut">+0</b> M ₺ <i id="finD" class="dlt"></i></span></div>
+            </div>
+            <div class="vessel"><div class="vfill" id="vfill"></div><div class="vfree" id="vfree"></div></div>
+            <div class="vlbl"><span>■ bağlı sermaye</span><span style="color:var(--accent)">■ serbest kalan</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- METRIC GRID -->
+      <h2 class="sec"><span class="sn">A</span>Çekirdek metrikler — her biri kendini anlatır</h2>
+      <div class="grid" id="grid"></div>
+
+      <!-- CREATIVE DIAGRAMS -->
+      <div class="learn" style="margin-top:16px">
+        <div class="card">
+          <div class="ch"><h3>Her 100 ₺ satıştan sana ne kalıyor?</h3><span class="sub">12 ay</span></div>
+          <div class="hb" id="hb100"></div>
+          <p class="hnote" id="hnote100">—</p>
+        </div>
+        <div class="card">
+          <div class="ch"><h3>Net gecikmiş alacak kimde yoğun?</h3><span class="sub">—</span></div>
+          <div class="hb"></div>
+          <p class="hnote"></p>
+        </div>
+      </div>
+
+      <!-- LEARN + LISTEN -->
+      <h2 class="sec"><span class="sn">B</span>İzliyor &amp; öğreniyor</h2>
+      <div class="learn">
+        <div class="card trend">
+          <div class="ch"><h3>Brüt marj — 12 ay trendi</h3><span class="sub">% · yüksek iyi</span></div>
+          <div style="position:relative"><svg id="trendsvg" viewBox="0 0 560 172"></svg><div class="tip" id="trendtip"></div></div>
+        </div>
+        
+      </div>
+      
+
+     </div>
+
+     <!-- ROOMS 2–4 · full depth -->
+     <!-- ============ KÂRLILIK ============ -->
+     <div class="view" data-v="kar">
+       
+
+       <h2 class="sec"><span class="sn">A</span>Kârlılık metrikleri — her biri kendini anlatır</h2>
+       <div class="grid">
+         <div class="m"><span class="stat ok"></span><div class="row1"><span class="k">Net Satış · lastik</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="g2NetSatis">— <small>M ₺</small></div><div class="plain">12 ay lastik cirosu.</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">SUM(ciro) · bi_marj_atom · 12 ay (iade hariç)</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">son 12 ay · Tem'25–Haz'26</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Kârın ve marjın tabanı.</span></div></div></div>
+         <div class="m"><span class="stat mid"></span><div class="row1"><span class="k">SMM</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="g2Smm">— <small>M ₺</small></div><div class="plain">Satılan lastiğin sana maliyeti.</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">SUM(ciro − brüt_kâr)</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">son 12 ay</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Marjın diğer yarısı — maliyet dilimi.</span></div></div></div>
+         <div class="m"><span class="stat ok"></span><div class="row1"><span class="k">Brüt Kâr</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="g2BrutKar">— <small>M ₺</small></div><div class="plain">Satıştan maliyet düşünce kalan.</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">SUM(brüt_kâr) · bi_marj_atom</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">son 12 ay</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Finansmandan önceki gerçek kazanç.</span></div></div></div>
+         <div class="m"><span class="stat mid"></span><div class="row1"><span class="k">Brüt Marj</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="g2BrutMarj">—</div><div class="plain">Her 100 ₺ satıştan kalan brüt pay (12 ay).</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">brüt_kâr / ciro (kanonik) · kokpitle birebir</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">son 12 ay</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Tek sayı yanıltıcı — markaya göre dağılır.</span></div></div></div>
+         <div class="m"><span class="stat risk"></span><div class="row1"><span class="k">Fiyat sızıntısı</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="gSizinti">— <small>M ₺</small></div><div class="plain">Maliyet-altı satılan lastiğin kaybettirdiği brüt kâr (seçili dönem).</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">marj-alarm · SKU maliyet-altı</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">son 12 ay</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Fiyat düzeltmesiyle geri kazanılabilir.</span></div></div></div>
+         <div class="m"><span class="stat mid"></span><div class="row1"><span class="k">Net Marj (teşvik sonrası)</span><span class="badge prov">açık</span></div>
+           <div class="v num">—</div><div class="plain">Teşvikler dâhil gerçek net marj.</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">kesin_net_marj_pct · bi_marj_atom</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">teşvik çatalı GÖMÜLMEDİ</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Kararlar net üzerinden verilmeli; açık kalem.</span></div></div></div>
+       </div>
+
+       <h2 class="sec"><span class="sn">B</span>Marka ekonomisi — her marka kendi seviyesine göre</h2>
+       <div class="card">
+         <div class="ch"><h3>Marka marjı</h3><span class="sub">12 ay · SKU-marj p60</span></div>
+         <div class="brands" id="brands"></div>
+         <p class="hnote" style="margin-top:14px">Marj-tier hipotezi çürüdü: fiyat markanın <b>kanıtlanmış (p60)</b> seviyesine göre olmalı — premium olduğu için pahalı, value olduğu için ucuz değil. <span class="accent">Underpriced premium + zarardaki value markaları</span> sızıntının kaynağı.</p>
+       </div>
+
+       
+     </div>
+
+     <!-- ============ ALACAK & RİSK ============ -->
+     <div class="view" data-v="alacak">
+       
+
+       <h2 class="sec"><span class="sn">A</span>Alacak metrikleri — her biri kendini anlatır</h2>
+       <div class="grid">
+         <div class="m"><span class="stat risk"></span><div class="row1"><span class="k">Ticari Alacaklar</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="g3Alacak">— <small>M ₺</small></div><div class="plain">Müşterilerin tahsil edilmemiş borcu.</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">SUM(bakiye>0) · TEDAR hariç · FIFO</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">anlık</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Sermayenin kilitli olduğu yer.</span></div></div></div>
+         <div class="m"><span class="stat risk"></span><div class="row1"><span class="k">Gecikmiş (FIFO)</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="g3Gecikmis">— <small>M ₺</small></div><div class="plain">Vadesi geçmiş açık kalem toplamı.</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">FIFO türetme · en eski faturadan</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">anlık</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">FIFO ile gerçek gecikme.</span></div></div></div>
+         <div class="m"><span class="stat risk"></span><div class="row1"><span class="k">Net gecikmiş</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="g3NetGecikmis">— <small>M ₺</small></div><div class="plain">KRB borcu mahsup edilince kalan — kokpitle birebir.</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">GREATEST(gecikmiş+tedarikçi_bakiye,0)</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">anlık · bugün</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Finansman maliyetinin gerçek tabanı.</span></div></div></div>
+         <div class="m"><span class="stat risk"></span><div class="row1"><span class="k">Finansman yükü/yıl</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="g3FinYuk">— <small>M ₺</small></div><div class="plain">Net gecikmiş alacağı taşıma bedeli.</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">net gecikmiş × %50 (FIN_YILLIK)</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">yıllık</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Brüt kârın sessiz büyük dilimi.</span></div></div></div>
+         <div class="m"><span class="stat mid"></span><div class="row1"><span class="k">DSO · tahsilat</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="g3Dso">— <small>gün</small></div><div class="plain">Bir satışı ortalama kaç günde tahsil.</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">(Alacak / Net Satış) × 365</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">anlık ÷ 12 ay lastik</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Nakit döngüsünün ikinci ağır kalemi.</span></div></div></div>
+         <div class="m"><span class="stat mid"></span><div class="row1"><span class="k">Ölçülen tahsilat</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="gOlculen">— <small>gün</small></div><div class="plain">Faturaların ortalama kaç günde ödendiği — ölçülen (bilanço DSO değil).</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">bi_tahsilat · tutar-ağırlıklı</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">tam geçmiş + son 12 ay</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Proxy yerine ölçülen davranış.</span></div></div></div>
+       </div>
+
+       <h2 class="sec"><span class="sn">B</span>Görsel okuma</h2>
+       <div class="learn">
+         
+         <div class="card">
+           <div class="ch"><h3>Net gecikmiş kimde? <span style="color:var(--ink3)">top exposure</span></h3><span class="sub">—</span></div>
+           <div class="hb"></div>
+           <p class="hnote"></p>
+         </div>
+       </div>
+
+       
+     </div>
+
+     <!-- ============ STOK ============ -->
+     <div class="view" data-v="stok">
+       
+
+       <h2 class="sec"><span class="sn">A</span>Stok metrikleri — her biri kendini anlatır</h2>
+       <div class="grid">
+         <div class="m"><span class="stat mid"></span><div class="row1"><span class="k">Stok değeri · lastik</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="g4Stok">— <small>M ₺</small></div><div class="plain">Depodaki satılmamış lastiğin maliyet-bazlı değeri.</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">SUM(toplam_deger) · yalnız LASTIK grupları</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">anlık · sarf-bug hariç</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Döngü sağlıklı.</span></div></div></div>
+         <div class="m"><span class="stat mid"></span><div class="row1"><span class="k">DIO · stok süresi</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="g4Dio">— <small>gün</small></div><div class="plain">Lastiği ortalama kaç gün rafta tutuyorsun.</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">(Stok / SMM) × 365</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">anlık ÷ 12 ay SMM</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">DPO bunu fazlasıyla karşılıyor.</span></div></div></div>
+         <div class="m"><span class="stat ok"></span><div class="row1"><span class="k">Devir hızı</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="g4Devir">—<small>×/yıl</small></div><div class="plain">Stok yılda kaç kez tamamen satılıp yenileniyor.</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">365 / DIO</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">son 12 ay</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Dağıtıcı için sağlıklı devir hızı.</span></div></div></div>
+         <div class="m"><span class="stat mid"></span><div class="row1"><span class="k">Ölü + yavaş stok</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="gOluStok">— <small>M ₺</small></div><div class="plain">90 gündür satış-çıkışı olmayan lastik — donmuş sermaye.</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">hareket görmeyen SKU · bi_stok_hareket</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">anlık · doğrulanacak</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Doğrudan serbest bırakılabilir sermaye.</span></div></div></div>
+         <div class="m"><span class="stat mid"></span><div class="row1"><span class="k">SMM tabanı</span><span class="badge live">canlı</span></div>
+           <div class="v num" id="g4Smm">— <small>M ₺</small></div><div class="plain">DIO'nun paydası — yıllık satış maliyeti.</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x num">bi_marj_atom · 12 ay</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">son 12 ay</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Stok gününü ölçmenin tabanı.</span></div></div></div>
+         <div class="m"><span class="stat mid"></span><div class="row1"><span class="k">Sipariş bekleyen</span><span class="badge prov">doğrulanıyor</span></div>
+           <div class="v num">—<!-- FINANS_SIPARIS_REVERT_V2 --></div><div class="plain">Sipariş bekleyen — kaynağın ERP anlamı doğrulanana kadar bağlanmadı.</div>
+           <div class="meta"><div class="r"><span class="t">Nasıl</span><span class="x">kaynak doğrulanıyor</span></div>
+             <div class="r"><span class="t">Dönem</span><span class="x">—</span></div>
+             <div class="r why"><span class="t">Neden</span><span class="x">Gelen stok ek sermaye bağlar.</span></div></div></div>
+       </div>
+
+       
+       
+
+       
+     </div>
+
+     <!-- ============ GLOBAL · odayla konuş ============ -->
+     
+
+    </div>
+  </div></div>
+</div>
+
+
+
+<script>
+// ===== FINANS ODASI — %100 CANLI MOTOR (FINANS_ODA_LIVE_V2) =====
+// Kural: ekranda görünen HER sayı canlı kaynaktan (/api/bi/finans/oda) gelir.
+// Canlı kaynağı olmayan alan "—" gösterir; asla uydurma/placeholder sayı YOK.
+// Baş-ekonomist LLM anlatısı + "odayla konuş" bloğu bilinçli olarak kaldırıldı
+// (yalnız ekonomist seviyesi/anlamlı-değişim koşulunu karşılarsa geri gelir).
+const FIN={
+  as_of:null, donem:'son 12 ay',
+  net_satis_lastik:null, ciro_sirket:null, smm:null, brut_kar:null, brut_marj_pct:null,
+  ticari_alacaklar:null, gecikmis:null, net_gecikmis:null,
+  finansman_yillik:null, finansman_orani_pct:50,
+  stok_lastik:null, ticari_borclar:null,
+  dso:null, dio:null, devir:null, dpo:null, ccc:null, twc:null, bagli_sermaye_pct:null
+};
+const fmtM=x=>(x===null||x===undefined||Number.isNaN(Number(x)))?'—':Number(x).toLocaleString('tr-TR',{minimumFractionDigits:1,maximumFractionDigits:1});
+const fmt0=x=>(x===null||x===undefined||Number.isNaN(Number(x)))?'—':Math.round(Number(x)).toLocaleString('tr-TR');
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+const pct=x=>(x===null||x===undefined||Number.isNaN(Number(x)))?'—':'%'+fmtM(x);
+
+// metrik grid değeri → FIN alanı eşlemesi (applyFin canlıdan basar)
+const GRIDMAP={
+ 'Ticari Alacaklar':F=>fmtM(F.ticari_alacaklar),
+ 'Stoklar · lastik':F=>fmtM(F.stok_lastik),
+ 'Ticari Borçlar':F=>fmtM(F.ticari_borclar),
+ 'Net Satış · lastik işi':F=>fmtM(F.net_satis_lastik),
+ 'SMM (satılan malın maliyeti)':F=>fmtM(F.smm),
+ 'Brüt Marj':F=>pct(F.brut_marj_pct),
+ 'DSO · tahsilat süresi':F=>fmt0(F.dso),
+ 'DIO · stok süresi':F=>fmt0(F.dio),
+ 'DPO · ödeme süresi':F=>fmt0(F.dpo),
+ 'CCC · nakit döngüsü':F=>fmt0(F.ccc),
+ 'Ticari Sermaye (TWC)':F=>fmtM(F.twc),
+ 'Bağlı Sermaye Oranı':F=>pct(F.bagli_sermaye_pct)
+};
+// metrics — açıklama metinleri sayısızdır; sayı yalnız canlı 'v' alanında
+const M=[
+ {k:'Ticari Alacaklar',badge:['live','canlı'],stat:'risk',v:'—',u:'M ₺',
+  plain:'Müşterilerinin sana borcu — sattın ama henüz tahsil etmedin.',
+  nasil:'SUM(bakiye>0) · tedarikçi/phantom hariç · bi_musteri_risk (FIFO)',
+  donem:'anlık snapshot',
+  neden:'Tahsil edilene kadar sermayen kilitli.'},
+ {k:'Stoklar · lastik',badge:['live','canlı'],stat:'mid',v:'—',u:'M ₺',
+  plain:'Depodaki satılmamış lastiğin maliyet-bazlı değeri.',
+  nasil:'SUM(toplam_deger) · bi_stok_durumu · yalnız LASTIK grupları',
+  donem:'anlık snapshot',
+  neden:'Bridgestone kredisi bunu finanse ediyor; döngü sağlıklı.'},
+ {k:'Ticari Borçlar',badge:['live','canlı'],stat:'ok',v:'—',u:'M ₺',
+  plain:'Tedarikçilerine olan borcun — aldın ama henüz ödemedin.',
+  nasil:'bi_cari_bakiye · tedarikçi negatif bakiye',
+  donem:'anlık snapshot',
+  neden:'Nakit lehine: tedarikçi kredisi döngüyü finanse ediyor.'},
+ {k:'Net Satış · lastik işi',badge:['live','canlı'],stat:'ok',v:'—',u:'M ₺',
+  plain:'12 ay lastik cirosu.',
+  nasil:'SUM(ciro) · bi_marj_atom (lastik+retread)',
+  donem:'son 12 ay',
+  neden:'Oranların paydası (lastik-akış bazlı).'},
+ {k:'SMM (satılan malın maliyeti)',badge:['live','canlı'],stat:'mid',v:'—',u:'M ₺',
+  plain:'Sattığın malın sana maliyeti — ciro eksi brüt kâr.',
+  nasil:'SUM(ciro − brüt_kâr) · bi_marj_atom',
+  donem:'son 12 ay',
+  neden:'Stok ve borç günlerinin (DIO/DPO) paydası.'},
+ {k:'Brüt Marj',badge:['live','canlı'],stat:'mid',v:'—',u:'',
+  plain:'Her 100 ₺ satıştan geriye kalan brüt kâr payı (12 ay).',
+  nasil:'brüt_kâr / ciro · bi_marj_atom (kanonik)',
+  donem:'son 12 ay',
+  neden:'Tek sayı yanıltıcı — markaya göre dağılıyor.'},
+ {k:'DSO · tahsilat süresi',badge:['live','canlı'],stat:'mid',v:'—',u:'gün',
+  plain:'Bir satışı ortalama kaç günde tahsil ediyorsun.',
+  nasil:'(Alacak / Net Satış) × 365',
+  donem:'alacak anlık ÷ 12 ay satış',
+  neden:'Nakit döngüsünün ağır kalemlerinden.'},
+ {k:'DIO · stok süresi',badge:['live','canlı'],stat:'mid',v:'—',u:'gün',
+  plain:'Lastiği ortalama kaç gün rafta tutup satıyorsun.',
+  nasil:'(Stok / SMM) × 365 · yalnız lastik',
+  donem:'stok anlık ÷ 12 ay SMM',
+  neden:'DPO bunu fazlasıyla karşılıyor.'},
+ {k:'DPO · ödeme süresi',badge:['live','canlı'],stat:'ok',v:'—',u:'gün',
+  plain:'Tedarikçine ortalama kaç günde ödüyorsun.',
+  nasil:'(Borç / SMM) × 365',
+  donem:'borç anlık ÷ 12 ay SMM',
+  neden:'Yüksek — tedarikçi kredisi döngüyü kısaltıyor.'},
+ {k:'CCC · nakit döngüsü',badge:['live','canlı'],stat:'ok',v:'—',u:'gün',
+  plain:'Paranın nakitten geri-nakde dönmesi kaç gün.',
+  nasil:'DSO + DIO − DPO',
+  donem:'son 12 ay',
+  neden:'60 gün ALTI = sağlıklı.'},
+ {k:'Ticari Sermaye (TWC)',badge:['live','canlı'],stat:'ok',v:'—',u:'M ₺',
+  plain:'İşe bağlı toplam ticari sermaye.',
+  nasil:'Alacak + Stok − Borç',
+  donem:'anlık',
+  neden:'Düşük — operasyonda az nakit kilitli.'},
+ {k:'Bağlı Sermaye Oranı',badge:['live','canlı'],stat:'ok',v:'—',u:'',
+  plain:'Her 100 ₺ satış için ne kadar ticari sermaye bağlı.',
+  nasil:'TWC / Net Satış',
+  donem:'anlık TWC ÷ 12 ay satış',
+  neden:'Düşük = sağlıklı; büyüme sermayeyi az yoruyor.'}
+];
+const grid=document.getElementById('grid');
+function renderGrid(){if(!grid)return;grid.innerHTML=M.map(m=>`<div class="m">
+  <span class="stat ${m.stat}"></span>
+  <div class="row1"><span class="k">${esc(m.k)}</span><span class="badge ${m.badge[0]}">${esc(m.badge[1])}</span></div>
+  <div class="v num">${m.v}${m.u?` <small>${esc(m.u)}</small>`:''}</div>
+  <div class="plain">${esc(m.plain)}</div>
+  <div class="meta">
+    <div class="r"><span class="t">Nasıl</span><span class="x num">${esc(m.nasil)}</span></div>
+    <div class="r"><span class="t">Dönem</span><span class="x">${esc(m.donem)}</span></div>
+    <div class="r why"><span class="t">Neden</span><span class="x">${esc(m.neden)}</span></div>
+  </div></div>`).join('');}
+renderGrid();
+
+// device + rooms
+const _devseg=document.getElementById('devseg');
+if(_devseg)_devseg.onclick=e=>{const b=e.target.closest('button');if(!b)return;
+  document.querySelectorAll('#devseg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  document.getElementById('frame').className='frame '+b.dataset.dev;drawTrend();};
+const _rooms=document.getElementById('rooms');
+if(_rooms)_rooms.onclick=e=>{const b=e.target.closest('button');if(!b)return;
+  document.querySelectorAll('#rooms button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  document.querySelectorAll('.view').forEach(v=>v.classList.toggle('on',v.dataset.v===b.dataset.view));};
+
+// ---- trend (canlıdan: brüt marj 12 ay) ----
+let TREND=[],MO=[];
+function monLabel(s){if(!s)return'';const m=+String(s).split('-')[1];return['','Oca','Şub','Mar','Nis','May','Haz','Tem','Ağu','Eyl','Eki','Kas','Ara'][m]||s;}
+function drawTrend(){const svg=document.getElementById('trendsvg');if(!svg)return;
+  const pts=[];TREND.forEach((v,i)=>{if(v!==null&&v!==undefined&&isFinite(v))pts.push({i:i,v:Number(v)});});
+  if(pts.length<2){svg.innerHTML='<text x="12" y="90" fill="var(--ink3)" font-size="12">— canlı trend yok</text>';return;}
+  const n=TREND.length,W=560,H=172,pl=8,pr=8,pt=14,pb=24;
+  let mn=Math.min(...pts.map(p=>p.v)),mx=Math.max(...pts.map(p=>p.v));
+  if(mn===mx){mn-=1;mx+=1;}const pad=(mx-mn)*0.15;mn-=pad;mx+=pad;
+  const iw=W-pl-pr,ih=H-pt-pb,X=i=>pl+i*(iw/((n-1)||1)),Y=v=>pt+ih-((v-mn)/((mx-mn)||1))*ih;
+  let lab='';for(let i=0;i<n;i++)lab+=`<text x="${X(i)}" y="${H-6}" fill="var(--ink2)" font-size="10" text-anchor="middle">${esc(MO[i]||'')}</text>`;
+  const path=pts.map((p,k)=>`${k?'L':'M'}${X(p.i)},${Y(p.v)}`).join(' ');
+  const area=`M${X(pts[0].i)},${H-pb} `+pts.map(p=>`L${X(p.i)},${Y(p.v)}`).join(' ')+` L${X(pts[pts.length-1].i)},${H-pb}Z`;
+  const dots=pts.map(p=>`<circle cx="${X(p.i)}" cy="${Y(p.v)}" r="3" fill="var(--page)" stroke="var(--accent)" stroke-width="2"/>`).join('');
+  svg.innerHTML=`<defs><linearGradient id="ag" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".22"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+    <line class="cross" id="cx" x1="0" y1="${pt}" x2="0" y2="${H-pb}"></line><path d="${area}" fill="url(#ag)"/><path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2"/>${dots}${lab}<rect x="0" y="0" width="${W}" height="${H}" fill="transparent" id="hit"/>`;
+  const hit=svg.querySelector('#hit'),cx=svg.querySelector('#cx'),tip=document.getElementById('trendtip');
+  if(hit)hit.onmousemove=e=>{const r=svg.getBoundingClientRect();let i=Math.round(((e.clientX-r.left)/r.width*W-pl)/(iw/((n-1)||1)));
+    i=Math.max(0,Math.min(n-1,i));const v=TREND[i];if(v==null||!isFinite(v))return;
+    cx.setAttribute('x1',X(i));cx.setAttribute('x2',X(i));cx.style.opacity=1;
+    if(tip){tip.style.opacity=1;tip.style.left=(X(i)/W*r.width)+'px';tip.style.top=(Y(v)/H*r.height)+'px';tip.innerHTML=`${esc(MO[i]||'')} · <b>${pct(v)}</b>`;}};
+  if(hit)hit.onmouseleave=()=>{if(cx)cx.style.opacity=0;if(tip)tip.style.opacity=0;};}
+
+// ---- impact simulator (canlı · FIN-güdümlü) ----
+let _simUpd=null;
+function initSim(){
+ const $=id=>document.getElementById(id),sDio=$('sDio'),sDso=$('sDso'),sDpo=$('sDpo');
+ if(!sDio||!sDso||!sDpo)return;
+ if(FIN.smm==null||FIN.net_satis_lastik==null||FIN.dio==null||FIN.dso==null||FIN.dpo==null){
+   ['vDio','vDso','vDpo','cccOut','twcOut','finOut','freedV'].forEach(id=>{const e=$(id);if(e)e.textContent='—';});
+   const t=$('tang');if(t)t.textContent='canlı veri bekleniyor…';return;}
+ const D_SMM=FIN.smm*1e6/365,D_SALES=FIN.net_satis_lastik*1e6/365,RATE=FIN.finansman_orani_pct/100,
+       B={dio:FIN.dio,dso:FIN.dso,dpo:FIN.dpo};
+ const twcOf=d=>d.dso*D_SALES+d.dio*D_SMM-d.dpo*D_SMM,baseTwc=twcOf(B),baseCcc=B.dio+B.dso-B.dpo;
+ const MM=x=>Math.round(x/1e6).toLocaleString('tr-TR');
+ sDio.value=B.dio;sDso.value=B.dso;sDpo.value=B.dpo;
+ function dlt(el,d,u,low){if(!el)return;if(Math.abs(d)<0.5){el.textContent='';el.className='dlt';return;}
+   const good=low?d<0:d>0;el.textContent=(d>0?'▲ +':'▼ ')+Math.abs(Math.round(d))+u;el.className='dlt '+(good?'good':'bad');}
+ function upd(){const dio=+sDio.value,dso=+sDso.value,dpo=+sDpo.value;
+   $('vDio').textContent=dio;$('vDso').textContent=dso;$('vDpo').textContent=dpo;
+   const ccc=dio+dso-dpo,twc=twcOf({dio,dso,dpo}),freed=baseTwc-twc,saving=freed*RATE;
+   $('cccOut').textContent=ccc;$('twcOut').textContent=MM(twc);
+   $('finOut').textContent=(saving>=0?'+':'−')+MM(Math.abs(saving));
+   $('freedV').textContent=(freed>=0?'+':'−')+MM(Math.abs(freed));
+   dlt($('cccD'),ccc-baseCcc,'g',true);dlt($('twcD'),(twc-baseTwc)/1e6,'M',true);
+   const t=$('tang');
+   if(freed>30e6)t.innerHTML=`≈ <b style="color:var(--accent)">${MM(freed)}M ₺</b> serbest kalır`;
+   else if(freed>1e6)t.innerHTML=`≈ ${MM(freed)}M ₺ serbest · yıllık ~${MM(saving)}M finansman tasarrufu`;
+   else if(freed<-1e6)t.innerHTML=`⚠ ${MM(-freed)}M ₺ daha fazla sermaye bağlanır`;
+   else t.textContent='bugünkü durum';
+   const mx=baseTwc*1.35;$('vfill').style.width=Math.min(100,twc/mx*100)+'%';
+   $('vfree').style.width=(freed>0?freed/mx*100:0)+'%';}
+ _simUpd=upd;
+ if(!initSim._bound){
+   [sDio,sDso,sDpo].forEach(s=>s.addEventListener('input',()=>_simUpd&&_simUpd()));
+   const rst=$('simReset');if(rst)rst.addEventListener('click',()=>{sDio.value=FIN.dio;sDso.value=FIN.dso;sDpo.value=FIN.dpo;_simUpd&&_simUpd();});
+   initSim._bound=true;
+ }
+ upd();
+}
+
+// ---- zaman seçici (12 ay canlı; diğer pencereler parametreli uç bağlanınca) ----
+// zaman seçici: KOKPİTLE AYNI KAYNAK — ciro=bi_satis_faturalari, marj=bi_marj_atom (server 'pencere' objesi, tek kaynak)
+const _WKEY={buay:'buay','3':'m3','6':'m6','12':'m12',yb:'yb'};
+const _WLBL={buay:'bu ay','3':'son 3 ay','6':'son 6 ay','12':'son 12 ay',yb:'yıl başından beri'};
+function setWin(w){const el=document.getElementById('tsum');if(!el)return;
+  const P=(window.ODA&&window.ODA.pencere)||{},d=P[_WKEY[w]||w]||{},ciro=d.ciro,marj=d.marj;
+  if(ciro==null){el.innerHTML='<span class="tnote">'+esc(_WLBL[w]||w)+' · henüz veri yok</span>';return;}
+  const marjEt=d.marj_tahmin?' <span class="tnote" style="color:var(--warn)">kısmi ay · kanon akış maliyeti'+(d.kapsam!=null?' · %'+d.kapsam+' kapsam':'')+'</span>':'';
+  const marjKaynak=d.marj_tahmin?'marj: v_marj_cari_ay — akış maliyeti kanonu (ay kapanmadı, kısmi)':'marj bi_marj_atom';
+  el.innerHTML='Tüm şirket ciro <b>'+fmtM(ciro)+'M ₺</b> · Lastik marj <b>'+pct(marj)+'</b>'+marjEt+' <span class="tnote">'+esc(_WLBL[w]||w)+' · ciro bi_satis_faturalari (kokpitle aynı) · '+marjKaynak+'</span> <span class="tnote">· <b>Akış</b> (ciro/marj/kâr/marka) seçili döneme göre · <b>Bilanço & döngü</b> (alacak/borç/stok/DSO/DIO/DPO/CCC) daima anlık</span>';}
+const _tc=document.getElementById('tchips');
+if(_tc)_tc.onclick=e=>{const b=e.target.closest('button');if(!b)return;
+  _tc.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');setWin(b.dataset.w);loadFin(b.dataset.w);};
+
+// ---- marka ekonomisi (canlıdan) ----
+function renderBrands(list){const bx=document.getElementById('brands');if(!bx)return;
+ const rows=(list||[]).filter(b=>b&&b.marj!=null&&isFinite(b.marj)).sort((a,b)=>b.marj-a.marj).slice(0,10);
+ if(!rows.length){bx.innerHTML='<div style="color:var(--ink3);padding:8px 0">— canlı marka verisi yok</div>';return;}
+ const mx=Math.max(1,...rows.map(b=>Math.abs(b.marj)));
+ bx.innerHTML=rows.map(b=>{const w=Math.max(3,Math.abs(b.marj)/mx*100),neg=b.marj<0;
+   const col=neg?'#ff8b8b':(b.marj<12?'var(--warn)':'#4fd44f'),cls=neg?'r':(b.marj<12?'a':'g');
+   return `<div class="brow"><span class="bn">${esc(b.marka)}</span>
+     <div class="btrack"><div class="bbar ${cls}" style="width:${w}%"></div></div>
+     <span class="bp" style="color:${col}">${neg?'−':''}${pct(Math.abs(b.marj))}</span></div>`;}).join('');}
+
+// ---- konsantrasyon (net gecikmiş kimde — canlıdan) ----
+function cardsByH3(prefix){return [].slice.call(document.querySelectorAll('.card')).filter(c=>{const h=c.querySelector('h3');return h&&h.textContent.trim().indexOf(prefix)===0;});}
+function wireConc(card,top,netTotal){
+ if(!card)return;const hb=card.querySelector('.hb'),sub=card.querySelector('.sub'),note=card.querySelector('.hnote');
+ if(!top||!top.length){if(hb)hb.innerHTML='<div style="color:var(--ink3);padding:10px 0">— canlı kaynak yok</div>';if(sub)sub.textContent='—';if(note)note.textContent='';return;}
+ const pal=['rr','r','a','n','g','oth'];
+ if(hb)hb.innerHTML=top.map((t,i)=>`<div class="hs ${pal[i%pal.length]}" style="flex:${Math.max(Number(t.net)||0,0.1)}">${esc(String(t.ad||'').split(' ')[0])}<small>${fmtM(t.net)}M</small></div>`).join('');
+ if(sub)sub.textContent=fmtM(netTotal)+'M ₺ net · anlık';
+ if(note){const two=top.slice(0,2).reduce((a,b)=>a+(Number(b.net)||0),0),sh=netTotal?Math.round(two/netTotal*100):null;
+   note.innerHTML='<b>'+top.slice(0,2).map(t=>esc(String(t.ad||'').split(' ')[0])).join(' + ')+'</b> net gecikmenin '+(sh!=null?'~%'+sh:'—')+'’ı.';}}
+
+// ================= CANLI VERİ UYGULA =================
+function _set(id,txt){const e=document.getElementById(id);if(e)e.textContent=txt;}
+function _setSmall(id,main,unit){const e=document.getElementById(id);if(e)e.innerHTML=main+(unit?` <small>${esc(unit)}</small>`:'');}
+/* FINANS_SYNC_REAL_V1 — kokpitle aynı gerçek ERP senkron zamanı (/api/bi/yukle/durum en yeni ingested_at) */
+function _syncFin(){
+  var el=document.getElementById('finAsOf');if(!el)return;
+  el.textContent='ERP senkron';
+  fetch('/api/bi/yukle/durum',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+    if(!d||!d.dosyalar||!d.dosyalar.length)return;
+    var en=null;d.dosyalar.forEach(function(x){if(x&&x.son&&(!en||new Date(x.son)>new Date(en.son)))en=x;});
+    if(!en||!en.son)return;
+    var opt={timeZone:'Asia/Istanbul',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'};
+    el.textContent='ERP senkron '+new Date(en.son).toLocaleString('tr-TR',opt);
+  }).catch(function(){});
+}
+function applyFin(d){
+  if(d&&typeof d==='object'){for(const k in FIN){const v=d[k];
+    if(v!==null&&v!==undefined&&!(typeof v==='number'&&Number.isNaN(v)))FIN[k]=v;}}
+  M.forEach(m=>{const f=GRIDMAP[m.k];if(f)m.v=f(FIN);});
+  renderGrid();
+  const dio=fmt0(FIN.dio),dso=fmt0(FIN.dso),dpo=fmt0(FIN.dpo),ccc=fmt0(FIN.ccc);
+  _set('jDioG',dio+'g');_set('jDsoG',dso+'g');
+  const jc=document.getElementById('jCcc');if(jc)jc.textContent=ccc;
+  _set('jVerdict',(FIN.ccc!=null&&FIN.ccc<60)?'✓ Sağlıklı · 60 gün altı':(FIN.ccc!=null?'⚠ '+ccc+' gün · 60 gün üstü':'—'));
+  const mbDio=document.getElementById('mbDio');if(mbDio){mbDio.style.flex=FIN.dio||0;mbDio.innerHTML=dio+'<small>stok (DIO)</small>';}
+  const mbDso=document.getElementById('mbDso');if(mbDso){mbDso.style.flex=FIN.dso||0;mbDso.innerHTML=dso+'<small>alacak (DSO)</small>';}
+  const mbDpo=document.getElementById('mbDpo');if(mbDpo){mbDpo.style.flex=FIN.dpo||0;mbDpo.innerHTML='−'+dpo+'<small>ödeme vaden (DPO) finanse eder</small>';}
+  _set('eqDio','DIO '+dio);_set('eqDso','DSO '+dso);_set('eqDpo','DPO '+dpo);_set('eqCcc','CCC '+ccc+' gün');
+  _set('eqDonem','· dönem: '+(FIN.donem||'—'));
+  _set('jCap','Neden yalnız '+ccc+' gün? — brüt bağ '+fmt0((FIN.dio||0)+(FIN.dso||0))+' gün (stok '+dio+' + alacak '+dso+'), ama tedarikçiye '+dpo+' gün sonra ödediğin için döngü kısa kalıyor:');
+  // her 100 ₺
+  const maliyet=(FIN.brut_marj_pct==null)?null:Math.round((100-FIN.brut_marj_pct)*10)/10;
+  const finPer=(FIN.finansman_yillik==null||FIN.net_satis_lastik==null||!FIN.net_satis_lastik)?null:Math.round((FIN.finansman_yillik/FIN.net_satis_lastik*100)*10)/10;
+  const kalan=(FIN.brut_marj_pct==null||finPer==null)?null:Math.round((FIN.brut_marj_pct-finPer)*10)/10;
+  const hb=document.getElementById('hb100');
+  if(hb){if(maliyet==null){hb.innerHTML='<div style="color:var(--ink3);padding:10px 0">— canlı veri bekleniyor</div>';}
+    else hb.innerHTML='<div class="hs smm" style="flex:'+maliyet+'">'+fmtM(maliyet)+'<small>maliyet</small></div>'+
+      '<div class="hs fin" style="flex:'+(finPer||0.1)+'">'+fmtM(finPer)+'<small>finansman</small></div>'+
+      '<div class="hs net" style="flex:'+(kalan||0.1)+'">'+fmtM(kalan)+'<small>kalan</small></div>';}
+  const hn=document.getElementById('hnote100');
+  if(hn){if(maliyet==null)hn.textContent='Canlı veri gelince her 100 ₺’nin dağılımı burada.';
+    else hn.innerHTML='Her <b>100 ₺</b> satışın <b>'+fmtM(maliyet)+" ₺'si maliyet</b>. Kalan brüt kârın ("+fmtM(FIN.brut_marj_pct)+') da <b>'+fmtM(finPer)+" ₺'sini finansman</b> yiyor → cebinde <span class=\"accent\">≈"+fmtM(kalan)+' ₺</span>.';}
+  // kârlılık grid
+  _setSmall('g2NetSatis',fmtM(FIN.net_satis_lastik),'M ₺');
+  _setSmall('g2Smm',fmtM(FIN.smm),'M ₺');
+  _setSmall('g2BrutKar',fmtM(FIN.brut_kar),'M ₺');
+  _set('g2BrutMarj',pct(FIN.brut_marj_pct));
+  // alacak grid
+  _setSmall('g3Alacak',fmtM(FIN.ticari_alacaklar),'M ₺');
+  _setSmall('g3Gecikmis',fmtM(FIN.gecikmis),'M ₺');
+  _setSmall('g3NetGecikmis',fmtM(FIN.net_gecikmis),'M ₺');
+  _setSmall('g3FinYuk',fmtM(FIN.finansman_yillik),'M ₺');
+  _setSmall('g3Dso',fmt0(FIN.dso),'gün');
+  // stok grid
+  _setSmall('g4Stok',fmtM(FIN.stok_lastik),'M ₺');
+  _setSmall('g4Dio',fmt0(FIN.dio),'gün');
+  _setSmall('g4Devir',(FIN.devir==null?'—':'≈'+fmtM(FIN.devir)),'×/yıl');
+  _setSmall('g4Smm',fmtM(FIN.smm),'M ₺');
+  try{_syncFin();}catch(e){}
+  initSim();
+}
+function setLive(ok){
+  const dot=document.getElementById('finLiveDot'),lv=document.getElementById('finLive'),fr=document.getElementById('finFresh');
+  if(ok){if(lv)lv.textContent='canlı';if(dot)dot.style.background='var(--up)';}
+  else{if(lv)lv.textContent='ulaşılamadı';if(dot)dot.style.background='var(--warn)';
+    if(fr)fr.innerHTML='⚠ <span class="s" style="color:var(--warn)">canlı veriye ulaşılamadı</span>';}
+}
+// canlı kaynağı olmayan / anlatı bloklarını DOM’dan kaldır (hardcoded sayı bırakmamak için)
+function _stripNarrative(){
+  ['.econ','.converse','#drawer','.heartbeat','.card.laws','.card.discover'].forEach(sel=>{
+    document.querySelectorAll(sel).forEach(n=>n.remove());});
+  // canlı kaynağı olmayan görsel kartlar
+  ['Alacak yaşlandırması','Lastik stoğu hangi markada?','Stok ne kadar hızlı dönüyor?'].forEach(h=>{
+    cardsByH3(h).forEach(c=>c.remove());});
+  // konsantrasyon kartlarını canlı gelene kadar boşalt (statik ROTA/YEDİ sayıları FLASH etmesin)
+  cardsByH3('Net gecikmiş').forEach(c=>{const hb=c.querySelector('.hb'),sub=c.querySelector('.sub'),note=c.querySelector('.hnote');
+    if(hb)hb.innerHTML='<div style="color:var(--ink3);padding:10px 0">…</div>';if(sub)sub.textContent='—';if(note)note.textContent='';});
+  // boşalan "Görsel okuma / İzliyor" bölümlerini temizle
+  document.querySelectorAll('.learn').forEach(l=>{if(!l.querySelector('.card')){const prev=l.previousElementSibling;if(prev&&prev.classList.contains('sec'))prev.remove();l.remove();}});
+}
+function _rich(oda){
+  _stripNarrative();
+  // trend — brüt marj 12 ay
+  if(oda&&oda.trend&&oda.trend.length){
+    TREND=oda.trend.map(x=>x&&x.marj!=null?Number(x.marj):null);
+    MO=oda.trend.map(x=>monLabel(x&&x.ay));
+    const tc=cardsByH3('Nakit döngüsü')[0]||document.querySelector('.card.trend');
+    if(tc){const h=tc.querySelector('h3'),s=tc.querySelector('.sub');if(h)h.textContent='Brüt marj — 12 ay trendi';if(s)s.textContent='% · yüksek iyi';}
+    drawTrend();
+  }else{TREND=[];MO=[];drawTrend();}
+  // marka
+  renderBrands(oda&&oda.marka);
+  // konsantrasyon (iki kart)
+  const netTotal=oda&&oda.gecikmis?oda.gecikmis.net:null,top=oda&&oda.gecikmis?oda.gecikmis.top:null;
+  cardsByH3('Net gecikmiş').forEach(c=>wireConc(c,top,netTotal));
+  // zaman özeti — aktif çipe göre (varsayılan 12 ay)
+  const _act=document.querySelector('#tchips button.on');
+  setWin(_act?_act.dataset.w:'12');
+}
+function loadFin(win){win=win||'12';
+  fetch('/api/bi/finans/oda?win='+encodeURIComponent(win),{headers:{'Accept':'application/json'},credentials:'same-origin'})
+   .then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+   .then(j=>{const oda=(j&&j.data&&typeof j.data==='object')?j.data:j;window.ODA=oda;
+     const c=oda.core||{},g=oda.gecikmis||{},st=oda.stok||{};
+     const mapped={
+       as_of:oda.as_of,
+       net_satis_lastik:c.net_satis_lastik,ciro_sirket:c.ciro_sirket,smm:c.smm,brut_kar:c.brut_kar,
+       brut_marj_pct:c.marj_pct,ticari_alacaklar:c.ticari_alacaklar,ticari_borclar:c.ticari_borclar,
+       net_gecikmis:g.net,gecikmis:g.brut,finansman_yillik:c.finansman_yil,
+       dso:c.dso,dio:c.dio,dpo:c.dpo,ccc:c.ccc,twc:c.twc,bagli_sermaye_pct:c.bagli_sermaye_pct,
+       devir:c.devir,stok_lastik:st.toplam};
+     applyFin(mapped);_rich(oda);setLive(true);
+     try{ /* FINANS_WIN_CLIENT_V1 */
+       const sz=oda.sizinti||{},ot=(oda.gecikmis||{}).olculen||{},ol=(oda.stok||{}).olu||{},sp=(oda.stok||{}).siparis||{};
+       _setSmall('gSizinti',(sz.tutar==null?'—':fmtM(sz.tutar)),'M ₺');
+       _setSmall('gOlculen',(ot.gun==null?'—':fmt0(ot.gun)),'gün');
+       _setSmall('gOluStok',(ol.deger==null?'—':fmtM(ol.deger)),'M ₺');
+       const _lbl=_WLBL[win]||win;
+       ['g2NetSatis','g2Smm','g2BrutKar','g2BrutMarj','gSizinti'].forEach(id=>{const c=document.getElementById(id);if(!c)return;const card=c.closest('.m');if(!card)return;card.querySelectorAll('.meta .r').forEach(r=>{const t=r.querySelector('.t');if(t&&t.textContent.trim()==='Dönem'){const x=r.querySelector('.x');if(x)x.textContent=_lbl;}});});
+       setWin(win);
+     }catch(e){}
+   })
+   .catch(()=>{setLive(false);});
+}
+applyFin(FIN);
+_stripNarrative();
+loadFin();
+</script>
+</body>
+</html>

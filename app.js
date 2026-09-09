@@ -12505,6 +12505,8 @@ async function initPlatformSession() {
     // acmak yanlis — ustelik hideAllSurfacesExcept onu BI'da baslatiyordu.
     const _sahaSub = (me.subscriptions || []).find(x => x.moduleId === "saha");
     const _sahaRep = _sahaSub && _sahaSub.moduleRole === "rep";
+    const _hasIntel = (me.subscriptions || []).some(s => s.moduleId === "intelligence" && (s.moduleRole === "manager" || s.moduleRole === "admin")); /* REPONLY_V2 — intel:viewer sadece rakip API granti, BI koltugu degil; saha-rep+viewer hala rep-only, BI kabugu YOK */
+    const _repOnly = _sahaRep && !_hasIntel; /* REPONLY_V1 — sadece saha-rep (intelligence YOK) BI'i bastirir; dual kullanici masaustunde BI gorur */
     // MOBIL_YONLENDIRME_V1 — native (Capacitor) app'te ya da ?saha=1 ile HERKES saha resepsiyonuna düşer; BI masaüstü kabuğu mobilde açılmaz.
     const _nativeMobil = (typeof window !== "undefined") && (((window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform())) || (new URLSearchParams(location.search).has("saha")));
     const _mobilSaha = _nativeMobil && !!_sahaSub;
@@ -12512,17 +12514,20 @@ async function initPlatformSession() {
     // Load module shells for each active subscription
     for (const sub of me.subscriptions || []) {
       if (sub.moduleId === "intelligence") {
-        if (_sahaRep || _mobilSaha) continue;          // temsilci VEYA mobil: BI kabugu YOK
+        if (_repOnly || _mobilSaha) continue;          // temsilci VEYA mobil: BI kabugu YOK
         await loadBiSurface(me, sub);
       } else if (sub.moduleId === "saha") {
-        await loadSahaSurface(me, sub);
+        // SAHA_DESKTOP_V1 — masaüstünde (BI'lı, temsilci değil) mobil saha.js ÖN-YÜKLENMEZ;
+        // Saha üst menü sekmesinden saha_desktop.js açılır. Mobil / temsilci / saha-only: eskisi gibi saha.js.
+        const _dualDesktop = !_nativeMobil && !_repOnly && (me.subscriptions || []).some(s => s.moduleId === "intelligence");
+        if (!_dualDesktop) await loadSahaSurface(me, sub);
       }
       // Future modules: add more cases here
     }
 
     // Birden fazla modül varsa: BI varsayılan görünür, sağ altta modül geçiş düğmesi
     const moduleIds = (me.subscriptions || [])
-      .filter(s => !(_sahaRep && s.moduleId === "intelligence"))   // REP_LANDING_V1
+      .filter(s => !(_repOnly && s.moduleId === "intelligence"))   // REP_LANDING_V1
       .map(s => s.moduleId);
     if (moduleIds.includes("intelligence") && moduleIds.includes("saha")) {
       if (_mobilSaha) {
@@ -12532,7 +12537,7 @@ async function initPlatformSession() {
         hideAllSurfacesExcept("bi-surface");
         const biEl = document.getElementById("bi-surface");
         if (biEl) biEl.style.display = "block";
-        addSahaModuleToggle();
+        // SAHA_DESKTOP_V1 — sağ-alt yüzen "📍 Saha" düğmesi kaldırıldı; Saha artık BI üst menüsünde sekme.
       }
     }
     // ADMIN_PANEL_V1 — Yonetim paneli DOM'a yuklendi ama hideAllSurfacesExcept onu
@@ -12572,8 +12577,8 @@ async function loadBiSurface(me, sub) {
   container.style.display = "block";
 
   try {
-    const { initBiSurface } = await import("/shells/bi.js?v=20260708-03");
-    initBiSurface(container, me, sub, buildBiCallbacks());
+    const { initBiSurface } = await import("/shells/bi.js?v=20260723-1");
+    initBiSurface(container, me, sub, buildBiCallbacks(me, sub));
   } catch (err) {
     container.innerHTML = `<div class="platform-error">Derive Intelligence yüklenemedi: ${err.message}</div>`;
     console.error("[platform] bi surface load error:", err);
@@ -12592,9 +12597,39 @@ async function loadSahaSurface(me, sub) {
     const { initSahaSurface } = await import("/shells/saha.js?v=20260714-2");
     initSahaSurface(container, me, sub, { authHeaders });
   } catch (err) {
-    container.innerHTML = `<div class="platform-error">KRB Saha yüklenemedi: ${err.message}</div>`;
+    container.innerHTML = `<div class="platform-error">Saha yüklenemedi: ${err.message}</div> <!-- DEKRB_APP_V1 -->`;
     console.error("[platform] saha surface load error:", err);
   }
+}
+
+// SAHA_DESKTOP_V1 — masaüstü Saha modülü (ayrı: shells/saha_desktop.js). BI üst menüsündeki
+// "Saha" sekmesinden açılır. saha-surface içine bir kez mount edilir; sonra göster/gizle.
+let __sahaDesktopInited = false;
+async function openSahaDesktop(me, sub) {
+  const container = document.getElementById("saha-surface");
+  if (!container) return;
+  const _sahaSub = (me.subscriptions || []).find(x => x.moduleId === "saha") || sub || {};
+  if (!__sahaDesktopInited) {
+    container.style.cssText = "display:block;position:fixed;top:0;left:0;right:0;bottom:0;z-index:100;overflow:hidden;width:100%;max-width:100%;";
+    try {
+      const { initSahaDesktop } = await import("/shells/saha_desktop.js?v=20260724-10");
+      initSahaDesktop(container, me, _sahaSub, {
+        authHeaders,
+        canExit: true,
+        onExit: () => {
+          const s = document.getElementById("saha-surface"); if (s) s.style.display = "none";
+          const b = document.getElementById("bi-surface"); if (b) b.style.display = "block";
+        }
+      });
+      __sahaDesktopInited = true;
+    } catch (err) {
+      container.innerHTML = `<div class="platform-error">Derive Saha yüklenemedi: ${err.message}</div>`;
+      console.error("[platform] saha_desktop load error:", err);
+      return;
+    }
+  }
+  const b = document.getElementById("bi-surface"); if (b) b.style.display = "none";
+  container.style.display = "block";
 }
 
 // BI ⇄ Saha geçiş düğmesi (iki modüle de erişimi olan kullanıcılar için)
@@ -12706,8 +12741,10 @@ function showPlatformNoAccessMessage() {
 
 // ─── Callback factories ───────────────────────────────────────────────────────
 
-function buildBiCallbacks() {
+function buildBiCallbacks(me, sub) {
   return {
+    // SAHA_DESKTOP_V1 — BI üst menüsündeki "Saha" sekmesi bunu çağırır
+    openSaha: () => openSahaDesktop(me, sub),
     // Fetch wrapper with auth headers
     apiFetch: async (path, opts = {}) => {
       const res = await fetch(path, {
@@ -12804,4 +12841,285 @@ function buildTenantAdminCallbacks() {
     }
   };
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FACEID_V1 — Face ID (biyometrik) kilit + Keychain girisi.
+   NATIVE-ONLY: Capacitor native app disinda (masaustu/Android tarayici) SIFIR etki (kural 12).
+   Plugin (@capgo/capacitor-native-biometric) yoksa TAMAMEN no-op — native rebuild oncesi guvenli.
+   Guvenlik: kilit ekraninda HER ZAMAN "Sifre ile gir" cikisi vardir -> kimse kilitli kalamaz.
+   ═══════════════════════════════════════════════════════════════════════════ */
+(function () {
+  "use strict";
+  try {
+    var CAP = window.Capacitor;
+    var isNative = !!(CAP && CAP.isNativePlatform && CAP.isNativePlatform());
+    if (!isNative) return;
+    var BIO = CAP.Plugins && CAP.Plugins.NativeBiometric;
+    if (!BIO) return; // plugin native tarafta yoksa hic dokunma
+
+    var SERVER = "krb.deriveglobal.com";
+    var FLAG = "derive_faceid_on";
+    var LASTK = "derive_faceid_last";
+    var IDLE_MS = 30 * 60 * 1000; // LOGOUT_IDLE_FIX_V1 — arka planda 30 dk+ ise tekrar kilitle (eski 3 dk saha icin cok agresifti; rep her cep-koymada Face ID + basarisizsa logout oluyordu)
+
+    var pendCreds = null;   // manuel giriste yakalanan email+sifre (basari beklenir)
+    var enrolling = false;  // enroll UI acik mi
+    var gating = false;     // kilit ekrani acik mi
+    var enrolled = false;
+    try { enrolled = localStorage.getItem(FLAG) === "1"; } catch (e) {}
+
+    function now() { return Date.now(); }
+    function touch() { try { localStorage.setItem(LASTK, String(now())); } catch (e) {} }
+    function lastActive() { var v = 0; try { v = parseInt(localStorage.getItem(LASTK) || "0", 10); } catch (e) {} return v || 0; }
+    function qs(id) { return document.getElementById(id); }
+    function authed() {
+      var a = qs("auth-screen");
+      if (!a) return false;
+      if (a.classList.contains("hidden")) return true;
+      try { if (getComputedStyle(a).display === "none") return true; } catch (e) {}
+      return false;
+    }
+
+    // ── manuel giriste email+sifre yakala (uygulamanin handler'indan ONCE) ──
+    document.addEventListener("submit", function (ev) {
+      var f = ev.target;
+      if (!f || f.id !== "auth-form") return;
+      var em = qs("auth-email"), pw = qs("auth-password");
+      if (em && pw && em.value && pw.value) pendCreds = { email: em.value.trim(), password: pw.value };
+    }, true);
+
+    // ── basarili giris sonrasi: kayitliysa creds'i sessizce tazele; degilse enroll teklif et ──
+    function onAuthedMaybe() {
+      if (!pendCreds || !authed()) return;
+      var creds = pendCreds; pendCreds = null;
+      touch();
+      if (enrolled) {
+        // sifre degismis olabilir -> Keychain'i sessizce guncelle (Face ID istemeden)
+        try { BIO.setCredentials({ username: creds.email, password: creds.password, server: SERVER }).catch(function () {}); } catch (e) {}
+        return;
+      }
+      if (enrolling) return;
+      enrolling = true;
+      BIO.isAvailable().then(function (res) {
+        if (!res || !res.isAvailable) { enrolling = false; return; }
+        offerEnroll(function (yes) {
+          if (!yes) { enrolling = false; return; }
+          BIO.verifyIdentity({ reason: "Face ID'yi etkinlestir", title: "Derive Intelligence", description: "Hizli giris icin Face ID" })
+            .then(function () { return BIO.setCredentials({ username: creds.email, password: creds.password, server: SERVER }); })
+            .then(function () { enrolled = true; try { localStorage.setItem(FLAG, "1"); } catch (e) {} touch(); toast("Face ID etkinlestirildi"); enrolling = false; })
+            .catch(function () { enrolling = false; });
+        });
+      }).catch(function () { enrolling = false; });
+    }
+
+    var asc = qs("auth-screen");
+    if (asc) {
+      try { new MutationObserver(function () { onAuthedMaybe(); }).observe(asc, { attributes: true, attributeFilter: ["class", "style"] }); } catch (e) {}
+    }
+
+    // ── login formunu Keychain creds ile doldur + gonder, basari bekle ──
+    function formLogin(c) {
+      return new Promise(function (resolve) {
+        var em = qs("auth-email"), pw = qs("auth-password"), f = qs("auth-form");
+        if (!em || !pw || !f || !c || !c.username) { resolve(false); return; }
+        pendCreds = null; // otomatik girisi enroll-teklifi olarak sayma
+        em.value = c.username; pw.value = c.password;
+        if (f.requestSubmit) f.requestSubmit(); else f.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+        var t = 0, iv = setInterval(function () { t += 200; if (authed() || t > 15000) { clearInterval(iv); resolve(authed()); } }, 200);
+      });
+    }
+
+    function logoutReload() {
+      try { localStorage.removeItem("currentPlatformUser"); } catch (e) {}
+      fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" })
+        .catch(function () {})
+        .then(function () { location.reload(); });
+    }
+    function disableFaceId() {
+      try { localStorage.removeItem(FLAG); } catch (e) {}
+      enrolled = false;
+      try { BIO.deleteCredentials({ server: SERVER }).catch(function () {}); } catch (e) {}
+    }
+
+    // ── KILIT EKRANI ──
+    function lock(needLogin) {
+      if (gating) return;
+      gating = true;
+      var ov = buildLock();
+      var statusEl = ov.querySelector("[data-st]");
+      var btns = ov.querySelector("[data-bt]");
+      function done() { try { ov.parentNode && ov.parentNode.removeChild(ov); } catch (e) {} gating = false; touch(); }
+      function showButtons(msg) {
+        if (statusEl) statusEl.textContent = msg || "Face ID ile acilamadi.";
+        if (btns) btns.style.display = "flex";
+      }
+      function attempt() {
+        if (btns) btns.style.display = "none";
+        if (statusEl) statusEl.textContent = "Face ID ile aciliyor…";
+        BIO.isAvailable().then(function (res) {
+          if (!res || !res.isAvailable) { showButtons("Bu cihazda Face ID yok."); return; }
+          BIO.verifyIdentity({ reason: "Derive girisini ac", title: "Derive Intelligence" })
+            .then(function () {
+              if (needLogin && !authed()) {
+                if (statusEl) statusEl.textContent = "Giris yapiliyor…";
+                return BIO.getCredentials({ server: SERVER }).then(function (c) { return formLogin(c); }).then(function (ok) {
+                  if (ok) done(); else showButtons("Kayitli giris basarisiz. Sifre ile deneyin.");
+                });
+              }
+              done();
+            })
+            .catch(function () { showButtons("Face ID dogrulanamadi."); });
+        }).catch(function () { showButtons("Face ID kullanilamiyor."); });
+      }
+      // butonlar
+      ov.querySelector("[data-retry]").addEventListener("click", attempt);
+      ov.querySelector("[data-pw]").addEventListener("click", function () { logoutReload(); });
+      ov.querySelector("[data-off]").addEventListener("click", function () { disableFaceId(); done(); });
+      attempt();
+    }
+
+    // ── UI kuruculari (koyu tema, splash ile uyumlu) ──
+    function buildLock() {
+      var ov = document.createElement("div");
+      ov.setAttribute("data-faceid-lock", "1");
+      ov.style.cssText = "position:fixed;inset:0;z-index:2147483000;background:#0f172a;color:#e2e8f0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;padding-top:calc(24px + env(safe-area-inset-top,0px));font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;text-align:center";
+      ov.innerHTML =
+        '<div style="font-size:22px;font-weight:800;letter-spacing:.2px">Derive <span style="color:#38bdf8">Intelligence</span></div>' +
+        '<div style="font-size:44px;line-height:1">🔒</div>' +
+        '<div data-st style="font-size:14px;color:#94a3b8;min-height:20px">Face ID ile aciliyor…</div>' +
+        '<div data-bt style="display:none;flex-direction:column;gap:10px;width:100%;max-width:280px;margin-top:6px">' +
+          '<button data-retry style="width:100%;padding:13px;border:0;border-radius:12px;background:#38bdf8;color:#0f172a;font-size:15px;font-weight:700;cursor:pointer">🔓 Face ID ile ac</button>' +
+          '<button data-pw style="width:100%;padding:13px;border:1px solid #334155;border-radius:12px;background:transparent;color:#e2e8f0;font-size:15px;font-weight:600;cursor:pointer">Sifre ile gir</button>' +
+          '<button data-off style="width:100%;padding:8px;border:0;border-radius:12px;background:transparent;color:#64748b;font-size:12px;cursor:pointer">Face ID\'yi kapat</button>' +
+        '</div>';
+      (document.body || document.documentElement).appendChild(ov);
+      return ov;
+    }
+
+    function offerEnroll(cb) {
+      var back = document.createElement("div");
+      back.style.cssText = "position:fixed;inset:0;z-index:2147483000;background:rgba(2,6,23,.6);display:flex;align-items:flex-end;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif";
+      var sheet = document.createElement("div");
+      sheet.style.cssText = "background:#0f172a;color:#e2e8f0;width:100%;max-width:520px;border-radius:20px 20px 0 0;padding:22px 20px calc(22px + env(safe-area-inset-bottom,0px));text-align:center;box-shadow:0 -8px 40px rgba(0,0,0,.4)";
+      sheet.innerHTML =
+        '<div style="font-size:40px;line-height:1;margin-bottom:8px">😊</div>' +
+        '<div style="font-size:18px;font-weight:800;margin-bottom:6px">Face ID ile hizli giris</div>' +
+        '<div style="font-size:13.5px;color:#94a3b8;line-height:1.5;margin-bottom:18px">Bir dahaki acilista sifre yazmadan, Face ID ile giris yapabilirsin. Bilgilerin cihazin guvenli kasasinda (Keychain) saklanir.</div>' +
+        '<button data-yes style="width:100%;padding:14px;border:0;border-radius:13px;background:#38bdf8;color:#0f172a;font-size:15px;font-weight:800;cursor:pointer;margin-bottom:10px">Etkinlestir</button>' +
+        '<button data-no style="width:100%;padding:12px;border:0;border-radius:13px;background:transparent;color:#94a3b8;font-size:14px;cursor:pointer">Simdi degil</button>';
+      back.appendChild(sheet);
+      (document.body || document.documentElement).appendChild(back);
+      function close(v) { try { back.parentNode.removeChild(back); } catch (e) {} cb(v); }
+      sheet.querySelector("[data-yes]").addEventListener("click", function () { close(true); });
+      sheet.querySelector("[data-no]").addEventListener("click", function () { close(false); });
+      back.addEventListener("click", function (e) { if (e.target === back) close(false); });
+    }
+
+    function toast(msg) {
+      var t = document.createElement("div");
+      t.style.cssText = "position:fixed;left:50%;bottom:calc(40px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:2147483001;background:#0f172a;color:#fff;padding:11px 18px;border-radius:12px;font-size:13px;box-shadow:0 6px 18px rgba(0,0,0,.35);font-family:-apple-system,sans-serif";
+      t.textContent = msg;
+      (document.body || document.documentElement).appendChild(t);
+      setTimeout(function () { try { t.parentNode.removeChild(t); } catch (e) {} }, 2200);
+    }
+
+    // ── COLD LAUNCH: kayitliysa hemen (senkron) kilit ekranini goster, sonra Face ID ──
+    if (enrolled) {
+      // opak overlay app'i altta render etse bile ortur; needLogin=true -> oturum dusmusse Keychain ile gir
+      lock(true);
+    }
+
+    // ── IDLE: arka plandan donuste 3 dk+ gectiyse tekrar kilitle ──
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState === "visible") {
+        if (enrolled && !gating && (now() - lastActive() > IDLE_MS)) lock(false);
+      } else {
+        touch();
+      }
+    });
+    // aktiflik damgasi
+    ["click", "keydown", "touchstart"].forEach(function (ev) { document.addEventListener(ev, touch, { passive: true }); });
+  } catch (e) { /* Face ID modulu asla app'i kirmamali */ }
+})();
+
+
+// ═══ AUTO_LOGOUT_V1 — rol-bazli oto cikis (guvenlik) ══════════════════════════
+//   Yonetici/mudur (web): 30 dk bosta -> uyari -> cikis. Herkes: mutlak sure
+//   (yonetici/mudur 24s, saha temsilcisi 7g). Native app'te bosta-cikis YOK
+//   (cihaz kilidi devrede); yalniz mutlak sure. Sabitler asagidan degistirilebilir.
+//   Oturum yoksa (login ekrani) hicbir sey yapmaz.
+(function(){
+  if (typeof window === "undefined" || window.__autoLogoutV1) return;
+  window.__autoLogoutV1 = true;
+
+  var IDLE_MIN_STAFF  = 30;   // dk — yonetici/mudur bosta (yalniz web)
+  var ABS_HOURS_STAFF = 24;   // saat — yonetici/mudur mutlak
+  var ABS_HOURS_REP   = 168;  // saat — saha temsilcisi mutlak (7 gun)
+  var WARN_SEC        = 60;   // bosta uyari geri sayimi (sn)
+
+  var CAP = window.Capacitor;
+  var isNative = !!(CAP && CAP.isNativePlatform && CAP.isNativePlatform());
+
+  function me(){ try { return JSON.parse(localStorage.getItem("currentPlatformUser")||"null"); } catch(e){ return null; } }
+  function policy(){
+    var m = me(); if (!m) return null;
+    var subs = m.subscriptions || [];
+    var admin = m.tenantRole === "platform_owner" || subs.some(function(s){ return s.moduleRole==="admin"; });
+    var manager = subs.some(function(s){ return s.moduleRole==="manager"; });
+    var staff = admin || manager;
+    return { idleMs: (!isNative && staff) ? IDLE_MIN_STAFF*60000 : 0,
+             absMs: (staff ? ABS_HOURS_STAFF : ABS_HOURS_REP) * 3600000 };
+  }
+
+  var last = Date.now(), warnEl = null, warnType = null, busy = false;
+  function bump(){ var n = Date.now(); if (n - last > 1500) last = n; if (warnEl && warnType === "idle") closeWarn(); }
+  ["pointerdown","keydown","touchstart","scroll","mousemove"].forEach(function(ev){
+    window.addEventListener(ev, bump, { passive: true });
+  });
+
+  function doLogout(){
+    if (busy) return; busy = true;
+    try { var tok = localStorage.getItem("platformSessionToken");
+      fetch("/api/auth/logout", { method:"POST", credentials:"include", headers: tok ? { Authorization:"Bearer "+tok } : {} }); } catch(e){}
+    ["krbCurrentUserEmail","krbSession","currentPlatformUser","platformSessionToken","krbLoginAt"].forEach(function(k){ try{ localStorage.removeItem(k); }catch(e){} });
+    setTimeout(function(){ location.href = "/?app=1"; }, 300);
+  }
+
+  function closeWarn(){ if (warnEl){ if (warnEl._t) clearInterval(warnEl._t); if (warnEl._to) clearTimeout(warnEl._to); warnEl.remove(); warnEl = null; warnType = null; } }
+  function shell(inner){
+    var el = document.createElement("div");
+    el.style.cssText = "position:fixed;inset:0;z-index:100001;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:24px";
+    el.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:340px;width:100%;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.45);text-align:center">'+inner+'</div>';
+    document.body.appendChild(el); return el;
+  }
+  function idleWarn(){
+    warnType = "idle";
+    warnEl = shell('<div style="font-size:15px;font-weight:700;color:#0f172a;margin-bottom:8px">Oturum zaman asimi</div>'
+      +'<div style="font-size:13px;color:#475569;line-height:1.5;margin-bottom:16px">Bir suredir islem yapmadiniz. Guvenlik icin <b><span id="alo-say">'+WARN_SEC+'</span> sn</b> icinde cikis yapilacak.</div>'
+      +'<button id="alo-stay" style="width:100%;padding:12px;border:none;background:#0284c7;color:#fff;border-radius:10px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer">Oturumu acik tut</button>');
+    var s = WARN_SEC;
+    warnEl._t = setInterval(function(){ s--; var e=document.getElementById("alo-say"); if(e) e.textContent=s; if(s<=0){ closeWarn(); doLogout(); } }, 1000);
+    warnEl.querySelector("#alo-stay").addEventListener("click", function(){ last = Date.now(); closeWarn(); });
+  }
+  function absWarn(){
+    warnType = "abs";
+    warnEl = shell('<div style="font-size:15px;font-weight:700;color:#0f172a;margin-bottom:8px">Oturum suresi doldu</div>'
+      +'<div style="font-size:13px;color:#475569;line-height:1.5;margin-bottom:16px">Guvenlik icin oturum suresi doldu. Yeniden giris yapmaniz gerekiyor.</div>'
+      +'<button id="alo-ok" style="width:100%;padding:12px;border:none;background:#0284c7;color:#fff;border-radius:10px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer">Yeniden giris</button>');
+    warnEl._to = setTimeout(doLogout, 12000);
+    warnEl.querySelector("#alo-ok").addEventListener("click", doLogout);
+  }
+
+  setInterval(function(){
+    if (busy) return;
+    var m = me();
+    if (!m){ if (warnEl) closeWarn(); try{ localStorage.removeItem("krbLoginAt"); }catch(e){} return; }
+    var p = policy(); if (!p) return;
+    var loginAt = parseInt(localStorage.getItem("krbLoginAt")||"0", 10);
+    if (!loginAt){ loginAt = Date.now(); try{ localStorage.setItem("krbLoginAt", String(loginAt)); }catch(e){} }
+    var now = Date.now();
+    if (p.absMs && (now - loginAt) >= p.absMs){ if (warnType !== "abs"){ closeWarn(); absWarn(); } return; }
+    if (p.idleMs){ var idle = now - last; if (idle >= p.idleMs - WARN_SEC*1000){ if (!warnEl) idleWarn(); } }
+  }, 5000);
+})();
 

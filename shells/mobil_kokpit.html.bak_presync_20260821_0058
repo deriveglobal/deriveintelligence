@@ -1,0 +1,287 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<meta name="theme-color" content="#05070a">
+<title>KRB · Yönetici Kokpiti</title>
+<!-- MOBIL_KOKPIT_V2 · tum-metrik kokpit (buyume+nabiz+nakit dongusu+segment+stok+dikkat) · kaynak /api/bi/finans/oda -->
+<meta name="krb-marker" content="MOBIL_KOKPIT_V2">
+<style>
+:root{
+ --bg:#05070a;--ink:#eaf1fa;--ink2:#93a4bb;--ink3:#5c6b80;
+ --line:#182231;--card:linear-gradient(165deg,#111926 0%,#0b111a 100%);
+ --up:#37d67a;--down:#f0616a;--acc:#7ab7ff;--gold:#f6b93b;--vio:#a98bff;--tec:#5ec8d8;
+ --r:20px;--r2:15px;--sh:0 8px 30px -12px rgba(0,0,0,.7);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:radial-gradient(120% 60% at 50% -10%,#0c1420 0%,var(--bg) 55%);color:var(--ink);
+ font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+body{padding:calc(env(safe-area-inset-top) + 16px) 14px calc(env(safe-area-inset-bottom) + 48px);max-width:540px;margin:0 auto}
+.top{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.logo{width:30px;height:30px;border-radius:9px;background:linear-gradient(140deg,var(--acc),#3d6fd6);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:14px;color:#04121f;box-shadow:0 4px 14px -4px rgba(122,183,255,.6)}
+.top h1{font-size:16px;margin:0;font-weight:800;letter-spacing:.2px}
+.top .as{margin-left:auto;font-size:11px;color:var(--ink3);text-align:right;line-height:1.3}
+.hi{font-size:13px;color:var(--ink2);margin:2px 2px 16px;line-height:1.5}.hi b{color:var(--ink)}
+
+.sec{margin:22px 4px 10px;font-size:11px;color:var(--ink3);font-weight:800;letter-spacing:1.2px;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.sec:after{content:"";flex:1;height:1px;background:var(--line)}
+
+/* HERO — büyüme */
+.hero{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 16px 13px;box-shadow:var(--sh);position:relative;overflow:hidden}
+.hero:before{content:"";position:absolute;inset:0;background:radial-gradient(90% 120% at 100% 0,rgba(122,183,255,.10),transparent 60%);pointer-events:none}
+.hero .lab{font-size:12px;color:var(--ink2);font-weight:600}
+.hero .big{font-size:34px;font-weight:850;letter-spacing:-.5px;margin-top:4px;line-height:1}
+.hero .big small{font-size:15px;color:var(--ink2);font-weight:700}
+.hero .rowb{display:flex;align-items:center;gap:8px;margin-top:11px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:800;padding:5px 10px;border-radius:30px;background:#101a27;color:var(--ink)}
+.chip.g{color:var(--up);background:rgba(55,214,122,.12)}.chip.d{color:var(--down);background:rgba(240,97,106,.12)}
+.spark{margin-left:auto;width:100px;height:36px;opacity:.95}
+.info{position:absolute;width:19px;height:19px;border-radius:50%;border:1px solid var(--line);color:var(--ink3);font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;background:#0a121c}
+.info:active{background:#16202e}
+
+/* NABIZ grid */
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:11px}
+.mc{background:var(--card);border:1px solid var(--line);border-radius:var(--r2);padding:13px 13px 11px;position:relative;box-shadow:var(--sh)}
+.mc .k{font-size:11.5px;color:var(--ink2);font-weight:600;padding-right:20px}
+.mc .v{font-size:23px;font-weight:850;margin-top:6px;line-height:1;letter-spacing:-.3px}
+.mc .v small{font-size:12px;color:var(--ink2);font-weight:700}
+.mc .foot{font-size:11px;margin-top:6px;color:var(--ink3);font-weight:600}
+.mc .info{top:11px;right:11px}
+
+/* nakit döngüsü ayrıştırma */
+.ccc{background:var(--card);border:1px solid var(--line);border-radius:var(--r2);padding:14px 14px 13px;box-shadow:var(--sh);position:relative;margin-top:11px}
+.ccc .hd{display:flex;align-items:baseline;gap:8px}
+.ccc .hd .t{font-size:12px;color:var(--ink2);font-weight:700}
+.ccc .hd .b{margin-left:auto;font-size:22px;font-weight:850;letter-spacing:-.3px}
+.ccc .hd .b small{font-size:12px;color:var(--ink2);font-weight:700}
+.bar{display:flex;height:12px;border-radius:7px;overflow:hidden;margin:12px 0 9px;background:#0a121c;border:1px solid var(--line)}
+.bar i{display:block;height:100%}
+.leg{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--ink2);font-weight:600}
+.leg span{display:inline-flex;align-items:center;gap:6px}
+.dot{width:9px;height:9px;border-radius:3px;display:inline-block}
+.ccc .eq{margin-top:10px;font-size:12px;color:var(--ink3);font-weight:600;line-height:1.5}
+.ccc .eq b{color:var(--ink2)}
+
+/* segment split */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:11px;margin-top:11px}
+.sp{background:var(--card);border:1px solid var(--line);border-radius:var(--r2);padding:12px 13px;box-shadow:var(--sh)}
+.sp .k{font-size:11.5px;color:var(--ink2);font-weight:700}
+.sp .v{font-size:20px;font-weight:850;margin-top:5px;letter-spacing:-.3px}.sp .v small{font-size:11px;color:var(--ink2);font-weight:700}
+.sp .m{font-size:12px;font-weight:800;margin-top:4px}
+
+/* dikkat */
+.act{background:var(--card);border:1px solid var(--line);border-radius:var(--r2);padding:14px 14px;margin-bottom:10px;display:flex;gap:12px;align-items:flex-start;box-shadow:var(--sh);position:relative;overflow:hidden}
+.act .br{position:absolute;left:0;top:0;bottom:0;width:3px}
+.act.g .br{background:var(--up)}.act.r .br{background:var(--gold)}.act.x .br{background:var(--down)}.act.n .br{background:var(--ink3)}
+.act .ic{font-size:20px;line-height:1;margin-top:1px}
+.act .t{font-weight:800;font-size:14.5px;letter-spacing:-.2px}
+.act .d{color:var(--ink2);font-size:13px;margin-top:4px;line-height:1.45}.act .d b{color:var(--ink)}
+.tag{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:800;padding:4px 9px;border-radius:20px;margin-top:9px}
+.tag.g{background:rgba(55,214,122,.12);color:var(--up)}.tag.r{background:rgba(246,185,59,.13);color:var(--gold)}.tag.x{background:rgba(240,97,106,.12);color:var(--down)}
+
+/* ask */
+.ask{margin-top:22px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px 15px;box-shadow:var(--sh)}
+.ask h3{margin:0 0 3px;font-size:15px;font-weight:800}.ask .sub{color:var(--ink3);font-size:12px;margin-bottom:11px}
+.ask .row{display:flex;gap:9px}
+.ask input{flex:1;background:#0a0f17;border:1px solid var(--line);color:var(--ink);border-radius:14px;padding:13px 14px;font-size:15px;outline:none}
+.ask input:focus{border-color:#2f4d78}
+.ask .go{background:linear-gradient(140deg,var(--acc),#3d6fd6);color:#04121f;border:0;border-radius:14px;width:50px;font-weight:900;font-size:18px}
+.q{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
+.q span{background:#0a0f17;border:1px solid var(--line);color:var(--ink2);font-size:12.5px;padding:8px 12px;border-radius:22px}.q span:active{background:#141d29}
+.ans{margin-top:13px;font-size:14px;line-height:1.55;white-space:pre-wrap;display:none;border-top:1px solid var(--line);padding-top:12px}
+.dots span{display:inline-block;width:6px;height:6px;margin-right:4px;border-radius:50%;background:var(--ink3);animation:b 1s infinite}.dots span:nth-child(2){animation-delay:.15s}.dots span:nth-child(3){animation-delay:.3s}
+@keyframes b{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+.err{color:var(--down);font-size:12.5px;margin-top:9px;display:none}
+.sk{background:linear-gradient(100deg,#131c28 30%,#1b2836 50%,#131c28 70%);background-size:200% 100%;animation:sh 1.3s infinite;border-radius:7px;color:transparent!important}
+@keyframes sh{to{background-position:-200% 0}}
+.scrim{position:fixed;inset:0;background:rgba(2,4,8,.55);opacity:0;pointer-events:none;transition:opacity .22s;z-index:40;backdrop-filter:blur(2px)}
+.scrim.on{opacity:1;pointer-events:auto}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;background:linear-gradient(180deg,#131c28,#0b111a);border-top:1px solid var(--line);border-radius:24px 24px 0 0;padding:8px 20px calc(env(safe-area-inset-bottom) + 26px);transform:translateY(102%);transition:transform .28s cubic-bezier(.22,1,.36,1);max-width:540px;margin:0 auto;box-shadow:0 -20px 50px -20px rgba(0,0,0,.8)}
+.sheet.on{transform:translateY(0)}
+.sheet .grip{width:38px;height:4px;border-radius:4px;background:#2b3a4d;margin:8px auto 16px}
+.sheet h4{margin:0 0 8px;font-size:18px;font-weight:850}.sheet p{margin:0;color:var(--ink2);font-size:14.5px;line-height:1.6}
+.sheet .why{margin-top:14px;background:#0a121c;border:1px solid var(--line);border-radius:14px;padding:12px 13px;font-size:13px;color:var(--ink2);line-height:1.5}.sheet .why b{color:var(--acc)}
+</style></head><body>
+
+<div class="top"><div class="logo">K</div><h1>Yönetici Kokpiti</h1><div class="as" id="as">—</div></div>
+<div class="hi" id="hi">Kokpit hazırlanıyor…</div>
+
+<!-- HERO büyüme -->
+<div class="hero">
+  <div style="display:flex;align-items:flex-start">
+    <div style="flex:1">
+      <div class="lab">Bu ay · lastik cirosu <span id="h_ic" style="color:var(--ink3)"></span></div>
+      <div class="big sk" id="h_ciro">0000</div>
+      <div class="rowb">
+        <span class="chip" id="h_mom" style="display:none"></span>
+        <span class="chip" id="h_marj">— marj</span>
+        <svg class="spark" id="spark" viewBox="0 0 100 36" preserveAspectRatio="none"></svg>
+      </div>
+    </div>
+    <div class="info" data-tip="buyume" style="top:14px;right:14px">i</div>
+  </div>
+</div>
+
+<!-- NABIZ -->
+<div class="grid">
+  <div class="mc"><div class="info" data-tip="kar">i</div><div class="k">Kârlılık · bu ay</div><div class="v sk" id="m_kar">00</div><div class="foot" id="m_kar_f">&nbsp;</div></div>
+  <div class="mc"><div class="info" data-tip="twc">i</div><div class="k">İşletme sermayesi</div><div class="v sk" id="m_twc">00</div><div class="foot" id="m_twc_f">&nbsp;</div></div>
+  <div class="mc"><div class="info" data-tip="gec">i</div><div class="k">Net gecikmiş alacak</div><div class="v sk" id="m_gec">00</div><div class="foot" id="m_gec_f">&nbsp;</div></div>
+  <div class="mc"><div class="info" data-tip="marj12">i</div><div class="k">Brüt marj · 12 ay</div><div class="v sk" id="m_m12">00</div><div class="foot" id="m_m12_f">&nbsp;</div></div>
+</div>
+
+<!-- NAKİT DÖNGÜSÜ ayrıştırma -->
+<div class="ccc">
+  <div class="hd"><span class="t">Nakit döngüsü (CCC)</span><span class="info" data-tip="ccc" style="position:static;margin-left:2px">i</span><span class="b sk" id="c_ccc">0</span></div>
+  <div class="bar" id="c_bar"></div>
+  <div class="leg">
+    <span><i class="dot" style="background:var(--acc)"></i>Tahsilat (DSO) <b id="c_dso" style="color:var(--ink)">—</b></span>
+    <span><i class="dot" style="background:var(--gold)"></i>Stok (DIO) <b id="c_dio" style="color:var(--ink)">—</b></span>
+    <span><i class="dot" style="background:var(--up)"></i>Tedarikçi (DPO) <b id="c_dpo" style="color:var(--ink)">—</b></span>
+  </div>
+  <div class="eq" id="c_eq">&nbsp;</div>
+</div>
+
+<!-- TÜKETİCİ / TİCARİ -->
+<div class="sec">Tüketici · Ticari · son 12 ay</div>
+<div class="split">
+  <div class="sp"><div class="k">🚗 Tüketici (PSR)</div><div class="v sk" id="s_tuk_c">0</div><div class="m" id="s_tuk_m">&nbsp;</div></div>
+  <div class="sp"><div class="k">🚚 Ticari</div><div class="v sk" id="s_tic_c">0</div><div class="m" id="s_tic_m">&nbsp;</div></div>
+</div>
+
+<!-- STOK & SIZINTI -->
+<div class="sec">Stok · Sızıntı</div>
+<div class="split">
+  <div class="sp"><div class="k">📦 Ölü stok · donmuş</div><div class="v sk" id="s_olu">0</div><div class="m" id="s_olu_f" style="color:var(--ink3)">&nbsp;</div></div>
+  <div class="sp"><div class="k">🩸 Zararına satış</div><div class="v sk" id="s_siz">0</div><div class="m" id="s_siz_f" style="color:var(--ink3)">&nbsp;</div></div>
+</div>
+
+<!-- DİKKAT -->
+<div class="sec">Bugün dikkat</div>
+<div id="acts">
+  <div class="act n"><span class="br"></span><div class="ic">✦</div><div><div class="t sk" style="width:150px">···</div><div class="d sk" style="width:210px;margin-top:8px">···</div></div></div>
+</div>
+
+<!-- SOR -->
+<div class="ask">
+  <h3>Sor</h3><div class="sub">Kokpit ve finansın tüm derinliği — bir soru uzağında.</div>
+  <div class="row"><input id="q" placeholder="Continental'ın durumu? · bu ay marj neden?" autocomplete="off"><button class="go" id="send">→</button></div>
+  <div class="q"><span>En riskli müşteri kim?</span><span>Nakit döngüsü neden uzun?</span><span>Hangi ölü stoku eriteyim?</span></div>
+  <div class="ans" id="ans"></div><div class="err" id="qerr"></div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet"><div class="grip"></div><h4 id="sh_t"></h4><p id="sh_d"></p><div class="why" id="sh_w"></div></div>
+
+<script>
+const TIPS={
+ buyume:{t:"Bu ay · lastik cirosu",d:"Bu ay lastik satışından gelen gelir (KDV hariç, ay içi). Yanındaki % geçen aya göre — ay sonu için pace-tahmini, kısmi ay yanıltmasın diye.",w:"<b>Neden önemli:</b> Ayın gidişatını tek bakışta gösterir. Sparkline son 12 ayın ciro rotası."},
+ kar:{t:"Kârlılık · bu ay (brüt marj)",d:"Bu ay sattığın her 100₺'nin kaç ₺'si kâr kaldı (maliyet sonrası, teşvik öncesi). Ay içiyse tahmini.",w:"<b>Neden önemli:</b> Fiyatlama + maliyet disiplininin anlık nabzı. Altta 12 aylık ortalaması var."},
+ marj12:{t:"Brüt marj · 12 ay",d:"Son 12 ayın brüt marjı — istikrarlı kârlılık çizgisi (tek ayın gürültüsünden arınık).",w:"<b>Neden önemli:</b> Trend aşağıysa ya fiyat eridi ya maliyet arttı; tek ay değil, yön önemli."},
+ twc:{t:"İşletme sermayesi (TWC)",d:"İşi döndürmek için nakde bağlı tutar: stok + alacak − tedarikçi borcu. Büyüdükçe büyümeyi kendi paranla finanse ediyorsun.",w:"<b>Neden önemli:</b> Nakit burada kilitli. Düşürmek = serbest nakit. Altta bağlı-sermaye oranı."},
+ gec:{t:"Net gecikmiş alacak",d:"Vadesi geçmiş, tahsil edilmemiş müşteri alacağı — tedarikçi borcunla mahsuplu (net).",w:"<b>Neden önemli:</b> Kâğıtta sattın, para gelmedi. Yükseldikçe nakit müşteride kalır."},
+ ccc:{t:"Nakit döngüsü (CCC)",d:"Paran stoğa girip, satılıp, alacaktan dönene kadar kaç gün bağlı: Tahsilat(DSO) + Stok(DIO) − Tedarikçi(DPO). Düşük iyi.",w:"<b>Neden önemli:</b> Nakit motorunun hızı. Uzun = büyümeyi finanse etme baskısı. En büyük kalemi kısmak en çok nakdi serbest bırakır."}
+};
+const M=(n)=> n==null?'—':(''+n).replace('.',',');
+const api=(p,o)=>fetch(p,Object.assign({credentials:'same-origin'},o||{})).then(r=>r.json());
+function unsk(id,html){var e=document.getElementById(id);if(!e)return;e.classList.remove('sk');e.innerHTML=html;}
+var scrim=document.getElementById('scrim'),sheet=document.getElementById('sheet');
+function openTip(k){var t=TIPS[k];if(!t)return;document.getElementById('sh_t').textContent=t.t;document.getElementById('sh_d').textContent=t.d;document.getElementById('sh_w').innerHTML=t.w;scrim.classList.add('on');sheet.classList.add('on');}
+function closeTip(){scrim.classList.remove('on');sheet.classList.remove('on');}
+scrim.onclick=closeTip;
+Array.prototype.forEach.call(document.querySelectorAll('.info'),function(b){b.onclick=function(){openTip(b.getAttribute('data-tip'));};});
+
+function sparkline(vals){
+ var v=vals.filter(function(x){return x!=null;}); if(v.length<2)return;
+ var mn=Math.min.apply(null,v),mx=Math.max.apply(null,v),rg=(mx-mn)||1,W=100,H=36,pad=3;
+ var pts=vals.map(function(x,i){var px=(i/(vals.length-1))*W;var py=H-pad-((x==null?mn:x)-mn)/rg*(H-2*pad);return px.toFixed(1)+','+py.toFixed(1);}).join(' ');
+ var up=v[v.length-1]>=v[0],col=up?'#37d67a':'#f0616a';
+ document.getElementById('spark').innerHTML='<defs><linearGradient id="sg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="'+col+'" stop-opacity=".35"/><stop offset="1" stop-color="'+col+'" stop-opacity="0"/></linearGradient></defs>'+
+  '<polyline points="'+pts+' 100,36 0,36" fill="url(#sg)" stroke="none"/>'+
+  '<polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>';
+}
+
+function render(d){
+ var c=d.core||{}, p=(d.pencere&&d.pencere.buay)||{}, g=d.gecikmis||{}, s=d.stok||{}, od=s.olu_detay||{}, tr=d.trend||[], ct=d.catal||{}, sz=d.sizinti||{};
+ document.getElementById('as').innerHTML='son veri<br>'+(d.as_of||'—')+(d.cached?' · önbellek':'');
+
+ // HERO — bu ay ciro + pace-MoM + ciro sparkline
+ unsk('h_ciro', M(p.ciro)+' <small>M ₺</small>');
+ var marjTxt=(p.marj!=null)?M(p.marj)+'%':'—';
+ document.getElementById('h_marj').textContent=marjTxt+' marj'+(p.marj_tahmin?' ≈':'');
+ document.getElementById('h_ic').textContent='· ay içi';
+ var cv=tr.map(function(r){return r.ciro;});
+ var gecen=(cv.length>=1)?cv[cv.length-1]:null; // son kapalı ay = geçen ay
+ var now=new Date(), dim=new Date(now.getFullYear(),now.getMonth()+1,0).getDate(), pace=now.getDate()/dim;
+ var proj=(p.ciro!=null&&pace>0)?p.ciro/pace:null;
+ if(gecen&&proj){var mom=Math.round((proj-gecen)/gecen*100),el=document.getElementById('h_mom');
+   el.style.display='inline-flex';el.className='chip '+(mom>=0?'g':'d');
+   el.textContent=(mom>=0?'▲ ':'▼ ')+M(Math.abs(mom))+'% geçen aya ≈';}
+ sparkline(cv);
+
+ // NABIZ
+ unsk('m_kar', M(p.marj)+' <small>%</small>'); document.getElementById('m_kar_f').textContent=(c.marj_pct!=null?'12 ay: %'+M(c.marj_pct):'teşvik öncesi');
+ unsk('m_twc', M(c.twc)+' <small>M ₺</small>'); document.getElementById('m_twc_f').textContent=(c.bagli_sermaye_pct!=null?'ciro %'+M(c.bagli_sermaye_pct)+' bağlı':'nakde bağlı');
+ unsk('m_gec', M(g.net)+' <small>M ₺</small>'); document.getElementById('m_gec_f').textContent=(g.top&&g.top[0]?'en yük: '+(g.top[0].ad||'').slice(0,15):' ');
+ unsk('m_m12', M(c.marj_pct)+' <small>%</small>'); document.getElementById('m_m12_f').textContent='istikrar çizgisi';
+
+ // NAKİT DÖNGÜSÜ ayrıştırma
+ unsk('c_ccc', M(c.ccc)+' <small>gün</small>');
+ var dso=Number(c.dso||0),dio=Number(c.dio||0),dpo=Number(c.dpo||0);
+ document.getElementById('c_dso').textContent=(c.dso!=null?Math.round(dso)+'g':'—');
+ document.getElementById('c_dio').textContent=(c.dio!=null?Math.round(dio)+'g':'—');
+ document.getElementById('c_dpo').textContent=(c.dpo!=null?Math.round(dpo)+'g':'—');
+ var tot=(dso+dio)||1;
+ document.getElementById('c_bar').innerHTML='<i style="width:'+(dso/tot*100).toFixed(1)+'%;background:var(--acc)"></i><i style="width:'+(dio/tot*100).toFixed(1)+'%;background:var(--gold)"></i>';
+ if(c.ccc!=null)document.getElementById('c_eq').innerHTML='<b>'+Math.round(dso)+'</b> tahsilat + <b>'+Math.round(dio)+'</b> stok − <b>'+Math.round(dpo)+'</b> tedarikçi = <b style="color:var(--ink)">'+M(c.ccc)+' gün</b> nakit bağlı';
+
+ // SEGMENT
+ var tu=ct.tuk||{},ti=ct.tic||{},mcol=function(v){return v==null?'var(--ink2)':v<0?'var(--down)':v<8?'var(--gold)':'var(--up)';};
+ unsk('s_tuk_c', M(tu.ciro)+' <small>M ₺</small>'); document.getElementById('s_tuk_m').innerHTML='<span style="color:'+mcol(tu.marj)+'">%'+M(tu.marj)+' marj</span>';
+ unsk('s_tic_c', M(ti.ciro)+' <small>M ₺</small>'); document.getElementById('s_tic_m').innerHTML='<span style="color:'+mcol(ti.marj)+'">%'+M(ti.marj)+' marj</span>';
+
+ // STOK & SIZINTI
+ unsk('s_olu', M((s.olu||{}).deger)+' <small>M ₺</small>'); document.getElementById('s_olu_f').textContent=((s.olu||{}).sku!=null?M(s.olu.sku)+' kalem':' ');
+ unsk('s_siz', M(sz.tutar)+' <small>M ₺</small>'); document.getElementById('s_siz_f').textContent=(sz.kalem!=null?M(sz.kalem)+' kalem · son 12 ay':' ');
+
+ // özet cümle
+ document.getElementById('hi').innerHTML='Bu ay ciro <b>'+M(p.ciro)+'M ₺</b>, marj <b>'+marjTxt+'</b>, nakit döngüsü <b>'+M(c.ccc)+' gün</b>. Aşağıda dikkat isteyen kalemler.';
+
+ // BUGÜN DİKKAT — öncelik sıralı, yalnız materyal
+ var acts=document.getElementById('acts'); acts.innerHTML='';
+ function card(cls,ic,t,dd,tag){var e=document.createElement('div');e.className='act '+cls;
+   e.innerHTML='<span class="br"></span><div class="ic">'+ic+'</div><div style="flex:1"><div class="t">'+t+'</div><div class="d">'+dd+'</div>'+(tag||'')+'</div>';acts.appendChild(e);}
+ if(g.top&&g.top.length){var t0=g.top[0];
+   card('r','💸','Tahsilat yoğunlaşması','En yüksek gecikmiş <b>'+(t0.ad||'—')+'</b> · <b>'+M(t0.net)+'M ₺</b>. Toplam net gecikmiş '+M(g.net)+'M ₺.','<span class="tag r">tahsilata öncelik</span>');}
+ if(od.snk!=null&&od.snk>0){
+   card('g','📦','Ölü stokta nakit kilitli','<b>'+M(od.snk)+'M ₺</b> satılabilir ('+M(od.sks)+' kalem, ebat hâlâ satıyor) → eritip nakde dön. <b>'+M(od.tsd)+'M ₺</b> tasfiyelik.','<span class="tag g">sat → nakde dön</span>');}
+ else if((s.olu||{}).deger!=null&&s.olu.deger>0){
+   card('g','📦','Ölü stokta nakit kilitli','<b>'+M(s.olu.deger)+'M ₺</b> ölü stok ('+M((s.olu||{}).sku)+' kalem, 90 gündür çıkışsız) → eritip nakde dön.','<span class="tag g">sat → nakde dön</span>');}
+ if(sz.tutar!=null&&sz.tutar>0){
+   card('x','🩸','Zararına satış sızıntısı','<b>'+M(sz.tutar)+'M ₺</b> zararına satıldı ('+M(sz.kalem)+' kalem'+(sz.pct!=null?', kalemlerin %'+M(sz.pct)+'’i':'')+'). Fiyat/iskonto disiplinine bak.','<span class="tag x">marjı koru</span>');}
+ if(p.marj!=null&&c.marj_pct!=null&&(c.marj_pct-p.marj)>=3){
+   card('x','📉','Marj bu ay zayıf','Bu ay marj <b>%'+M(p.marj)+'</b>, 12 ay ortalaması <b>%'+M(c.marj_pct)+'</b> altında. Neden düştüğüne bak.','<span class="tag x">incele</span>');}
+ if(!acts.children.length) card('n','✅','Öne çıkan sinyal yok','Şu an eşiği aşan aksiyon kalemi bulunmuyor.','');
+}
+
+if(typeof DEMO!=='undefined'){ render(DEMO); }
+else{
+ // FAZ 1 — hafif çağrı: tüm ana sayılar hızlı boyanır (ağır DETAY yok)
+ api('/api/bi/finans/oda').then(function(j){ var d=(j&&j.data)||{}; d.cached=j&&j.cached; render(d);
+   // FAZ 2 — DETAY arka planda: ölü stok satılabilir/tasfiye ayrımını doldur
+   api('/api/bi/finans/oda?detay=1').then(function(j2){ var d2=(j2&&j2.data)||{};
+     if(d2&&d2.stok&&d2.stok.olu_detay&&d2.stok.olu_detay.snk!=null){ d.stok=d.stok||{}; d.stok.olu_detay=d2.stok.olu_detay; render(d); }
+   }).catch(function(){});
+ }).catch(function(){ document.getElementById('hi').textContent='Veri alınamadı — bağlantıyı kontrol et.'; });
+}
+
+/* asistan */
+function ask(txt){var box=document.getElementById('ans'),err=document.getElementById('qerr');
+ err.style.display='none';box.style.display='block';box.innerHTML='<span class="dots"><span></span><span></span><span></span></span>';
+ api('/api/brain/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:txt})})
+  .then(function(r){var a=r&&(r.reply||r.answer||r.cevap||r.text||r.message||(typeof r==='string'?r:''));
+    if(!a&&r&&r.error){box.style.display='none';err.textContent=r.error;err.style.display='block';return;}
+    box.textContent=a||'(yanıt yok)';})
+  .catch(function(){box.style.display='none';err.textContent='asistana ulaşılamadı';err.style.display='block';});}
+document.getElementById('send').onclick=function(){var v=document.getElementById('q').value.trim();if(v)ask(v);};
+document.getElementById('q').addEventListener('keydown',function(e){if(e.key==='Enter'){var v=this.value.trim();if(v){this.blur();ask(v);}}});
+Array.prototype.forEach.call(document.querySelectorAll('.q span'),function(sp){sp.onclick=function(){document.getElementById('q').value=sp.textContent;ask(sp.textContent);};});
+</script></body></html>

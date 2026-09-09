@@ -1,0 +1,584 @@
+// shells/tenant-admin.js — Derive Platform · Yönetim (Tenant Admin) Shell  v3
+// EKIP_YONETIM_V3 — full visual/UX redesign + unified access (İzinler = editable
+//   sub-tool matrix for every module: Saha 21 alt-araç + segment, Intelligence bölümleri).
+// Exported: initTenantAdminSurface(container, me, callbacks)
+//   callbacks = { apiFetch(path,opts)->json, switchToModule(id) }
+// Endpoints (unchanged): /api/tenant/me, /api/tenant/usage, /api/tenant/users,
+//   PATCH /api/tenant/users/:id {tenant_role|active}, PATCH /api/tenant/users/:id/modules,
+//   POST /api/tenant/users/invite, GET/DELETE /api/tenant/invitations.
+
+export function initTenantAdminSurface(container, me, callbacks) {
+  const { apiFetch, switchToModule } = callbacks;
+  let currentView = "overview";
+  let usersData = [];
+
+  // ─── Module access model (per-module roles + sub-permission catalog) ─────
+  const MODULES = {
+    saha: {
+      label: "Saha",
+      roles: [["rep", "Saha"], ["manager", "Müdür"], ["admin", "Admin"]],
+      segment: true,
+      groups: [
+        ["Saha", [["bugun", "Bugün"], ["ziyaretler", "Ziyaretler"], ["plan", "Plan"], ["musteriler", "Müşteriler"], ["musterikart", "Müşteri Kartı"], ["ebatkart", "Ebat Kartı"], ["teklif", "Teklif"], ["notlarim", "Notlarım"], ["rep-brain", "Rep-Brain"]]],
+        ["Zeka & Pazar", [["harita", "Harita"], ["piyasa", "Piyasa"], ["rakip", "Rakip"], ["oneriler", "Öneriler"]]],
+        ["Yönetim & Analiz", [["rapor", "Rapor"], ["ciro", "Ciro"], ["risk", "Risk Radarı"], ["rotam", "Bugün Sahada"], ["kapsam", "Kapsam & Beyaz Alan"], ["kokpit", "Kokpit"], ["ceo", "CEO"], ["rep-aktivite", "Aktivite"]]],  /* KAPSAM_TAD_V1 */  /* IZIN_YENIMODUL_V1 */
+        ["İletişim", [["duyurular", "Duyurular"], ["mesajlar", "Mesajlar"]]],
+        ["Sistem & Erişim", [["temsilciler", "Ekip"], ["sistem", "Sistem"]]]
+      ],
+      lock: ["temsilciler", "sistem"],
+      gmRole: "admin"
+    },
+    intelligence: {
+      label: "Management",
+      roles: [["viewer", "Görüntüleyici"], ["analyst", "Analist"], ["manager", "Yönetici"], ["admin", "Admin"]],
+      segment: false,
+      groups: [
+        ["Bölümler", [["sales", "Satış"], ["pricing", "Fiyatlandırma"], ["warehouse", "Depo"], ["orders", "Siparişler"], ["it", "IT"], ["rakip", "Rakip"], ["brand-analysis", "Marka Analizi"], ["price-list", "Fiyat Listesi"]]]
+      ],
+      lock: [],
+      gmRole: "admin"
+    }
+  };
+  const modTools = (modId) => (MODULES[modId] ? MODULES[modId].groups.flatMap(g => g[1].map(t => t[0])) : []);
+  const DEFAULTS = {
+    saha: {
+      rep: ["bugun", "ziyaretler", "plan", "musteriler", "teklif", "notlarim", "rep-brain", "piyasa", "rakip", "rapor", "duyurular", "mesajlar", "oneriler", "rotam"],  /* IZIN_YENIMODUL_V1 */
+      manager: ["bugun", "ziyaretler", "plan", "musteriler", "teklif", "notlarim", "rep-brain", "piyasa", "rakip", "rapor", "duyurular", "mesajlar", "oneriler", "harita", "kokpit", "ceo", "ciro", "risk", "rotam", "kapsam"],  /* KAPSAM_TAD_V1 */  /* IZIN_YENIMODUL_V1 */
+      admin: modTools("saha")
+    },
+    intelligence: {
+      viewer: [],
+      analyst: ["sales", "pricing", "warehouse", "orders", "rakip", "price-list", "brand-analysis"],
+      manager: modTools("intelligence"),
+      admin: modTools("intelligence")
+    }
+  };
+
+  const myId = () => (window.__platformMe && (window.__platformMe.userId || window.__platformMe.id)) || me.userId || me.id || "";
+  const subModules = () => ((window.__platformMe && window.__platformMe.subscriptions) || me.subscriptions || []).map(s => s.moduleId).filter(id => MODULES[id]);
+
+  // ─── Skeleton ────────────────────────────────────────────────────────────
+  const initials = (me.name || me.email || "?").trim().slice(0, 2).toUpperCase();
+  container.innerHTML = `
+    <div class="ta-shell">
+    <aside class="ta-sidebar">
+      <div class="ta-brand">
+        <div class="ta-brand-mark">
+          <svg width="26" height="26" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#e2b04a"/><path d="M8 16h4l3-8 4 16 3-8h4" stroke="#1a1a2e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="ta-brand-txt"><span class="ta-brand-name">Yönetim</span><span class="ta-brand-sub">${esc(me.tenantName || "Şirket")}</span></div>
+      </div>
+      <nav class="ta-nav">
+        <div class="ta-nav-label">Genel</div>
+        ${navBtn("overview", "Genel Bakış", '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>')}
+        <div class="ta-nav-label">Erişim</div>
+        ${navBtn("team", "Ekip", '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>')}
+        ${navBtn("permissions", "İzinler", '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>')}
+        ${navBtn("invite", "Davet Et", '<path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>')}
+        ${subModules().includes("saha") ? `<div class="ta-nav-label">Denetim</div>
+        ${navBtn("aktivite", "Aktivite", '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>')}
+        ${navBtn("sistem", "Sistem", '<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>')}` : ""}
+      </nav>
+      <div class="ta-sidebar-foot">
+        <div class="ta-me"><div class="ta-me-av">${esc(initials)}</div><div class="ta-me-txt"><span class="ta-me-name">${esc(me.name || me.email || "")}</span><span class="ta-me-role">${me.tenantRole === "platform_owner" ? "Platform" : "Yönetici"}</span></div></div>
+        <button class="ta-back-btn" id="ta-back-btn"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>Management'e dön</button>
+      </div>
+    </aside>
+    <main class="ta-main">
+      <header class="ta-header">
+        <div><h1 class="ta-title" id="ta-view-title">Genel Bakış</h1><p class="ta-subtitle" id="ta-view-sub"></p></div>
+        <div class="ta-header-actions" id="ta-header-actions"></div>
+      </header>
+      <div class="ta-content" id="ta-content"><div class="ta-loading"><div class="ta-spin"></div>Yükleniyor…</div></div>
+    </main>
+    <div class="ta-toast-wrap" id="ta-toast-wrap"></div>
+    </div>
+    <style>${taStyles()}</style>
+  `;
+
+  function navBtn(view, label, paths) {
+    return `<button class="ta-nav-btn${view === "overview" ? " active" : ""}" data-view="${view}"><svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">${paths}</svg><span>${label}</span></button>`;
+  }
+
+  container.querySelectorAll(".ta-nav-btn").forEach(btn => btn.addEventListener("click", () => {
+    container.querySelectorAll(".ta-nav-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentView = btn.dataset.view;
+    renderView(currentView);
+  }));
+  container.querySelector("#ta-back-btn")?.addEventListener("click", () => {
+    container.style.display = "none";
+    const bi = document.getElementById("bi-surface");
+    if (bi) bi.style.display = "block";
+    else if (typeof switchToModule === "function") switchToModule("intelligence");
+  });
+
+  renderView("overview");
+
+  // ─── Dispatcher ────────────────────────────────────────────────────────────
+  async function renderView(view) {
+    const content = document.getElementById("ta-content");
+    const title = document.getElementById("ta-view-title");
+    const sub = document.getElementById("ta-view-sub");
+    const actions = document.getElementById("ta-header-actions");
+    content.innerHTML = `<div class="ta-loading"><div class="ta-spin"></div>Yükleniyor…</div>`;
+    actions.innerHTML = "";
+    const map = {
+      overview: ["Genel Bakış", "Abonelikler ve özet", renderOverview],
+      team: ["Ekip", "Kullanıcılar, roller ve durum", renderTeam],
+      permissions: ["İzinler", "Modül ve alt-araç erişim matrisi", renderPermissions],
+      invite: ["Davet Et", "Yeni kullanıcı davet bağlantısı", renderInvite],
+      aktivite: ["Aktivite", "Saha temsilci aktivitesi", renderAktivite],
+      sistem: ["Sistem", "Saha hata & sistem raporu", renderSistem]
+    };
+    const v = map[view]; if (!v) return;
+    title.textContent = v[0]; sub.textContent = v[1];
+    try { await v[2](content, actions); }
+    catch (err) { content.innerHTML = `<div class="ta-error">⚠ Yüklenemedi: ${esc(err.message)}</div>`; }
+  }
+
+  // ─── Overview ──────────────────────────────────────────────────────────────
+  async function renderOverview(content) {
+    const [tenant, usage] = await Promise.all([apiFetch("/api/tenant/me"), apiFetch("/api/tenant/usage")]);
+    const subs = tenant.subscriptions || [];
+    const cards = subs.map(s => {
+      const u = (usage || []).find(x => x.module_id === s.module_id) || {};
+      const seats = u.seats_used || 0;
+      const max = u.max_seats && u.max_seats !== "∞" ? Number(u.max_seats) : null;
+      const pct = max ? Math.min(100, Math.round((seats / max) * 100)) : 0;
+      const last = u.last_ingest ? new Date(u.last_ingest).toLocaleDateString("tr-TR") : "—";
+      return `<div class="ta-card ta-mod">
+        <div class="ta-mod-top"><strong>${esc(moduleLabel(s.module_id))}</strong><span class="ta-badge ta-badge-${s.status === "active" ? "active" : "trial"}">${esc(String(s.status || "").toUpperCase())}</span></div>
+        <div class="ta-mod-plan">${esc(s.plan_key || "—")}</div>
+        <div class="ta-seat"><div class="ta-seat-row"><span>Kullanıcı</span><span>${seats}${max ? " / " + max : ""}</span></div>${max ? `<div class="ta-seat-bar"><i style="width:${pct}%"></i></div>` : ""}</div>
+        <div class="ta-mod-foot"><span>Son veri · ${last}</span>${s.module_id === "intelligence" ? `<button class="ta-link" data-goto="intelligence">Modüle git →</button>` : ""}</div>
+      </div>`;
+    }).join("") || `<div class="ta-empty">Henüz aktif modül aboneliği yok.</div>`;
+
+    content.innerHTML = `
+      <div class="ta-kpis">
+        <div class="ta-kpi"><div class="ta-kpi-num">${tenant.seats_used || 0}</div><div class="ta-kpi-lbl">Aktif kullanıcı</div></div>
+        <div class="ta-kpi"><div class="ta-kpi-num">${subs.length}</div><div class="ta-kpi-lbl">Aktif modül</div></div>
+        <div class="ta-kpi"><div class="ta-kpi-num" style="font-size:18px">${esc(tenant.timezone || "Europe/Istanbul")}</div><div class="ta-kpi-lbl">Zaman dilimi</div></div>
+      </div>
+      <h2 class="ta-h2">Abonelikler</h2>
+      <div class="ta-grid">${cards}</div>`;
+    content.querySelectorAll("[data-goto]").forEach(b => b.addEventListener("click", () => switchToModule(b.dataset.goto)));
+  }
+
+  // ─── Team ────────────────────────────────────────────────────────────────────
+  async function renderTeam(content, actions) {
+    usersData = await apiFetch("/api/tenant/users");
+    actions.innerHTML = `<button class="ta-btn ta-btn-primary" id="ta-inv">+ Davet Et</button>`;
+    actions.querySelector("#ta-inv").onclick = () => container.querySelector('[data-view="invite"]').click();
+
+    if (!usersData.length) { content.innerHTML = `<div class="ta-empty">Henüz ekip üyesi yok.</div>`; return; }
+    const mine = myId();
+    const rows = usersData.map(u => {
+      const isMe = u.id === mine;
+      const isActive = u.tenant_active !== false;
+      const isAdmin = u.tenant_role === "tenant_admin" || u.tenant_role === "platform_owner";
+      const nm = u.full_name || u.name || u.email || "—";
+      const mods = (u.module_access || []).filter(m => m.active).map(m => `<span class="ta-tag">${esc(moduleLabel(m.module_id))}</span>`).join("") || `<span class="ta-muted">—</span>`;
+      const last = u.last_login_at ? new Date(u.last_login_at).toLocaleDateString("tr-TR") : "Hiç";
+      const roleBtn = !isMe ? `<button class="ta-btn ta-btn-xs ta-btn-secondary" data-uid="${esc(u.id)}" data-role="${esc(u.tenant_role)}" data-name="${esc(nm)}" data-act="role">${isAdmin ? "Üye yap" : "Admin yap"}</button>` : "";
+      const actBtn = !isMe ? `<button class="ta-btn ta-btn-xs ${isActive ? "ta-btn-danger" : "ta-btn-success"}" data-uid="${esc(u.id)}" data-active="${isActive}" data-name="${esc(nm)}" data-act="active">${isActive ? "Devre dışı" : "Aktif et"}</button>` : "";
+      return `<tr class="${isActive ? "" : "ta-row-off"}">
+        <td><div class="ta-user"><div class="ta-av">${esc(nm.trim().slice(0, 2).toUpperCase())}</div><div><div class="ta-user-nm">${esc(nm)}${isMe ? `<span class="ta-self">sen</span>` : ""}</div><div class="ta-user-em">${esc(u.email || "")}</div></div></div></td>
+        <td><span class="ta-badge ta-badge-${isAdmin ? "admin" : "member"}">${isAdmin ? "Admin" : "Üye"}</span></td>
+        <td>${isActive ? `<span class="ta-dot ta-dot-on"></span>Aktif` : `<span class="ta-dot ta-dot-off"></span>Pasif`}</td>
+        <td>${mods}</td>
+        <td class="ta-muted">${last}</td>
+        <td class="ta-act"><button class="ta-btn ta-btn-xs" data-uid="${esc(u.id)}" data-act="perm">İzinler</button>${roleBtn}${actBtn}</td>
+      </tr>`;
+    }).join("");
+    content.innerHTML = `<div class="ta-tablewrap"><table class="ta-table"><thead><tr><th>Kullanıcı</th><th>Rol</th><th>Durum</th><th>Modüller</th><th>Son giriş</th><th>İşlemler</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+
+    content.querySelectorAll('[data-act="perm"]').forEach(b => b.addEventListener("click", () => { container.querySelector('[data-view="permissions"]').click(); }));
+    content.querySelectorAll('[data-act="role"]').forEach(b => b.addEventListener("click", () => changeRole(b.dataset.uid, b.dataset.role, b.dataset.name)));
+    content.querySelectorAll('[data-act="active"]').forEach(b => b.addEventListener("click", () => toggleActive(b.dataset.uid, b.dataset.active === "true", b.dataset.name)));
+  }
+
+  async function changeRole(uid, cur, name) {
+    const isAdmin = cur === "tenant_admin" || cur === "platform_owner";
+    const newRole = isAdmin ? "member" : "tenant_admin";
+    if (!(await taConfirm(`${name} kullanıcısını "${newRole === "tenant_admin" ? "Admin" : "Üye"}" yap?`, newRole === "tenant_admin" ? "Admin yap" : "Üye yap"))) return;
+    try { await apiFetch(`/api/tenant/users/${uid}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tenant_role: newRole }) }); toast("Rol güncellendi", "ok"); renderView("team"); }
+    catch (err) { toast("Hata: " + err.message, "err"); }
+  }
+  async function toggleActive(uid, cur, name) {
+    if (!(await taConfirm(`${name} kullanıcısını ${cur ? "devre dışı bırak" : "yeniden aktif et"}?`, cur ? "Devre dışı" : "Aktif et", cur))) return;
+    try { await apiFetch(`/api/tenant/users/${uid}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: !cur }) }); toast(cur ? "Kullanıcı pasifleştirildi" : "Kullanıcı aktifleştirildi", "ok"); renderView("team"); }
+    catch (err) { toast("Hata: " + err.message, "err"); }
+  }
+
+  // ─── İzinler — unified editable access matrix ───────────────────────────────
+  let izinMod = null;
+  async function renderPermissions(content) {
+    usersData = await apiFetch("/api/tenant/users");
+    const mods = subModules();
+    if (!mods.length) { content.innerHTML = `<div class="ta-empty">Aktif modül aboneliği yok.</div>`; return; }
+    if (!izinMod || !mods.includes(izinMod)) izinMod = mods[0];
+    const tabs = mods.map(id => `<button class="ta-modtab${id === izinMod ? " active" : ""}" data-mod="${id}">${esc(moduleLabel(id))}</button>`).join("");
+    content.innerHTML = `<div class="ta-izin-head"><div class="ta-modtabs">${tabs}</div><div class="ta-izin-hint">Rol seçince varsayılan set gelir · değişiklik satırda <b>Kaydet</b> ile yazılır · 👑 yönetici kilitli</div></div><div id="ta-matrix"></div>`;
+    content.querySelectorAll(".ta-modtab").forEach(b => b.addEventListener("click", () => { izinMod = b.dataset.mod; renderPermissions(content); }));
+    buildMatrix(content.querySelector("#ta-matrix"), izinMod);
+  }
+
+  function buildMatrix(host, modId) {
+    const cfg = MODULES[modId];
+    const TOOLS = modTools(modId);
+    const mine = myId();
+    const sm = (u) => (u.module_access || []).find(x => x && x.module_id === modId) || null;
+    const isGuard = (u) => u.tenant_role === "tenant_admin" || u.tenant_role === "platform_owner" || u.id === mine;
+
+    const grpTh = cfg.groups.map(g => `<th class="ta-grp" colspan="${g[1].length}">${esc(g[0])}</th>`).join("");
+    const toolTh = cfg.groups.flatMap(g => g[1].map(t => `<th class="ta-toolh" title="${esc(t[1])}">${esc(t[1])}</th>`)).join("");
+    const roleOpts = (cur, guard) => cfg.roles.map(r => `<option value="${r[0]}"${(cur === r[0] || (guard && r[0] === cfg.gmRole)) ? " selected" : ""}>${esc(r[1])}</option>`).join("");
+    const segOpts = (cur) => { const c = String(cur || "").toUpperCase(); const o = (v, l) => `<option value="${v}"${c === v ? " selected" : ""}>${l}</option>`; return `<option value=""${!c ? " selected" : ""}>Oto</option>${o("TUKETICI", "Tüketici")}${o("TICARI", "Ticari")}${o("KARMA", "Karma")}`; };
+
+    const row = (u) => {
+      const m = sm(u), perms = (m && m.permissions) || {}, guard = isGuard(u);
+      const has = new Set(Array.isArray(perms.departments) ? perms.departments : []);
+      const _NEWK = ["ciro", "risk", "rotam"], _hasNewRec = _NEWK.some(k => has.has(k));  /* IZIN_ROLDEF_TAD_V1 */
+      const _rrole = (m && m.module_role) || cfg.roles[0][0], _rdefS = new Set((DEFAULTS[modId] && DEFAULTS[modId][_rrole]) || []);
+      const active = guard ? true : (m ? m.active !== false : false);
+      const nm = u.full_name || u.name || u.email || "—";
+      const cells = TOOLS.map(id => { const lock = guard && cfg.lock.includes(id); const chk = (has.has(id) || lock || guard || (_NEWK.includes(id) && !_hasNewRec && _rdefS.has(id))) ? " checked" : ""; const dis = lock || guard; return `<td class="ta-cell"><input type="checkbox" class="ta-tool" data-tool="${id}"${chk}${dis ? " disabled" : ""}></td>`; }).join("");  /* IZIN_ROLDEF_TAD_V1 */
+      return `<tr data-uid="${esc(u.id)}">
+        <td class="ta-sticky"><div class="ta-user"><div class="ta-av">${esc(nm.trim().slice(0, 2).toUpperCase())}</div><div><div class="ta-user-nm">${esc(nm)}${guard ? ` <span class="ta-crown" title="Yönetici — kilitli">👑</span>` : ""}</div><div class="ta-user-em">${esc(u.email || "")}</div></div></div><div class="ta-rowsave"><button class="ta-btn ta-btn-xs ta-save" disabled>Kaydet</button><span class="ta-rowmsg"></span></div></td>
+        <td><select class="ta-mini ta-role"${guard ? " disabled" : ""}>${roleOpts(m ? m.module_role : "", guard)}</select></td>
+        ${cfg.segment ? `<td><select class="ta-mini ta-seg">${segOpts(perms.saha_tip)}</select></td>` : ""}
+        <td class="ta-cell"><input type="checkbox" class="ta-active"${active ? " checked" : ""}${guard ? " disabled" : ""}></td>
+        ${cells}
+      </tr>`;
+    };
+
+    host.innerHTML = `<div class="ta-tablewrap ta-matrixwrap"><table class="ta-table ta-matrix"><thead>
+      <tr><th class="ta-sticky" rowspan="2">Kullanıcı (${usersData.length})</th><th rowspan="2">Rol</th>${cfg.segment ? `<th rowspan="2">Segment</th>` : ""}<th rowspan="2">Aktif</th>${grpTh}</tr>
+      <tr>${toolTh}</tr></thead><tbody>${usersData.map(row).join("")}</tbody></table></div>`;
+
+    const markDirty = (tr) => { const b = tr.querySelector(".ta-save"); b.disabled = false; b.classList.add("on"); tr.querySelector(".ta-rowmsg").textContent = ""; };
+    host.querySelectorAll("tr[data-uid]").forEach(tr => {
+      const roleSel = tr.querySelector(".ta-role");
+      roleSel && roleSel.addEventListener("change", () => {
+        const def = new Set((DEFAULTS[modId] && DEFAULTS[modId][roleSel.value]) || []);
+        tr.querySelectorAll(".ta-tool").forEach(cb => { if (!cb.disabled) cb.checked = def.has(cb.dataset.tool); });
+        markDirty(tr);
+      });
+      tr.querySelectorAll(".ta-tool, .ta-seg, .ta-active").forEach(el => el.addEventListener("change", () => markDirty(tr)));
+      tr.querySelector(".ta-save").addEventListener("click", () => saveRow(tr, modId));
+    });
+  }
+
+  async function saveRow(tr, modId) {
+    const cfg = MODULES[modId];
+    const uid = tr.dataset.uid;
+    const u = usersData.find(x => x.id === uid); if (!u) return;
+    const guard = u.tenant_role === "tenant_admin" || u.tenant_role === "platform_owner" || u.id === myId();
+    const btn = tr.querySelector(".ta-save"), msg = tr.querySelector(".ta-rowmsg");
+    let role = tr.querySelector(".ta-role").value || cfg.roles[0][0];
+    const segEl = tr.querySelector(".ta-seg");
+    let active = tr.querySelector(".ta-active").checked;
+    let checked = [...tr.querySelectorAll(".ta-tool:checked")].map(c => c.dataset.tool);
+    const m = (u.module_access || []).find(x => x && x.module_id === modId) || null;
+    const perms = (m && m.permissions) || {};
+    const known = new Set(modTools(modId));
+    const preserved = (Array.isArray(perms.departments) ? perms.departments : []).filter(d => !known.has(d));
+    let departments = [...new Set([...preserved, ...checked])];
+    if (guard) { role = cfg.gmRole; active = true; cfg.lock.forEach(t => { if (!departments.includes(t)) departments.push(t); }); }
+    const np = { ...perms, departments };
+    if (cfg.segment) { const seg = segEl ? segEl.value : ""; if (seg) np.saha_tip = seg; else delete np.saha_tip; }
+    btn.disabled = true; btn.textContent = "…"; msg.textContent = ""; msg.className = "ta-rowmsg";
+    try {
+      await apiFetch(`/api/tenant/users/${uid}/modules`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ module_id: modId, module_role: role, permissions_json: np, active }) });
+      let e = (u.module_access || []).find(x => x && x.module_id === modId);
+      if (!e) { e = { module_id: modId }; (u.module_access = u.module_access || []).push(e); }
+      e.module_role = role; e.permissions = np; e.active = active;
+      btn.textContent = "✓"; btn.classList.remove("on"); msg.textContent = "kaydedildi"; msg.className = "ta-rowmsg ok";
+      setTimeout(() => { btn.textContent = "Kaydet"; btn.disabled = true; }, 1400);
+      toast(`${u.full_name || u.email} · ${moduleLabel(modId)} izinleri güncellendi`, "ok");
+    } catch (err) { btn.disabled = false; btn.textContent = "Kaydet"; msg.textContent = "Hata: " + err.message; msg.className = "ta-rowmsg err"; }
+  }
+
+  // ─── Invite ──────────────────────────────────────────────────────────────────
+  async function renderInvite(content) {
+    const mods = subModules();
+    const modOpts = mods.map(id => `<option value="${id}">${esc(moduleLabel(id))}</option>`).join("");
+    content.innerHTML = `<div class="ta-two">
+      <div class="ta-card ta-form">
+        <p class="ta-form-intro">Yeni kullanıcıya modül erişimi için davet bağlantısı oluşturun.</p>
+        <form id="ta-invf">
+          <label class="ta-lbl">E-posta *</label>
+          <input type="email" id="inv-email" class="ta-input" placeholder="kullanici@sirket.com" required>
+          <label class="ta-lbl">Modül</label>
+          <select id="inv-mod" class="ta-input"><option value="">— Sadece tenant üyesi —</option>${modOpts}</select>
+          <label class="ta-lbl">Rol</label>
+          <select id="inv-role" class="ta-input"></select>
+          <div id="inv-subs"></div>
+          <button type="submit" class="ta-btn ta-btn-primary ta-btn-full">Davet bağlantısı oluştur</button>
+        </form>
+        <div id="inv-res"></div>
+      </div>
+      <div><h3 class="ta-h3">Bekleyen davetler</h3><div id="inv-pending"><div class="ta-loading"><div class="ta-spin"></div>Yükleniyor…</div></div></div>
+    </div>`;
+
+    const modSel = content.querySelector("#inv-mod"), roleSel = content.querySelector("#inv-role"), subsBox = content.querySelector("#inv-subs");
+    const syncMod = () => {
+      const cfg = MODULES[modSel.value];
+      roleSel.innerHTML = cfg ? cfg.roles.map(r => `<option value="${r[0]}">${esc(r[1])}</option>`).join("") : `<option value="">—</option>`;
+      roleSel.disabled = !cfg;
+      subsBox.innerHTML = cfg ? `<label class="ta-lbl">Alt-araç / bölüm erişimi</label><div class="ta-subgrid">${cfg.groups.flatMap(g => g[1]).map(t => `<label class="ta-chk"><input type="checkbox" class="inv-sub" value="${t[0]}"> ${esc(t[1])}</label>`).join("")}</div>` : "";
+    };
+    modSel.addEventListener("change", syncMod); syncMod();
+
+    content.querySelector("#ta-invf").addEventListener("submit", async e => {
+      e.preventDefault();
+      const email = content.querySelector("#inv-email").value.trim();
+      const modId = modSel.value, role = roleSel.value;
+      const subs = [...content.querySelectorAll(".inv-sub:checked")].map(i => i.value);
+      const res = content.querySelector("#inv-res");
+      res.innerHTML = `<div class="ta-loading"><div class="ta-spin"></div>Oluşturuluyor…</div>`;
+      try {
+        const data = await apiFetch("/api/tenant/users/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, module_id: modId || undefined, module_role: role || undefined, permissions_json: subs.length ? { departments: subs } : {} }) });
+        res.innerHTML = `<div class="ta-ok-box"><strong>Davet oluşturuldu</strong><div class="ta-invlink" id="inv-link">${esc(data.inviteUrl)}</div><div class="ta-ok-actions"><button class="ta-btn ta-btn-xs" id="inv-copy">Kopyala</button><span class="ta-muted">${esc(data.expiresIn || "")} içinde geçersiz</span></div></div>`;
+        const cp = res.querySelector("#inv-copy"); cp && cp.addEventListener("click", () => { navigator.clipboard && navigator.clipboard.writeText(data.inviteUrl); toast("Bağlantı kopyalandı", "ok"); });
+        loadPending(content.querySelector("#inv-pending"));
+        content.querySelector("#ta-invf").reset(); syncMod();
+      } catch (err) { res.innerHTML = `<div class="ta-error">${esc(err.message)}</div>`; }
+    });
+    loadPending(content.querySelector("#inv-pending"));
+  }
+
+  async function loadPending(panel) {
+    try {
+      const invites = await apiFetch("/api/tenant/invitations");
+      if (!invites.length) { panel.innerHTML = `<div class="ta-empty-sm">Bekleyen davet yok.</div>`; return; }
+      const rows = invites.map(inv => `<tr><td>${esc(inv.invited_email)}</td><td>${inv.module_id ? esc(moduleLabel(inv.module_id)) + " / " + esc(inv.module_role || "") : "—"}</td><td class="ta-muted">${new Date(inv.expires_at).toLocaleDateString("tr-TR")}</td><td><button class="ta-btn ta-btn-xs ta-btn-danger" data-invid="${esc(inv.id)}" data-email="${esc(inv.invited_email)}">İptal</button></td></tr>`).join("");
+      panel.innerHTML = `<div class="ta-tablewrap"><table class="ta-table ta-compact"><thead><tr><th>E-posta</th><th>Modül / Rol</th><th>Son geçerlilik</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      panel.querySelectorAll("[data-invid]").forEach(b => b.addEventListener("click", async () => {
+        if (!(await taConfirm(`${b.dataset.email} davetini iptal et?`, "İptal et", true))) return;
+        try { await apiFetch(`/api/tenant/invitations/${b.dataset.invid}`, { method: "DELETE" }); toast("Davet iptal edildi", "ok"); loadPending(panel); }
+        catch (err) { toast("Hata: " + err.message, "err"); }
+      }));
+    } catch (err) { panel.innerHTML = `<div class="ta-error">Davetler yüklenemedi: ${esc(err.message)}</div>`; }
+  }
+
+  // ─── UX helpers: toast + confirm ───────────────────────────────────────────
+  function toast(text, kind) {
+    const wrap = document.getElementById("ta-toast-wrap"); if (!wrap) return;
+    const el = document.createElement("div"); el.className = "ta-toast ta-toast-" + (kind || "ok"); el.textContent = text;
+    wrap.appendChild(el); requestAnimationFrame(() => el.classList.add("show"));
+    setTimeout(() => { el.classList.remove("show"); setTimeout(() => el.remove(), 250); }, 2600);
+  }
+  function taConfirm(text, okLabel, danger) {
+    return new Promise(resolve => {
+      const ov = document.createElement("div"); ov.className = "ta-modal-ov";
+      ov.innerHTML = `<div class="ta-modal"><div class="ta-modal-body">${esc(text)}</div><div class="ta-modal-foot"><button class="ta-btn ta-btn-ghost" data-x>Vazgeç</button><button class="ta-btn ${danger ? "ta-btn-danger" : "ta-btn-primary"}" data-ok>${esc(okLabel || "Onayla")}</button></div></div>`;
+      document.body.appendChild(ov);
+      const done = (v) => { ov.remove(); resolve(v); };
+      ov.querySelector("[data-x]").onclick = () => done(false);
+      ov.querySelector("[data-ok]").onclick = () => done(true);
+      ov.addEventListener("click", e => { if (e.target === ov) done(false); });
+    });
+  }
+
+  // ─── Denetim: Aktivite (saha temsilci aktivitesi) ──────────────────────────
+  async function renderAktivite(content) {
+    const gun = renderAktivite._gun || 7;
+    let d;
+    try { d = await apiFetch("/api/saha/rep-aktivite?gun=" + gun); }
+    catch (e) { content.innerHTML = `<div class="ta-empty">Saha aktivitesi yüklenemedi: ${esc(e.message)}</div>`; return; }
+    const reps = d.repler || [];
+    const online = reps.filter(r => r.online).length;
+    const rel = (ts) => { if (!ts) return "—"; const x = Math.floor((Date.now() - new Date(ts).getTime()) / 1000); if (x < 60) return "az önce"; if (x < 3600) return Math.floor(x / 60) + " dk önce"; if (x < 86400) return Math.floor(x / 3600) + " sa önce"; return Math.floor(x / 86400) + " gün önce"; };
+    const dt = (ts) => ts ? new Date(ts).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+    const odaAd = { bugun: "Bugün", ziyaretler: "Ziyaretler", musteriler: "Müşteri", iskonto: "Teklif", teklif: "Teklif", rapor: "Rapor", plan: "Plan", "rep-brain": "Rep-Brain", asistan: "Rep-Brain", piyasa: "Piyasa", rakip: "Rakip", saha: "Saha", kokpit: "Kokpit", ceo: "CEO" };
+    const gbtn = (g, l) => `<button class="ta-modtab${g === gun ? " active" : ""}" data-g="${g}">${l}</button>`;
+    const row = (r) => `<tr>
+      <td><span class="ta-dot ${r.online ? "ta-dot-on" : "ta-dot-off"}"></span><b>${esc(r.ad)}</b></td>
+      <td class="ta-muted" style="white-space:nowrap">${dt(r.son_giris)}</td>
+      <td style="white-space:nowrap;color:${r.online ? "#067647" : "#6b7280"}">${r.online ? "çevrimiçi" : rel(r.son_aktivite)}</td>
+      <td style="text-align:center">${r.dk_bugun} dk</td>
+      <td style="text-align:center">${r.dk_hafta} dk</td>
+      <td style="text-align:center">${r.ziyaret}</td>
+      <td style="text-align:center;color:${r.hata > 0 ? "#b42318" : "inherit"};font-weight:${r.hata > 0 ? "700" : "400"}">${r.hata}</td>
+      <td class="ta-muted">${r.en_cok_oda ? esc(odaAd[r.en_cok_oda] || r.en_cok_oda) : "—"}</td>
+    </tr>`;
+    content.innerHTML = `
+      <div class="ta-izin-head"><div class="ta-modtabs">${gbtn(1, "Bugün")}${gbtn(7, "7 gün")}${gbtn(30, "30 gün")}</div><div class="ta-izin-hint">${online}/${reps.length} çevrimiçi</div></div>
+      ${reps.length ? `<div class="ta-tablewrap"><table class="ta-table"><thead><tr><th>Temsilci</th><th>Son giriş</th><th>Son işlem</th><th style="text-align:center">Bugün</th><th style="text-align:center">7 gün</th><th style="text-align:center">Ziyaret</th><th style="text-align:center">Hata</th><th>En çok</th></tr></thead><tbody>${reps.map(row).join("")}</tbody></table></div>` : `<div class="ta-empty">Kayıt yok</div>`}`;
+    content.querySelectorAll(".ta-modtab").forEach(b => b.addEventListener("click", () => { renderAktivite._gun = parseInt(b.dataset.g, 10); renderView("aktivite"); }));
+  }
+
+  // ─── Denetim: Sistem (saha hata raporu) ────────────────────────────────────
+  async function renderSistem(content) {
+    const gun = renderSistem._gun || 7;
+    let d;
+    try { d = await apiFetch("/api/saha/hata-raporu?gun=" + gun); }
+    catch (e) { content.innerHTML = `<div class="ta-empty">Hata raporu yüklenemedi: ${esc(e.message)}</div>`; return; }
+    const renk = { API_HATA: "#ef4444", JS_HATA: "#f97316", AG_HATA: "#8b5cf6", YAVAS_API: "#f59e0b", SESSIZ_HATA: "#6b7280" };
+    const gbtn = (g, l) => `<button class="ta-modtab${g === gun ? " active" : ""}" data-g="${g}">${l}</button>`;
+    const etag = (t) => `<span style="display:inline-block;background:${renk[t] || "#64748b"};color:#fff;border-radius:5px;padding:2px 9px;font-size:11px;font-weight:700">${esc(t)}</span>`;
+    const tipRow = (t) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f2f4f7">${etag(t.tip)}<b style="font-size:17px">${t.sayi}</b></div>`;
+    const epRow = (e) => `<div style="padding:8px 0;border-bottom:1px solid #f2f4f7;font-size:12.5px"><div style="font-family:ui-monospace,monospace;color:#3d4657;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.endpoint || "-")}</div><div style="display:flex;gap:14px;margin-top:2px"><span style="color:#b42318">${e.sayi} hata</span>${e.ort_ms ? `<span class="ta-muted">ort ${e.ort_ms}ms</span>` : ""}</div></div>`;
+    const uRow = (u) => `<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f2f4f7;font-size:12.5px"><span>${esc(u.kullanici || "-")}</span><b style="color:#b42318">${u.sayi}</b></div>`;
+    const sRow = (h) => `<div style="padding:9px 0;border-bottom:1px solid #f2f4f7;font-size:12.5px"><div style="display:flex;justify-content:space-between;margin-bottom:3px">${etag(h.tip)}<span class="ta-muted">${new Date(h.ts).toLocaleString("tr-TR")}</span></div><div style="color:#1a2233;margin-bottom:2px">${esc(h.hata_mesaji || "-")}</div><div class="ta-muted" style="font-family:ui-monospace,monospace">${esc(h.endpoint || h.view_adi || "")}</div></div>`;
+    content.innerHTML = `
+      <div class="ta-izin-head"><div class="ta-modtabs">${gbtn(1, "Bugün")}${gbtn(7, "7 gün")}${gbtn(30, "30 gün")}</div><div class="ta-izin-hint">son ${gun} gün</div></div>
+      <div class="ta-grid">
+        <div class="ta-card"><h3 class="ta-h3">🐛 Hata Özeti</h3>${(d.ozet && d.ozet.length) ? d.ozet.map(tipRow).join("") : `<div class="ta-empty-sm">Hata kaydı yok 🎉</div>`}</div>
+        ${(d.endpoint_ozet && d.endpoint_ozet.length) ? `<div class="ta-card"><h3 class="ta-h3">En çok hata veren endpoint</h3>${d.endpoint_ozet.slice(0, 12).map(epRow).join("")}</div>` : ""}
+        ${(d.user_ozet && d.user_ozet.length) ? `<div class="ta-card"><h3 class="ta-h3">Kullanıcı bazlı</h3>${d.user_ozet.slice(0, 12).map(uRow).join("")}</div>` : ""}
+      </div>
+      <div class="ta-card" style="margin-top:16px"><h3 class="ta-h3">Son hatalar · ${(d.son_hatalar || []).length}</h3>${(d.son_hatalar && d.son_hatalar.length) ? d.son_hatalar.slice(0, 50).map(sRow).join("") : `<div class="ta-empty-sm">Kayıt yok</div>`}</div>`;
+    content.querySelectorAll(".ta-modtab").forEach(b => b.addEventListener("click", () => { renderSistem._gun = parseInt(b.dataset.g, 10); renderView("sistem"); }));
+  }
+
+  function moduleLabel(id) { return (MODULES[id] && MODULES[id].label) || { assessment: "Assessment", intelligence: "Management", saha: "Saha" }[id] || id; }
+  function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+}
+
+// ─── Styles ──────────────────────────────────────────────────────────────────
+function taStyles() {
+  return `
+    #tenant-admin-surface{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1a2030;-webkit-font-smoothing:antialiased}
+    #tenant-admin-surface *{box-sizing:border-box}
+    .ta-shell{position:fixed;inset:0;display:flex;background:#f6f7f9;overflow:hidden;z-index:1000;color-scheme:light}
+    .ta-sidebar{width:244px;min-width:244px;background:linear-gradient(180deg,#16161f,#131320);display:flex;flex-direction:column;color:#fff}
+    .ta-brand{display:flex;align-items:center;gap:12px;padding:20px 18px;border-bottom:1px solid rgba(255,255,255,.06)}
+    .ta-brand-mark{display:flex;border-radius:8px;box-shadow:0 4px 12px rgba(230,185,90,.28)}
+    .ta-brand-txt{display:flex;flex-direction:column;line-height:1.25}
+    .ta-brand-name{font-weight:700;font-size:15px;letter-spacing:-.01em}
+    .ta-brand-sub{font-size:11.5px;color:rgba(255,255,255,.42);text-overflow:ellipsis;overflow:hidden;white-space:nowrap;max-width:160px}
+    .ta-nav{flex:1;padding:14px 12px;display:flex;flex-direction:column;gap:2px;overflow-y:auto}
+    .ta-nav-label{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:rgba(255,255,255,.3);padding:14px 10px 6px;font-weight:700}
+    .ta-nav-btn{position:relative;display:flex;align-items:center;gap:12px;padding:10px 12px;border:0;border-radius:10px;background:transparent;color:rgba(255,255,255,.62);cursor:pointer;font-size:13.5px;font-weight:550;text-align:left;transition:.15s}
+    .ta-nav-btn svg{opacity:.85;transition:.15s}
+    .ta-nav-btn:hover{background:rgba(255,255,255,.06);color:#fff}
+    .ta-nav-btn.active{background:rgba(230,185,90,.14);color:#eec574}
+    .ta-nav-btn.active svg{stroke:#eec574;opacity:1}
+    .ta-nav-btn.active::before{content:"";position:absolute;left:-12px;top:9px;bottom:9px;width:3px;border-radius:0 3px 3px 0;background:#e6b95a}
+    .ta-sidebar-foot{padding:12px 12px 16px;border-top:1px solid rgba(255,255,255,.06)}
+    .ta-me{display:flex;align-items:center;gap:11px;padding:10px 8px 14px}
+    .ta-me-av{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#e6b95a,#d99f3c);color:#15151f;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0}
+    .ta-me-txt{display:flex;flex-direction:column;line-height:1.3;overflow:hidden}
+    .ta-me-name{font-size:13px;font-weight:600;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;max-width:135px}
+    .ta-me-role{font-size:11px;color:rgba(255,255,255,.4)}
+    .ta-back-btn{display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;border:0;border-radius:10px;background:rgba(255,255,255,.05);color:rgba(255,255,255,.6);cursor:pointer;font-size:12.5px;font-weight:550;transition:.15s}
+    .ta-back-btn:hover{background:rgba(230,185,90,.14);color:#eec574}
+    .ta-main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+    .ta-header{display:flex;align-items:flex-start;justify-content:space-between;padding:24px 34px 20px;background:#fff;border-bottom:1px solid #ebedf2}
+    .ta-title{margin:0;font-size:22px;font-weight:750;color:#12182a;letter-spacing:-.02em}
+    .ta-subtitle{margin:4px 0 0;font-size:13px;color:#8a919f}
+    .ta-header-actions{display:flex;gap:10px;flex-shrink:0}
+    .ta-content{flex:1;overflow:auto;padding:28px 34px}
+    .ta-h2,.ta-h3{font-size:12px;font-weight:700;color:#7a8290;text-transform:uppercase;letter-spacing:.06em;margin:6px 0 14px}
+    .ta-h3{margin:0 0 12px}
+    .ta-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px}
+    .ta-kpi{background:#fff;border:1px solid #e8eaf0;border-radius:16px;padding:20px 22px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+    .ta-kpi-num{font-size:32px;font-weight:780;color:#12182a;line-height:1;letter-spacing:-.02em}
+    .ta-kpi-lbl{font-size:12.5px;color:#8a919f;margin-top:8px;font-weight:500}
+    .ta-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+    .ta-card{background:#fff;border:1px solid #e8eaf0;border-radius:16px;padding:20px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+    .ta-mod{transition:.16s}
+    .ta-mod:hover{box-shadow:0 6px 20px -8px rgba(16,24,40,.14);transform:translateY(-1px)}
+    .ta-mod-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+    .ta-mod-top strong{font-size:15.5px;color:#12182a}
+    .ta-mod-plan{font-size:12.5px;color:#8a919f;margin-bottom:16px}
+    .ta-seat-row{display:flex;justify-content:space-between;font-size:12.5px;color:#5b6472;margin-bottom:7px;font-weight:500}
+    .ta-seat-bar{height:7px;background:#eef0f4;border-radius:5px;overflow:hidden}
+    .ta-seat-bar i{display:block;height:100%;background:linear-gradient(90deg,#e6b95a,#d99f3c);border-radius:5px}
+    .ta-mod-foot{display:flex;align-items:center;justify-content:space-between;margin-top:16px;font-size:12px;color:#9aa1ae}
+    .ta-link{border:0;background:none;color:#2563eb;font-weight:650;font-size:12.5px;cursor:pointer;padding:0}
+    .ta-link:hover{text-decoration:underline}
+    .ta-badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.01em}
+    .ta-badge-active{background:#e7f8ef;color:#067647}.ta-badge-trial{background:#fef6e7;color:#b25e09}
+    .ta-badge-admin{background:#f0edfe;color:#6939d6}.ta-badge-member{background:#e8f1fe;color:#1d68d4}
+    .ta-tablewrap{background:#fff;border:1px solid #e8eaf0;border-radius:16px;overflow:auto;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+    .ta-table{width:100%;border-collapse:collapse;font-size:13.5px}
+    .ta-table th{padding:13px 18px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#8a919f;background:#fafbfc;border-bottom:1px solid #ebedf2;font-weight:700;white-space:nowrap}
+    .ta-table td{padding:13px 18px;border-bottom:1px solid #f2f4f7;vertical-align:middle;color:#3d4657;background:#fff}
+    .ta-table tbody tr:last-child td{border-bottom:0}
+    .ta-table tbody tr:hover td{background:#fafbfc}
+    .ta-compact th,.ta-compact td{padding:9px 13px;font-size:12.5px}
+    .ta-row-off td{opacity:.5}
+    .ta-user{display:flex;align-items:center;gap:12px}
+    .ta-av{width:34px;height:34px;border-radius:50%;background:#eef0f5;color:#525b6b;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0}
+    .ta-user-nm{font-weight:650;color:#1a2233;display:flex;align-items:center;gap:6px;font-size:13.5px}
+    .ta-user-em{font-size:12px;color:#98a0ae;margin-top:1px}
+    .ta-self{background:#eef2ff;color:#4338ca;border-radius:5px;font-size:10px;font-weight:700;padding:1px 6px}
+    .ta-crown{font-size:12.5px}
+    .ta-tag{display:inline-block;padding:3px 9px;background:#eef2ff;color:#4338ca;border-radius:6px;font-size:11.5px;font-weight:600;margin:1px 4px 1px 0}
+    .ta-muted{color:#a6adba}
+    .ta-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle}
+    .ta-dot-on{background:#12b76a;box-shadow:0 0 0 3px rgba(18,183,106,.14)}.ta-dot-off{background:#cdd3dd}
+    .ta-act{white-space:nowrap;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+    .ta-btn{padding:9px 16px;border-radius:10px;border:1px solid #e2e5ec;background:#fff;cursor:pointer;font-size:13.5px;font-weight:600;color:#3d4657;transition:.14s;line-height:1}
+    .ta-btn:hover{background:#f7f8fa;border-color:#d7dbe3}
+    .ta-btn-xs{padding:6px 12px;font-size:12px;border-radius:8px}
+    .ta-btn-primary{background:#12182a;color:#fff;border-color:#12182a}.ta-btn-primary:hover{background:#222a42;border-color:#222a42}
+    .ta-btn-secondary{background:#eef2ff;color:#4338ca;border-color:#dde3fe}.ta-btn-secondary:hover{background:#e2e8ff}
+    .ta-btn-danger{background:#fef3f2;color:#b42318;border-color:#fcd9d3}.ta-btn-danger:hover{background:#fee4e0}
+    .ta-btn-success{background:#e7f8ef;color:#067647;border-color:#b6ecd0}.ta-btn-success:hover{background:#d3f3e1}
+    .ta-btn-ghost{background:transparent;border-color:transparent;color:#6b7280}.ta-btn-ghost:hover{background:#f0f1f4}
+    .ta-btn-full{width:100%;margin-top:18px;padding:12px}
+    .ta-izin-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+    .ta-modtabs{display:inline-flex;background:#eceef2;border-radius:11px;padding:4px}
+    .ta-modtab{border:0;background:transparent;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:650;color:#5b6472;cursor:pointer;transition:.14s}
+    .ta-modtab.active{background:#fff;color:#12182a;box-shadow:0 1px 3px rgba(16,24,40,.12)}
+    .ta-izin-hint{font-size:12px;color:#9aa1ae}
+    .ta-matrixwrap{max-height:calc(100vh - 258px)}
+    .ta-matrix{width:auto;min-width:0}
+    .ta-matrix th,.ta-matrix td{border-right:1px solid #f2f4f7}
+    .ta-matrix tbody td{background:#fff}
+    .ta-matrix tbody tr:hover td{background:#f8fafc}
+    .ta-matrix .ta-grp{text-align:center;background:#f6f7f9;color:#7a8290;font-size:10px;letter-spacing:.06em;padding:7px 6px}
+    .ta-toolh{font-size:9px;text-align:center;width:74px;min-width:74px;white-space:normal;overflow-wrap:anywhere;line-height:1.15;padding:8px 6px;vertical-align:bottom;color:#8a919f;letter-spacing:0}
+    .ta-cell{text-align:center;padding:9px 6px;width:74px;min-width:74px}
+    .ta-tool,.ta-active{appearance:none;-webkit-appearance:none;width:18px;height:18px;margin:0;border:1.5px solid #cbd5e1;border-radius:5px;background:#fff;cursor:pointer;position:relative;vertical-align:middle;transition:.12s}
+    .ta-tool:hover,.ta-active:hover{border-color:#2563eb}
+    .ta-tool:checked,.ta-active:checked{background:#2563eb;border-color:#2563eb}
+    .ta-tool:checked::after,.ta-active:checked::after{content:"";position:absolute;left:5px;top:2px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+    .ta-tool:disabled,.ta-active:disabled{cursor:not-allowed}
+    .ta-tool:disabled:not(:checked),.ta-active:disabled:not(:checked){background:#eef0f4;border-color:#dce0e7}
+    .ta-tool:disabled:checked,.ta-active:disabled:checked{background:#e0a93f;border-color:#e0a93f}
+    .ta-sticky{position:sticky;left:0;z-index:2;background:#fff;box-shadow:6px 0 10px -8px rgba(16,24,40,.22);min-width:230px}
+    .ta-matrix tbody tr:hover .ta-sticky{background:#f8fafc}
+    .ta-matrix thead .ta-sticky{z-index:3;background:#fafbfc}
+    .ta-mini{font-size:12px;padding:6px 8px;border:1px solid #dde1e8;border-radius:8px;background:#fff;color:#3d4657;font-weight:550}
+    .ta-mini:disabled{background:#f4f5f7;color:#9aa1ae}
+    .ta-role{min-width:98px}.ta-seg{min-width:86px}
+    .ta-rowsave{display:flex;align-items:center;gap:8px;margin-top:8px}
+    .ta-save{padding:5px 12px;font-size:12px;border-radius:8px}
+    .ta-save.on{background:#2563eb;color:#fff;border-color:#2563eb}.ta-save.on:hover{background:#1d4ed8}
+    .ta-rowmsg{font-size:11px;color:#9aa1ae}.ta-rowmsg.ok{color:#067647}.ta-rowmsg.err{color:#d92d20}
+    .ta-two{display:grid;grid-template-columns:1.1fr 1fr;gap:28px;align-items:start}
+    @media(max-width:960px){.ta-two{grid-template-columns:1fr}}
+    .ta-form{padding:26px}
+    .ta-form-intro{margin:0 0 18px;color:#6b7280;font-size:13px}
+    .ta-lbl{display:block;font-weight:650;font-size:12.5px;color:#4b5462;margin:18px 0 7px}
+    .ta-input{width:100%;padding:11px 13px;border:1px solid #d7dbe3;border-radius:10px;font-size:14px;outline:none;background:#fff;transition:.14s}
+    .ta-input:focus{border-color:#12182a;box-shadow:0 0 0 3px rgba(18,24,42,.08)}
+    .ta-subgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px 16px;margin-top:9px}
+    .ta-chk{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;color:#4b5462}
+    .ta-chk input{accent-color:#2563eb}
+    .ta-ok-box{background:#e7f8ef;border:1px solid #b6ecd0;border-radius:12px;padding:16px;margin-top:18px}
+    .ta-invlink{font-family:ui-monospace,'SF Mono',monospace;font-size:12px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;margin:10px 0;word-break:break-all}
+    .ta-ok-actions{display:flex;align-items:center;gap:12px}
+    .ta-loading{padding:48px;text-align:center;color:#9aa1ae;display:flex;flex-direction:column;align-items:center;gap:13px}
+    .ta-spin{width:24px;height:24px;border:2.5px solid #e8eaf0;border-top-color:#e6b95a;border-radius:50%;animation:taspin .7s linear infinite}
+    @keyframes taspin{to{transform:rotate(360deg)}}
+    .ta-error{padding:16px;background:#fef3f2;color:#b42318;border-radius:12px;border:1px solid #fcd9d3}
+    .ta-empty{padding:56px;text-align:center;color:#a6adba;background:#fff;border:1px dashed #dde1e8;border-radius:16px}
+    .ta-empty-sm{padding:20px;text-align:center;color:#a6adba;font-size:13px}
+    .ta-toast-wrap{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:100000;display:flex;flex-direction:column;gap:8px;align-items:center}
+    .ta-toast{padding:12px 20px;border-radius:12px;font-size:13.5px;font-weight:600;color:#fff;background:#12182a;box-shadow:0 10px 30px rgba(16,24,40,.3);opacity:0;transform:translateY(12px);transition:.24s}
+    .ta-toast.show{opacity:1;transform:translateY(0)}
+    .ta-toast-ok{background:#067647}.ta-toast-err{background:#b42318}
+    .ta-modal-ov{position:fixed;inset:0;background:rgba(16,20,30,.52);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:100001;padding:20px}
+    .ta-modal{background:#fff;border-radius:18px;padding:26px;width:430px;max-width:100%;box-shadow:0 30px 70px rgba(0,0,0,.32)}
+    .ta-modal-body{font-size:15px;color:#1a2233;line-height:1.55}
+    .ta-modal-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:24px}
+  `;
+}

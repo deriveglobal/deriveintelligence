@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Veri — ERP Dosya Yükleme</title>
+<style>
+  :root{
+    --zemin-0:#0b0f17;--zemin-1:#121826;--cizgi:#222c3d;--cizgi-g:#2c3850;
+    --tx-0:#eef2f8;--tx-1:#c3cddd;--tx-2:#8a97ad;
+    --yesil:#3fb98a;--sari:#e0a44a;--kirmizi:#e0605e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--zemin-0);color:var(--tx-0);font:14.5px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:920px;margin:0 auto;padding:26px 28px 48px}
+  h1{font-size:20px;font-weight:800;margin:0 0 3px}
+  .sub{color:var(--tx-2);font-size:13px;margin-bottom:20px}
+  .etiket{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;font-weight:800;color:var(--tx-2)}
+  .kart{background:var(--zemin-1);border:1px solid var(--cizgi);border-radius:13px;padding:14px 16px}
+  .kart-karar{border-color:rgba(224,96,94,.45)}
+  .kart-normal{border-color:rgba(63,185,138,.4)}
+  .satir{display:flex;justify-content:space-between;gap:12px;align-items:baseline;padding:6px 0;border-bottom:.5px solid var(--cizgi);font-size:13.5px}
+  .satir:last-child{border-bottom:0}.satir span:first-child{color:var(--tx-1)}
+  .n{font-variant-numeric:tabular-nums;font-weight:700}
+  .d-yesil{color:var(--yesil)}.d-sari{color:var(--sari)}.d-kirmizi{color:var(--kirmizi)}
+  button{font-family:inherit}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Veri — ERP Dosya Yükleme</h1>
+  <div class="sub">ERP dosyalarını buradan yükle. Dosya tipi <span class="d-yesil">başlıklarından</span> tanınır; tarih onarımı, ölçek çözümü ve kalite kapıları otomatik çalışır.</div>
+  <div id="veri-govde"></div>
+</div>
+<script>
+  function esc(s){s=(s==null?'':String(s));return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  async function ciz_veri(){
+    var g=document.getElementById('veri-govde'); if(!g)return;
+    var d={dosyalar:[]};
+    try{ var r=await fetch('/api/bi/yukle/durum',{credentials:'same-origin'}); d=await r.json(); }catch(e){}
+    var h='<div id="veri-alarm"></div>';
+    h+='<div class="etiket" style="margin-bottom:12px">ERP DOSYALARI</div>';
+    h+='<div class="kart" style="margin-bottom:20px">';
+    (d.dosyalar||[]).forEach(function(f){
+      var renk=f.durum==='taze'?'d-yesil':f.durum==='hiç gelmedi'?'d-kirmizi':'d-sari';
+      h+='<div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:8px 0;border-bottom:.5px solid var(--cizgi)">'
+        +'<span style="font-size:14px">'+esc(f.ad)+'</span>'
+        +'<span class="n '+renk+'" style="font-size:12px">'+esc(f.durum)+(f.gun!=null?' · '+f.gun+' gün':'')
+        +(f.satir?' · '+Number(f.satir).toLocaleString('tr-TR')+' satır':'')+'</span></div>';
+    });
+    h+='</div>';
+    h+='<div id="veri-drop" style="border:1px dashed var(--cizgi-g);border-radius:12px;padding:34px;text-align:center;cursor:pointer;background:var(--zemin-1);margin-bottom:16px">'
+      +'<div style="font-size:15px;margin-bottom:6px">ERP dosyasını buraya sürükle</div>'
+      +'<div style="font-size:12px;color:var(--tx-2);line-height:1.7">stockmoving · full sales · full tedarikci · inventory · accountriskreport · account balance · ön sipariş<br>'
+      +'Dosya tipi <span class="d-yesil">başlıklarından</span> tanınır — dosya adına bakılmaz. En fazla 200MB.</div>'
+      +'<input type="file" id="veri-dosya" accept=".xlsx" style="display:none"></div>';
+    h+='<div id="veri-sonuc"></div>';
+    g.innerHTML=h;
+    _saglikAlarmCiz();
+    var drop=document.getElementById('veri-drop'), inp=document.getElementById('veri-dosya');
+    drop.onclick=function(){inp.click();};
+    drop.ondragover=function(e){e.preventDefault();drop.style.borderColor='var(--yesil)';};
+    drop.ondragleave=function(){drop.style.borderColor='var(--cizgi-g)';};
+    drop.ondrop=function(e){e.preventDefault();drop.style.borderColor='var(--cizgi-g)';if(e.dataTransfer.files[0])_yukle(e.dataTransfer.files[0]);};
+    inp.onchange=function(){if(inp.files[0])_yukle(inp.files[0]);};
+  }
+  async function _saglikAlarmCiz(){
+    var box=document.getElementById('veri-alarm'); if(!box)return;
+    var d={alarmlar:[]};
+    try{ var r=await fetch('/api/bi/saglik-alarm',{credentials:'same-origin'}); d=await r.json(); }catch(e){return;}
+    var a=d.alarmlar||[];
+    if(!a.length){ box.innerHTML='<div class="kart" style="margin-bottom:20px"><div style="display:flex;justify-content:space-between;align-items:baseline"><span class="etiket" style="margin:0">VERİ SAĞLIK</span><span class="n d-yesil" style="font-size:12px">✅ açık alarm yok</span></div></div>'; return; }
+    var h='<div class="kart kart-karar" style="margin-bottom:20px"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px"><span class="etiket" style="margin:0">⚠ VERİ SAĞLIK — '+a.length+' açık alarm</span><span style="font-size:12px;color:var(--tx-2)">tanımadığını sessizce kabul etme</span></div>';
+    a.forEach(function(x){
+      var tipEt=x.tip==='mukerrer'?'mükerrer artışı':x.tip==='mutabakat'?'ortalama sıçraması':x.tip==='aralik'?'aralık dışı':'bilinmeyen değer';
+      h+='<div style="padding:10px 0;border-top:.5px solid var(--cizgi)"><div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline"><span style="font-size:13px"><b>'+esc(x.tablo)+'</b> · '+esc(x.kolon||'')+'</span><span class="n d-sari" style="font-size:11px">'+esc(tipEt)+(x.adet?(' · '+Number(x.adet).toLocaleString('tr-TR')+'×'):'')+'</span></div>'
+        +'<div style="font-size:13px;color:var(--tx-1);margin:4px 0 8px">'+esc(x.deger||'')+'</div>'
+        +'<div style="display:flex;gap:8px">'
+        +'<button data-karar="kabul" data-id="'+x.id+'" style="font-size:12px;padding:5px 12px;border-radius:8px;border:.5px solid var(--cizgi-g);background:var(--zemin-1);color:var(--tx-1);cursor:pointer">Bilinen kümeye ekle</button>'
+        +'<button data-karar="reddet" data-id="'+x.id+'" style="font-size:12px;padding:5px 12px;border-radius:8px;border:.5px solid var(--kirmizi);color:var(--kirmizi);background:transparent;cursor:pointer">Gerçek bozulma</button>'
+        +'</div></div>';
+    });
+    h+='</div>';
+    box.innerHTML=h;
+    box.querySelectorAll('button[data-karar]').forEach(function(bt){ bt.onclick=function(){_saglikKarar(bt.dataset.id,bt.dataset.karar,bt);}; });
+  }
+  async function _saglikKarar(id,karar,btn){
+    if(btn){btn.disabled=true;btn.textContent='…';}
+    try{ await fetch('/api/bi/saglik-alarm-karar',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:id,karar:karar})}); }catch(e){}
+    _saglikAlarmCiz();
+  }
+  async function _yukle(dosya){
+    var s=document.getElementById('veri-sonuc');
+    s.innerHTML='<div class="kart"><div style="font-size:14px">'+esc(dosya.name)+' — '+(dosya.size/1e6).toFixed(1)+'MB · işleniyor…</div><div style="font-size:12px;color:var(--tx-2);margin-top:6px">Tarih onarımı, ölçek çözümü ve kapılar çalışıyor. Büyük dosyada birkaç dakika sürebilir.</div></div>';
+    var fd=new FormData(); fd.append('dosya',dosya);
+    var r;
+    try{ var res=await fetch('/api/bi/yukle',{method:'POST',credentials:'same-origin',body:fd}); r=await res.json(); }
+    catch(e){ s.innerHTML='<div class="kart kart-karar"><div style="font-size:14px">Yükleme başarısız</div><div style="font-size:13px;color:var(--tx-1);margin-top:6px">'+esc(e.message)+'</div></div>'; return; }
+    var h='<div class="kart '+(r.ok?'kart-normal':'kart-karar')+'">';
+    h+='<div style="font-size:15px;margin-bottom:10px">'+(r.ok?'✅ Yüklendi':'❌ YÜKLENMEDİ — eski veri yerinde duruyor')+'</div>';
+    if(r.ad) h+='<div class="satir"><span>dosya tipi</span><span>'+esc(r.ad)+'</span></div>';
+    if(r.satir) h+='<div class="satir"><span>satır</span><span class="n">'+Number(r.satir).toLocaleString('tr-TR')+'</span></div>';
+    if(r.aralik) h+='<div class="satir"><span>tarih aralığı</span><span class="n">'+esc(r.aralik[0])+' → '+esc(r.aralik[1])+'</span></div>';
+    if(r.mod) h+='<div class="satir"><span>yükleme modu</span><span>'+(r.mod==='tarih_araligi'?'zaman serisi — aralık değiştirme':'anlık görüntü — tam değiştirme')+'</span></div>';
+    if(r.silinen!=null) h+='<div class="satir"><span>silinen (aralıkta)</span><span class="n">'+Number(r.silinen).toLocaleString('tr-TR')+'</span></div>';
+    var t=r.tarih_onarim||{};
+    if(t.takas) h+='<div class="satir"><span>tarih onarımı (gün/ay takası)</span><span class="n d-sari">'+Number(t.takas).toLocaleString('tr-TR')+'</span></div>';
+    if((t.olcek_kimlikten||[]).length) h+='<div class="satir"><span>ölçeği kimlikten çözülen</span><span class="n d-sari">'+esc(t.olcek_kimlikten.join(', '))+'</span></div>';
+    if((t.basamagi_bilinmeyen||[]).length) h+='<div class="satir"><span class="d-sari">⚠ ölçeği bilinmeyen (dokunulmadı)</span><span class="n d-sari">'+esc(t.basamagi_bilinmeyen.join(', '))+'</span></div>';
+    if(r.kapilar){
+      h+='<div class="etiket" style="margin:14px 0 8px">KAPILAR</div>';
+      r.kapilar.forEach(function(k){
+        h+='<div class="satir"><span>'+(k.gecti?'✅':'❌')+' '+esc(k.kapi)+'</span><span class="n '+(k.gecti?'':'d-kirmizi')+'">'+k.deger+' / eşik '+k.esik+'</span></div>';
+        if(!k.gecti) h+='<div style="font-size:12px;color:var(--kirmizi);padding-left:10px;margin-bottom:6px">'+esc(k.aciklama)+'</div>';
+      });
+    }
+    if(r.hata) h+='<div style="font-size:13px;color:var(--kirmizi);margin-top:10px">'+esc(r.hata)+'</div>';
+    if(r.ipucu) h+='<div style="font-size:12px;color:var(--tx-2);margin-top:6px">'+esc(r.ipucu)+'</div>';
+    h+='</div>';
+    s.innerHTML=h;
+    if(r.ok){
+      fetch('/api/bi/yukle/durum',{credentials:'same-origin'}).then(function(x){return x.json();}).then(function(){}).catch(function(){});
+      s.insertAdjacentHTML('beforeend','<div style="font-size:13px;color:var(--tx-2);margin-top:10px">Türetilmiş tablolar (marj, sinyaller) yeniden kuruldu. <span class="d-yesil">Bugün</span> ekranını yenileyerek görebilirsin.</div>');
+    }
+  }
+  ciz_veri();
+</script>
+</body>
+</html>

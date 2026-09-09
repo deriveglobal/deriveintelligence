@@ -139,7 +139,169 @@ def metin(v, uzunluk=None):
 #  ⚠ Sistem hangi dosyayi bekledigini BILIR. Eksik gelirse SOYLER.
 #     Bugun 'account balance'in AYLARDIR gelmedigini TESADUFEN bulduk.
 # ══════════════════════════════════════════════════════════════════════
+# ---- ALACAK_YASLANDIRMA_V1: belge bazli alacak yaslandirma -> bi_musteri_risk ----
+def gun_onar(v):
+    """Vadesi Gecen Gun: tamsayi. Excel bazi hucreleri 1900/1904 tarihine bozuyor (1900-01-09 = 9 gun)."""
+    import datetime as _dt
+    if v is None or v == "": return None
+    if isinstance(v, _dt.datetime): v = v.date()
+    if isinstance(v, _dt.date):
+        try: return (v - _dt.date(1900, 1, 1)).days + 1
+        except Exception: return None
+    if isinstance(v, (int, float)): return int(round(v))
+    s = str(v).strip()
+    if not s or s in ("·", "-"): return None
+    for _f in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d/%m/%Y"):
+        try: return (_dt.datetime.strptime(s, _f).date() - _dt.date(1900, 1, 1)).days + 1
+        except Exception: pass
+    try: return int(float(s.replace(".", "").replace(",", ".")))
+    except Exception: return None
+
+
+def _yaslandirma_grupla(rows):
+    """Belge satirlari -> cari basina tek bi_musteri_risk satiri.
+       FIFO: en eski fatura once odenir; kalan net bakiye = en guncel faturalar; gun>0 kismi = vadesi gecmis.
+       toplam_risk = net bakiye (cek/senet kaynagi yok)."""
+    r0 = rows[0]
+    bak = float(r0.get("hesap_bakiyesi") or 0.0)
+    kl = float(r0.get("kredi_limiti") or 0.0)
+    grup = r0.get("grup") or ""
+    fill = max(bak, 0.0); acc = 0.0; overdue = 0.0
+    for r in sorted(rows, key=lambda x: (x["_gun"] if x.get("_gun") is not None else 0)):
+        if acc >= fill: break
+        take = min(float(r.get("_acik") or 0.0), fill - acc)
+        if take <= 0: continue
+        acc += take
+        if (r.get("_gun") or -1) > 0: overdue += take
+    toplam_risk = max(bak, 0.0)
+    G = grup.upper()
+    return {
+        "muhatap_kodu": r0["muhatap_kodu"], "muhatap_adi": r0.get("muhatap_adi", ""),
+        "grup": grup, "satis_calisani": r0.get("satis_calisani", ""),
+        "hesap_bakiyesi": bak, "kredi_limiti": kl, "toplam_risk": toplam_risk,
+        "vadesi_gecmis": round(overdue, 2), "bekleyen_siparis": 0.0,
+        "limit_asimi": max(0.0, toplam_risk - kl),
+        "musteri_mi": ("TEDAR" not in G) and ("PERSONEL" not in G),
+    }
+
+
+
+# ---- TAHSILAT_V1: tahsilat durumu (odeme davranisi / gercek DSO) -> bi_tahsilat ----
+def _tahsilat_grupla(rows):
+    """Fatura<->tahsilat satirlari -> cari basina tek bi_tahsilat satiri.
+       Tam gecmis + son 12 ay pencereleri; tutar-agirlikli sure/gecikme; gun kolonu bossa tarihlerden turetir."""
+    import datetime as _dt
+    def _ad(x):
+        if x is None or x == "": return None
+        if isinstance(x, _dt.datetime): return x.date()
+        if isinstance(x, _dt.date): return x
+        _s = str(x)[:10]
+        try: return _dt.datetime.strptime(_s, "%Y-%m-%d").date()
+        except Exception:
+            for _f in ("%d/%m/%Y", "%d.%m.%Y"):
+                try: return _dt.datetime.strptime(str(x).strip(), _f).date()
+                except Exception: pass
+        return None
+    today = _dt.date.today(); cut12 = today - _dt.timedelta(days=365)
+    r0 = rows[0]; grup = r0.get("grup") or ""
+    tot = 0.0; ws = 0.0; wv = 0.0; late = 0.0; adet = 0
+    r_t = 0.0; r_ws = 0.0; r_wv = 0.0; r_late = 0.0; r_adet = 0; son = None
+    for r in rows:
+        od = float(r.get("_od") or 0.0)
+        sv = r.get("_sure"); vv = r.get("_vg")
+        fd = _ad(r.get("_fd")); vd = _ad(r.get("_vd")); td = _ad(r.get("_td"))
+        if sv is None and fd and td: sv = (td - fd).days
+        if vv is None and vd and td: vv = (td - vd).days
+        adet += 1; tot += od
+        if sv is not None: ws += sv * od
+        if vv is not None:
+            wv += vv * od
+            if vv > 0: late += od
+        if td and (son is None or td > son): son = td
+        if td and td >= cut12:
+            r_adet += 1; r_t += od
+            if sv is not None: r_ws += sv * od
+            if vv is not None:
+                r_wv += vv * od
+                if vv > 0: r_late += od
+    _dv = lambda w, t: round(w / t, 2) if t > 0 else 0.0
+    G = grup.upper()
+    return {
+        "muhatap_kodu": r0["muhatap_kodu"], "muhatap_adi": r0.get("muhatap_adi", ""),
+        "grup": grup, "satis_calisani": r0.get("satis_calisani", ""),
+        "tahsilat_adedi": adet, "toplam_tahsilat": round(tot, 2),
+        "ort_tahsilat_suresi": _dv(ws, tot), "ort_gecikme_gun": _dv(wv, tot),
+        "gec_odeme_orani": round(100 * late / tot, 2) if tot > 0 else 0.0,
+        "son12_adedi": r_adet, "son12_tutar": round(r_t, 2),
+        "son12_suresi": _dv(r_ws, r_t), "son12_gecikme_gun": _dv(r_wv, r_t),
+        "son12_gec_orani": round(100 * r_late / r_t, 2) if r_t > 0 else 0.0,
+        "son_tahsilat_tarihi": son,
+        "musteri_mi": ("TEDAR" not in G) and ("PERSONEL" not in G),
+    }
+
+
 KAYIT = {
+
+  "tahsilat": {   # TAHSILAT_HAM_KAYIT_V1 — HAM satir yazici; ozet bi_tahsilat_yenile() ile turet() icinde
+    "ad": "Tahsilat durumu (odeme davranisi / gercek DSO) - HAM satir",
+    "imza": ["Ödenen Tutar", "Tahsilat Süresi", "Tahsilat türü", "Fatura Vade Tarihi"],
+    "tablo": "bi_odeme_gecmisi",
+    "tenant_tip": "uuid",
+    "yukleme_modu": "tarih_araligi",
+    "tarih_alani": "fatura_tarihi",
+    "dogal_anahtar": ["fatura_no", "odeme_tarihi", "odenen_tutar"],
+    "kolonlar": {
+      "fatura_no"       : (None, "Fatura Belge Numarası", "metin"),
+      "fatura_tarihi"   : (None, "Fatura Tarihi", "tarih"),
+      "vade_tarihi"     : (None, "Fatura Vade Tarihi", "tarih"),
+      "odeme_tarihi"    : (None, "Tahsilat Tarihi", "tarih"),
+      "musteri_kodu"    : (None, "Customer/Vendor Code", "metin"),
+      "musteri_adi"     : (None, "Customer/Vendor Name", "metin"),
+      "satis_calisani"  : (None, "Sales Employee Name", "metin"),
+      "fatura_tutari"   : (None, "Fatura Tutarı", "sayi2"),
+      "odenen_tutar"    : (None, "Ödenen Tutar", "sayi2"),
+      "tahsilat_turu"   : (None, "Tahsilat türü", "metin"),
+      "gecikme_gun"     : (None, "Vadesi Geçen Gün", "gun"),
+      "dso_contribution": (None, "Tahsilat Süresi", "gun"),
+      "grup"            : (None, "Group Name", "metin"),
+    },
+    "cikti_alanlar": ["fatura_no", "fatura_tarihi", "vade_tarihi", "odeme_tarihi", "musteri_kodu",
+                      "musteri_adi", "satis_calisani", "fatura_tutari", "odenen_tutar",
+                      "tahsilat_turu", "gecikme_gun", "dso_contribution", "grup"],
+    "kapilar": [
+      ("bos_fatura", lambda R: sum(1 for r in R if not r["fatura_no"]), 20, "Fatura Belge Numarasi bos"),
+      ("gelecek_fatura", lambda R: sum(1 for r in R if r["fatura_tarihi"] and r["fatura_tarihi"] > BUGUN),
+       0, "Gelecek tarihli fatura - tarih bozulmasi"),
+    ],
+  },
+
+  "alacak_yaslandirma": {
+    "ad": "Belge bazli alacak yaslandirma (yeni cari risk kaynagi)",
+    "imza": ["Customer/Vendor Code", "Açık Tutar", "Vadesi Geçen Gün", "Document Total"],
+    "tablo": "bi_musteri_risk",
+    "dogal_anahtar": ["muhatap_kodu"],
+    "grupla": _yaslandirma_grupla,
+    "koru_carileri": True,
+    "tenant_tip": "uuid",
+    "yukleme_modu": "tam_degistir",
+    "kolonlar": {
+      "muhatap_kodu"   : (None, "Customer/Vendor Code", "metin"),
+      "muhatap_adi"    : (None, "Customer/Vendor Name", "metin"),
+      "grup"           : (None, "Group Name", "metin"),
+      "satis_calisani" : (None, "Sales Employee Name", "metin"),
+      "hesap_bakiyesi" : (None, "Account Balance", "sayi2"),
+      "kredi_limiti"   : (None, "Kredi Limiti", "sayi2"),
+      "_acik"          : (None, "Açık Tutar", "sayi4"),
+      "_gun"           : (None, "Vadesi Geçen Gün", "gun"),
+    },
+    "cikti_alanlar": ["muhatap_kodu", "muhatap_adi", "grup", "satis_calisani", "hesap_bakiyesi",
+                      "kredi_limiti", "toplam_risk", "vadesi_gecmis", "bekleyen_siparis", "limit_asimi", "musteri_mi"],
+    "kapilar": [
+      ("bos_kod", lambda R: sum(1 for r in R if not r["muhatap_kodu"]), 10, "Customer/Vendor Code bos"),
+      ("gecikmis_riski_asiyor", lambda R: sum(1 for r in R if r["toplam_risk"] > 0 and r["vadesi_gecmis"] > r["toplam_risk"] * 1.05),
+       200, "vadesi gecmis > toplam risk"),
+    ],
+  },
 
   "stok_hareket": {
     "ad": "Stok hareketleri (stockmoving)",
@@ -284,6 +446,8 @@ KAYIT = {
     "ad": "Müşteri risk raporu (accountriskreport)",
     "imza": ["Muhatap Kodu", "Muhatap Adı", "Kredi Limiti", "Toplam Risk"],
     "tablo": "bi_musteri_risk",
+    "dogal_anahtar": ["muhatap_kodu"],
+    "dedup_max": ["vadesi_gecmis", "bekleyen_siparis"],
     "tenant_tip": "uuid",
     "yukleme_modu": "tam_degistir",
     "kolonlar": {
@@ -308,7 +472,8 @@ KAYIT = {
     },
     "turet": {
       "limit_asimi": lambda r: max(0.0, r["toplam_risk"] - r["kredi_limiti"]),
-      "musteri_mi" : lambda r: r["muhatap_kodu"].upper().startswith("M"),
+      # MUSTERIMI_GRUP_V1 — kod öneki M + grup TEDARİKÇİ değil (tedarikçi müşteri sayılmaz).
+      "musteri_mi" : lambda r: r["muhatap_kodu"].upper().startswith("M") and "TEDAR" not in (r.get("grup") or "").upper(),
     },
     "kapilar": [
       ("bos_kod", lambda R: sum(1 for r in R if not r["muhatap_kodu"]), 10,
@@ -548,6 +713,8 @@ def oku(yol):
                 if t is None:
                     atla = True
                 d[alan] = t
+            elif tur == "gun":
+                d[alan] = gun_onar(v)
             elif tur.startswith("sayi"):
                 # ⚠⚠ BILMIYORSAN DOKUNMA.
                 #   Dosyadan okunan basamak KAZANIR (kendi kendini duzeltir).
@@ -572,6 +739,12 @@ def oku(yol):
             d[alan] = fn(d)
         satir.append(d)
     wb.close()
+    if k.get("grupla"):
+        _grp = {}
+        for _r in satir:
+            _gk = tuple(str(_r.get(_a, "")) for _a in k["dogal_anahtar"])
+            _grp.setdefault(_gk, []).append(_r)
+        satir = [k["grupla"](_rows) for _rows in _grp.values()]
     return tip, satir, istat
 
 
@@ -632,7 +805,42 @@ def yukle(yol, tenant_id):
                 "kapilar": kapilar, "dusenler": dusenler,
                 "mukerrer": muk_adet}
 
-    alanlar = list(k["kolonlar"].keys()) + list((k.get("turet") or {}).keys())
+    # DEDUP_V2 — tam-değiştir snapshot: sabit alanlar ilk satırdan; fan-out alanları
+    #   (dedup_max) müşteri satırları boyunca MAX. CARI RISK ödeme biçimine göre çoğalıyor:
+    #   gecikmiş/bekleyen tek satırda dolu, diğerleri 0 → müşterinin gerçek değerini korur.
+    dedup_dusen = 0
+    if mod == "tam_degistir" and k.get("dogal_anahtar"):
+        _da = k["dogal_anahtar"]
+        _mx = k.get("dedup_max") or []
+        _u = {}
+        for _r in satir:
+            _key = tuple(str(_r.get(_a, "")) for _a in _da)
+            if _key not in _u:
+                _b = dict(_r)
+                for _f in _mx:
+                    _b[_f] = 0.0
+                _u[_key] = _b
+            _b = _u[_key]
+            for _f in _mx:
+                try:
+                    _cand = float(_r.get(_f) or 0)
+                except Exception:
+                    continue
+                # VADESI_CAP_V1 — CARI RISK "Vadesi Geçmiş Bakiye" Ödeme Biçimi'ne göre çoğalıyor; bazı satırlar
+                #   KÜMÜLATİF (toplam riski aşan) → gerçek anlık gecikmiş DEĞİL. Aşan satırları at, kalanların MAX'ı.
+                if _f == "vadesi_gecmis":
+                    try:
+                        _tr = float(_b.get("toplam_risk") or 0)
+                    except Exception:
+                        _tr = 0.0
+                    if _tr > 0 and _cand > _tr:
+                        continue
+                if _cand > float(_b.get(_f) or 0):
+                    _b[_f] = _r.get(_f)
+        dedup_dusen = len(satir) - len(_u)
+        satir = list(_u.values())
+
+    alanlar = list(k["cikti_alanlar"]) if k.get("cikti_alanlar") else (list(k["kolonlar"].keys()) + list((k.get("turet") or {}).keys()))
     cast = "::uuid" if k["tenant_tip"] == "uuid" else ""
 
     # ⚠⚠ CAKISMA YONETIMI — bugunun en kritik tasarim karari.
@@ -652,6 +860,24 @@ def yukle(yol, tenant_id):
     silinen = 0
     try:
         with cn, cn.cursor() as cur:
+            if k.get("koru_carileri"):
+                # CARILERI KORU: dosyada olmayan cariler kimligiyle kalir, riski 0. Kanal/grup dusmez.
+                _incoming = {str(r.get("muhatap_kodu", "")) for r in satir}
+                cur.execute(f"SELECT muhatap_kodu, muhatap_adi, grup, satis_calisani FROM {k['tablo']} WHERE tenant_id=%s{cast}", (tenant_id,))
+                _seen = set()
+                for _kod, _ad, _grup, _sc in cur.fetchall():
+                    _kk = str(_kod or "")
+                    if _kk in _incoming or _kk in _seen:
+                        continue
+                    _seen.add(_kk)
+                    _G = (_grup or "").upper()
+                    satir.append({
+                        "muhatap_kodu": _kod, "muhatap_adi": _ad or "", "grup": _grup or "",
+                        "satis_calisani": _sc or "", "hesap_bakiyesi": 0.0, "kredi_limiti": 0.0,
+                        "toplam_risk": 0.0, "vadesi_gecmis": 0.0, "bekleyen_siparis": 0.0,
+                        "limit_asimi": 0.0,
+                        "musteri_mi": ("TEDAR" not in _G) and ("PERSONEL" not in _G),
+                    })
             if mod == "tarih_araligi" and aralik:
                 cur.execute(
                     f"DELETE FROM {k['tablo']} WHERE tenant_id=%s{cast} "
@@ -697,6 +923,7 @@ def yukle(yol, tenant_id):
         t = {"turetilen": [], "uyari": [f"⚠ türetme hatası: {str(e)[:160]}"]}
 
     return {"ok": True, "tip": tip, "ad": k["ad"], "satir": len(satir),
+            "tekillestirilen": dedup_dusen,
             "turetme": t,
             "mod": mod,
             "aralik": [str(aralik[0]), str(aralik[1])] if aralik else None,
@@ -731,13 +958,6 @@ def kuru(yol):
             "dosya_ici_mukerrer": muk,
             "kapilar": kapilar}
 
-if __name__ == "__main__":
-    if len(sys.argv) >= 2 and sys.argv[1] == "--kuru":
-        print(json.dumps(kuru(sys.argv[2]), ensure_ascii=False, default=str, indent=2))
-    elif len(sys.argv) >= 3:
-        print(json.dumps(yukle(sys.argv[1], sys.argv[2]), ensure_ascii=False, default=str))
-    else:
-        sys.exit("kullanım: erp_ingest.py --kuru <dosya.xlsx>  |  erp_ingest.py <dosya.xlsx> <tenant_id>")
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -752,6 +972,7 @@ if __name__ == "__main__":
 #    bir kupten kotudur.
 # ══════════════════════════════════════════════════════════════════════
 BAGIMLILIK = {
+    "tahsilat"            : ["tahsilat_ozet"],  # TAHSILAT_HAM_KAYIT_V1
     "stok_hareket"        : ["maliyet_ay", "marj_fact"],
     "tedarikci_faturalari": ["maliyet_sku", "marj_fact"],
     "satis_faturalari"    : ["marj_fact"],
@@ -760,6 +981,7 @@ BAGIMLILIK = {
 }
 
 SQL_TURET = {
+  "tahsilat_ozet": "SELECT bi_tahsilat_yenile(%(t)s::uuid);",  # TAHSILAT_HAM_KAYIT_V1
   "maliyet_ay": """
     DROP TABLE IF EXISTS bi_maliyet_ay CASCADE;
     CREATE TABLE bi_maliyet_ay AS
@@ -876,7 +1098,8 @@ def turet(tenant_id, tip):
                 cur.execute("""
                     SELECT round(100.0*sum(brut_kar)/NULLIF(sum(ciro),0), 1)
                       FROM bi_marj_fact
-                     WHERE ay >= CURRENT_DATE-365 AND maliyet_kaynak <> 'yok'""")
+                     WHERE ay >= CURRENT_DATE-365 AND maliyet_kaynak <> 'yok'
+                       AND tenant_id=%(t)s::text""", {"t": tenant_id})  # MARJFACT_MULTITENANT_V1
                 _e = cur.fetchone()
                 eski = float(_e[0]) if _e and _e[0] is not None else None
                 referans = eski if eski is not None else 8.1   # ilk kurulum: olculmus deger
@@ -888,13 +1111,22 @@ def turet(tenant_id, tip):
                         f"Bozuk bir kup, eski bir kupten kotudur. "
                         f"⚠ Marj GERCEKTEN degistiyse tolerans elle gozden gecirilmeli.")
                 else:
-                    cur.execute("DROP TABLE IF EXISTS bi_marj_fact")
-                    cur.execute("ALTER TABLE bi_marj_fact_yeni RENAME TO bi_marj_fact")
-                    cur.execute("CREATE INDEX ON bi_marj_fact(tenant_id, ay DESC)")
-                    cur.execute("CREATE INDEX ON bi_marj_fact(tenant_id, ebat_norm, marka)")
-                    cur.execute("CREATE INDEX ON bi_marj_fact(tenant_id, sube, satis_kanali)")
-                    cur.execute("CREATE INDEX ON bi_marj_fact(tenant_id, satis_temsilcisi)")
-                    sonuc.append(f"marj_fact (%{m})")
+                    # MARJFACT_MULTITENANT_V1 — global DROP/RENAME yerine per-tenant DELETE+INSERT
+                    cur.execute("CREATE TABLE IF NOT EXISTS bi_marj_fact (LIKE bi_marj_fact_yeni INCLUDING DEFAULTS)")
+                    cur.execute("DELETE FROM bi_marj_fact WHERE tenant_id=%(t)s::text", {"t": tenant_id})
+                    cur.execute("INSERT INTO bi_marj_fact SELECT * FROM bi_marj_fact_yeni")
+                    cur.execute("DROP TABLE IF EXISTS bi_marj_fact_yeni")
+                    sonuc.append(f"marj_fact (%{m}) [per-tenant]")
     finally:
         cn.close()
     return {"turetilen": sonuc, "uyari": uyari}
+
+
+# TURET_ORDER_FIX_V1 — entry point EOF'a tasindi: yukle() cagirmadan once turet/BAGIMLILIK/SQL_TURET tanimli.
+if __name__ == "__main__":
+    if len(sys.argv) >= 2 and sys.argv[1] == "--kuru":
+        print(json.dumps(kuru(sys.argv[2]), ensure_ascii=False, default=str, indent=2))
+    elif len(sys.argv) >= 3:
+        print(json.dumps(yukle(sys.argv[1], sys.argv[2]), ensure_ascii=False, default=str))
+    else:
+        sys.exit("kullanım: erp_ingest.py --kuru <dosya.xlsx>  |  erp_ingest.py <dosya.xlsx> <tenant_id>")

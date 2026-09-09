@@ -1,0 +1,583 @@
+// shells/bi.js — Derive Intelligence VMO (Virtual Management Office)
+// Export: initBiSurface(container, me, sub, callbacks)
+//
+// Departments: Sales (Satış) · Pricing (Fiyatlandırma) · Warehouse (Depo) · IT (Sistem)
+// Each dept: KPI tiles + chart placeholder + AI avatar chat
+
+export function initBiSurface(container, me, sub, callbacks) {
+  const { apiFetch, streamChat, logout } = callbacks;
+  const features    = sub?.features || {};
+  const permissions = sub?.permissions || me?.permissions || {};
+  const allowedDepts = permissions.departments || ["sales","pricing","warehouse","it"];
+
+  const DEPTS = [
+    { id: "sales",     label: "Satış",          avatar: "Satış Müdürü",          icon: "📈", color: "#2563eb" },
+    { id: "pricing",   label: "Fiyatlandırma",  avatar: "Fiyat Müdürü",          icon: "💰", color: "#7c3aed" },
+    { id: "warehouse", label: "Depo",            avatar: "Depo Müdürü",           icon: "📦", color: "#059669" },
+    { id: "it",        label: "Sistem",          avatar: "Sistem Müdürü",         icon: "🖥", color: "#d97706"  }
+  ].filter(d => allowedDepts.includes(d.id));
+
+  let activeDept = DEPTS[0]?.id || "sales";
+  let chatHistories = {}; // { dept: [{role,content}] }
+  let briefingLoaded = false;
+
+  // ─── Render skeleton ────────────────────────────────────────────────────
+  container.innerHTML = `
+    <div class="bi-shell">
+      <header class="bi-header">
+        <div class="bi-header-left">
+          <div class="bi-logo">
+            <svg width="26" height="26" viewBox="0 0 32 32" fill="none">
+              <rect width="32" height="32" rx="8" fill="#1a1a2e"/>
+              <path d="M8 16h4l3-8 4 16 3-8h4" stroke="#e2b04a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span class="bi-logo-text">Derive <strong>Intelligence</strong></span>
+          </div>
+        </div>
+        <div class="bi-header-center">
+          <nav class="bi-dept-nav">
+            ${DEPTS.map(d => `
+              <button class="bi-dept-tab ${d.id===activeDept?"active":""}" data-dept="${d.id}" style="--dept-color:${d.color}">
+                <span class="bi-tab-icon">${d.icon}</span>
+                <span class="bi-tab-label">${d.label}</span>
+              </button>`).join("")}
+          </nav>
+        </div>
+        <div class="bi-header-right">
+          <span class="bi-tenant-name">${esc(me.tenantName || "")}</span>
+          <button class="bi-icon-btn" id="bi-logout" title="Çıkış">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="bi-body">
+        <!-- Morning briefing -->
+        <div class="bi-briefing-bar" id="bi-briefing-bar">
+          <div class="bi-briefing-loading">Sabah brifingı hazırlanıyor…</div>
+        </div>
+
+        <!-- Department rooms -->
+        <div class="bi-rooms" id="bi-rooms">
+          ${DEPTS.map(d => `
+            <div class="bi-room ${d.id===activeDept?"":"bi-room-hidden"}" id="bi-room-${d.id}" data-dept="${d.id}">
+              <div class="bi-room-main">
+                <div class="bi-kpi-row" id="bi-kpis-${d.id}">
+                  <div class="bi-kpi-loading">KPI'lar yükleniyor…</div>
+                </div>
+                <div class="bi-chart-area" id="bi-chart-${d.id}">
+                  <div class="bi-chart-placeholder">Grafik yükleniyor…</div>
+                </div>
+              </div>
+              <aside class="bi-chat-panel">
+                <div class="bi-avatar-header" style="--dept-color:${d.color}">
+                  <div class="bi-avatar-orb">${d.icon}</div>
+                  <div>
+                    <div class="bi-avatar-name">${d.avatar}</div>
+                    <div class="bi-avatar-status">✦ Çevrimiçi</div>
+                  </div>
+                </div>
+                <div class="bi-chat-messages" id="bi-chat-${d.id}">
+                  <div class="bi-chat-welcome">
+                    <p>Merhaba! Ben <strong>${d.avatar}</strong>. ${d.label} departmanı hakkında ne öğrenmek istersiniz?</p>
+                    <div class="bi-quick-prompts">
+                      ${quickPrompts(d.id).map(p => `<button class="bi-quick-btn" data-dept="${d.id}" data-prompt="${esc(p)}">${esc(p)}</button>`).join("")}
+                    </div>
+                  </div>
+                </div>
+                <form class="bi-chat-form" id="bi-chat-form-${d.id}">
+                  <input type="text" class="bi-chat-input" placeholder="Soru sorun…" autocomplete="off">
+                  <button type="submit" class="bi-chat-send">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                  </button>
+                </form>
+              </aside>
+            </div>`).join("")}
+        </div>
+      </div>
+    </div>
+    <style>${biStyles()}</style>
+  `;
+
+  // ─── Event: dept tab switching ──────────────────────────────────────────
+  container.querySelectorAll(".bi-dept-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      activeDept = tab.dataset.dept;
+      container.querySelectorAll(".bi-dept-tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      container.querySelectorAll(".bi-room").forEach(r => {
+        r.classList.toggle("bi-room-hidden", r.dataset.dept !== activeDept);
+      });
+      loadDeptData(activeDept);
+    });
+  });
+
+  // ─── Event: logout ──────────────────────────────────────────────────────
+  container.querySelector("#bi-logout").addEventListener("click", logout);
+
+  // ─── Event: chat forms ─────────────────────────────────────────────────
+  DEPTS.forEach(d => {
+    const form = container.querySelector(`#bi-chat-form-${d.id}`);
+    if (!form) return;
+    form.addEventListener("submit", e => {
+      e.preventDefault();
+      const input = form.querySelector(".bi-chat-input");
+      const msg = input.value.trim();
+      if (!msg) return;
+      input.value = "";
+      sendChat(d.id, msg);
+    });
+  });
+
+  // ─── Event: quick prompts ──────────────────────────────────────────────
+  container.addEventListener("click", e => {
+    const btn = e.target.closest(".bi-quick-btn");
+    if (!btn) return;
+    sendChat(btn.dataset.dept, btn.dataset.prompt);
+  });
+
+  // ─── Morning briefing ──────────────────────────────────────────────────
+  loadBriefing();
+
+  // ─── Load initial dept ─────────────────────────────────────────────────
+  if (activeDept) loadDeptData(activeDept);
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Data loading
+  // ═══════════════════════════════════════════════════════════════════════
+
+  async function loadBriefing() {
+    const bar = container.querySelector("#bi-briefing-bar");
+    try {
+      const data = await apiFetch("/api/bi/morning-briefing");
+      const c = data.content_json;
+      if (!c || !c.summary) { bar.innerHTML = ""; return; }
+      bar.innerHTML = `
+        <div class="bi-briefing">
+          <div class="bi-briefing-icon">☀️</div>
+          <div class="bi-briefing-body">
+            <div class="bi-briefing-summary">${esc(c.summary)}</div>
+            <div class="bi-briefing-pills">
+              ${c.sales_highlight  ? `<span class="bi-pill bi-pill-blue">📈 ${esc(c.sales_highlight)}</span>` : ""}
+              ${c.stock_alert      ? `<span class="bi-pill bi-pill-orange">📦 ${esc(c.stock_alert)}</span>` : ""}
+              ${c.pricing_note     ? `<span class="bi-pill bi-pill-purple">💰 ${esc(c.pricing_note)}</span>` : ""}
+            </div>
+          </div>
+          <button class="bi-briefing-close" id="bi-close-briefing">✕</button>
+        </div>`;
+      container.querySelector("#bi-close-briefing").onclick = () => { bar.style.display = "none"; };
+    } catch { bar.innerHTML = ""; }
+  }
+
+  async function loadDeptData(dept) {
+    switch(dept) {
+      case "sales":     await loadSalesKpis();     break;
+      case "pricing":   await loadPricingKpis();   break;
+      case "warehouse": await loadWarehouseKpis(); break;
+      case "it":        await loadItKpis();        break;
+    }
+  }
+
+  async function loadSalesKpis() {
+    const el = container.querySelector("#bi-kpis-sales");
+    const chartEl = container.querySelector("#bi-chart-sales");
+    try {
+      const [kpiData, trend] = await Promise.all([
+        apiFetch("/api/bi/sales/kpis"),
+        apiFetch("/api/bi/sales/trend")
+      ]);
+      const k = kpiData.kpis || {};
+      const prevCiro = parseFloat(k.revenue_prev_30d || 0);
+      const curCiro  = parseFloat(k.revenue_30d || 0);
+      const delta    = prevCiro > 0 ? ((curCiro - prevCiro) / prevCiro * 100).toFixed(1) : null;
+
+      el.innerHTML = `
+        ${kpiTile("Ciro (30g)", formatTRY(k.revenue_30d), delta ? `${delta > 0?"+":""}${delta}% önceki döneme göre` : null, delta > 0 ? "up" : delta < 0 ? "down" : null)}
+        ${kpiTile("Fatura Sayısı", fmt(k.invoice_count_30d), null)}
+        ${kpiTile("Ort. Satır Değeri", formatTRY(k.avg_line_value_30d), null)}
+        ${kpiTile("Top Müşteri", kpiData.top_customers?.[0]?.musteri_adi || "—", kpiData.top_customers?.[0] ? formatTRY(kpiData.top_customers[0].total) : null)}
+      `;
+
+      if (trend.length) {
+        const monthLabels = trend.map(r => {
+          const d = new Date(r.ay); return `${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,"0")}`;
+        });
+        const ciroVals = trend.map(r => parseFloat(r.ciro));
+        renderBarChart(chartEl, monthLabels, ciroVals, "Aylık Ciro (TL)", "#2563eb");
+      } else {
+        chartEl.innerHTML = `<div class="bi-no-data">Satış verisi bulunamadı.</div>`;
+      }
+    } catch(err) {
+      el.innerHTML = kpiError(err.message);
+    }
+  }
+
+  async function loadPricingKpis() {
+    const el = container.querySelector("#bi-kpis-pricing");
+    const chartEl = container.querySelector("#bi-chart-pricing");
+    try {
+      const [kpis, ccc] = await Promise.all([
+        apiFetch("/api/bi/pricing/kpis"),
+        apiFetch("/api/bi/pricing/ccc")
+      ]);
+      el.innerHTML = `
+        ${kpiTile("Ort. Brüt Marj", formatTRY(kpis.avg_brut_marj), null)}
+        ${kpiTile("Ort. Marj %", kpis.avg_marj_pct ? `%${parseFloat(kpis.avg_marj_pct).toFixed(1)}` : "—", null)}
+        ${kpiTile("Nakit Döngüsü (CCC)", `${ccc.ccc} gün`, `DIS:${ccc.dis} + DSO:${ccc.dso} - DPO:${ccc.dpo}`, ccc.ccc > 60 ? "down" : "up")}
+        ${kpiTile("Finansman Maliyeti/Birim", formatTRY(ccc.financing_cost_per_unit), `@%${(ccc.cost_of_capital*100).toFixed(0)} sermaye maliyeti`)}
+      `;
+
+      // CCC waterfall
+      const labels = ["DIS (Stok Süresi)", "DSO (Tahsilat)", "DPO (Ödeme)", "CCC"];
+      const values = [ccc.dis, ccc.dso, -ccc.dpo, ccc.ccc];
+      const colors = ["#7c3aed","#2563eb","#059669","#d97706"];
+      renderBarChart(chartEl, labels, values, "Nakit Döngüsü (Gün)", colors, true);
+
+      if (ccc.note) {
+        chartEl.insertAdjacentHTML("beforeend",
+          `<div class="bi-warning-banner">⚠️ ${esc(ccc.note)}</div>`);
+      }
+    } catch(err) {
+      el.innerHTML = kpiError(err.message);
+    }
+
+    // ── Tedarikçi Teşvik Yönetimi paneli ──────────────────────────
+    const pricingRoom = container.querySelector("#bi-room-pricing .bi-room-main");
+    if (pricingRoom && !pricingRoom.querySelector("#bi-brand-incentives-mount")) {
+      const mountDiv = document.createElement("div");
+      mountDiv.id = "bi-brand-incentives-mount";
+      mountDiv.style.cssText = "margin-top:24px;width:100%;";
+      pricingRoom.appendChild(mountDiv);
+      try {
+        const { initBrandIncentives } = await import("/components/brand-incentives.js");
+        initBrandIncentives(mountDiv, me, { apiFetch });
+      } catch(e) {
+        mountDiv.innerHTML = `<div class="bi-kpi-error">Teşvik paneli yüklenemedi: ${e.message}</div>`;
+      }
+    }
+  }
+
+  async function loadWarehouseKpis() {
+    const el = container.querySelector("#bi-kpis-warehouse");
+    const chartEl = container.querySelector("#bi-chart-warehouse");
+    try {
+      const [kpis, movements] = await Promise.all([
+        apiFetch("/api/bi/warehouse/kpis"),
+        apiFetch("/api/bi/warehouse/movements")
+      ]);
+      if (kpis.no_data) {
+        el.innerHTML = `<div class="bi-no-data">Stok verisi bulunamadı.</div>`;
+        return;
+      }
+      const k = kpis.kpis || {};
+      el.innerHTML = `
+        ${kpiTile("Toplam SKU", fmt(k.sku_sayisi), null)}
+        ${kpiTile("Stok Değeri", formatTRY(k.stok_degeri), `Veri: ${kpis.as_of || "—"}`)}
+        ${kpiTile("Kritik Stok", fmt(k.kritik_stok_sayisi) + " kalem", null, parseInt(k.kritik_stok_sayisi) > 0 ? "down" : "up")}
+        ${kpiTile("Sıfır Stok", fmt(k.sifir_stok_sayisi) + " kalem", null, parseInt(k.sifir_stok_sayisi) > 0 ? "down" : null)}
+      `;
+
+      if (movements.length) {
+        const labels = movements.slice(0,8).map(r => r.belge_turu || "?");
+        const values = movements.slice(0,8).map(r => parseFloat(r.hareket_sayisi));
+        renderBarChart(chartEl, labels, values, "Hareket Türleri (Adet)", "#059669");
+      }
+
+      if (kpis.dead_stock?.length) {
+        chartEl.insertAdjacentHTML("beforeend", `
+          <div class="bi-dead-stock">
+            <h4>90 Gün Hareketsiz Stok (TL değeri)</h4>
+            <div class="bi-dead-list">
+              ${kpis.dead_stock.slice(0,5).map(r =>
+                `<div class="bi-dead-item">
+                  <span>${esc(r.kalem_tanimi || r.kalem_kodu)}</span>
+                  <strong>${formatTRY(r.toplam_deger)}</strong>
+                </div>`).join("")}
+            </div>
+          </div>`);
+      }
+    } catch(err) {
+      el.innerHTML = kpiError(err.message);
+    }
+  }
+
+  async function loadItKpis() {
+    const el = container.querySelector("#bi-kpis-it");
+    const chartEl = container.querySelector("#bi-chart-it");
+    try {
+      const rows = await apiFetch("/api/bi/it/kpis");
+      if (!rows.length) {
+        el.innerHTML = `<div class="bi-no-data">Henüz veri alınmamış.</div>`;
+        return;
+      }
+      const tiles = rows.map(r => {
+        const saatOnce = r.saat_once ? `${parseFloat(r.saat_once).toFixed(1)} saat önce` : "—";
+        const durum = r.haftalik_hata > 0 ? "down" : "up";
+        return kpiTile(r.query_type, saatOnce, `Son: ${r.son_veri_tarihi||"—"}`, durum);
+      });
+      el.innerHTML = tiles.join("");
+
+      chartEl.innerHTML = `
+        <div class="bi-it-table">
+          <table>
+            <thead><tr><th>Sorgu</th><th>Son Veri</th><th>Son Güncelleme</th><th>Bugün</th><th>7g Hata</th></tr></thead>
+            <tbody>
+              ${rows.map(r => `
+                <tr>
+                  <td><code>${esc(r.query_type)}</code></td>
+                  <td>${r.son_veri_tarihi||"—"}</td>
+                  <td>${r.son_guncelleme ? new Date(r.son_guncelleme).toLocaleString("tr-TR") : "—"}</td>
+                  <td>${fmt(r.bugunki_satirlar||0)} satır</td>
+                  <td class="${r.haftalik_hata>0?"bi-red":"bi-green"}">${r.haftalik_hata||0}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table>
+        </div>`;
+    } catch(err) {
+      el.innerHTML = kpiError(err.message);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Chat
+  // ═══════════════════════════════════════════════════════════════════════
+
+  async function sendChat(dept, message) {
+    const chatEl = container.querySelector(`#bi-chat-${dept}`);
+    if (!chatEl) return;
+
+    // Clear welcome message on first real chat
+    const welcome = chatEl.querySelector(".bi-chat-welcome");
+    if (welcome) welcome.remove();
+
+    appendChatBubble(chatEl, "user", message);
+    const assistantBubble = appendChatBubble(chatEl, "assistant", "");
+    const textEl = assistantBubble.querySelector(".bi-bubble-text");
+
+    try {
+      await streamChat(dept, message, (chunk) => {
+        textEl.textContent += chunk;
+        chatEl.scrollTop = chatEl.scrollHeight;
+      });
+    } catch(err) {
+      textEl.textContent = `Hata: ${err.message}`;
+      textEl.style.color = "#dc2626";
+    }
+    chatEl.scrollTop = chatEl.scrollHeight;
+  }
+
+  function appendChatBubble(chatEl, role, text) {
+    const div = document.createElement("div");
+    div.className = `bi-bubble bi-bubble-${role}`;
+    div.innerHTML = `<div class="bi-bubble-text">${esc(text)}</div>`;
+    chatEl.appendChild(div);
+    chatEl.scrollTop = chatEl.scrollHeight;
+    return div;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Chart (vanilla SVG bar chart — no external deps)
+  // ═══════════════════════════════════════════════════════════════════════
+
+  function renderBarChart(container, labels, values, title, color, multiColor = false) {
+    if (!values.length) { container.innerHTML = `<div class="bi-no-data">Veri yok.</div>`; return; }
+    const W = 600, H = 220, PL = 70, PR = 20, PT = 36, PB = 54;
+    const cW = W - PL - PR, cH = H - PT - PB;
+    const maxV = Math.max(...values.map(Math.abs), 1);
+    const barW = Math.min(40, (cW / labels.length) - 8);
+
+    const colors = Array.isArray(color)
+      ? color
+      : values.map(v => v < 0 ? "#ef4444" : color);
+
+    const bars = labels.map((label, i) => {
+      const v = values[i];
+      const x = PL + (i + 0.5) * (cW / labels.length) - barW / 2;
+      const pct = Math.abs(v) / maxV;
+      const barH = pct * cH;
+      const y = v >= 0 ? PT + cH - barH : PT + cH;
+      const c = colors[i % colors.length];
+      const labelShort = label.length > 10 ? label.slice(0,9)+"…" : label;
+      return `
+        <rect x="${x}" y="${y}" width="${barW}" height="${barH}" fill="${c}" rx="3" opacity="0.9"/>
+        <text x="${x + barW/2}" y="${H - PB + 16}" text-anchor="middle" font-size="10" fill="#666">${esc(labelShort)}</text>
+        <text x="${x + barW/2}" y="${y - 4}" text-anchor="middle" font-size="9" fill="#444">${fmt(v)}</text>
+      `;
+    }).join("");
+
+    const yTicks = [0, 0.25, 0.5, 0.75, 1].map(p => {
+      const val = maxV * p;
+      const y2  = PT + cH - p * cH;
+      return `
+        <line x1="${PL}" y1="${y2}" x2="${W-PR}" y2="${y2}" stroke="#eee" stroke-width="1"/>
+        <text x="${PL-6}" y="${y2+4}" text-anchor="end" font-size="9" fill="#aaa">${fmt(val)}</text>
+      `;
+    }).join("");
+
+    container.innerHTML = `
+      <div class="bi-chart-title">${esc(title)}</div>
+      <svg viewBox="0 0 ${W} ${H}" style="width:100%;max-height:220px">
+        ${yTicks}
+        ${bars}
+        <line x1="${PL}" y1="${PT}" x2="${PL}" y2="${PT+cH}" stroke="#ddd" stroke-width="1"/>
+        <line x1="${PL}" y1="${PT+cH}" x2="${W-PR}" y2="${PT+cH}" stroke="#ddd" stroke-width="1"/>
+      </svg>
+    `;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // Utilities
+  // ═══════════════════════════════════════════════════════════════════════
+
+  function kpiTile(label, value, sub, trend) {
+    const arrow = trend === "up" ? `<span class="bi-trend up">↑</span>` :
+                  trend === "down" ? `<span class="bi-trend down">↓</span>` : "";
+    return `
+      <div class="bi-kpi-tile">
+        <div class="bi-kpi-label">${esc(label)}</div>
+        <div class="bi-kpi-value">${esc(String(value ?? "—"))} ${arrow}</div>
+        ${sub ? `<div class="bi-kpi-sub">${esc(sub)}</div>` : ""}
+      </div>`;
+  }
+
+  function kpiError(msg) {
+    return `<div class="bi-kpi-error">Yüklenemedi: ${esc(msg)}</div>`;
+  }
+
+  function formatTRY(v) {
+    const n = parseFloat(v);
+    if (isNaN(n)) return "—";
+    return n.toLocaleString("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + " ₺";
+  }
+
+  function fmt(v) {
+    const n = parseFloat(v);
+    if (isNaN(n)) return "—";
+    return n.toLocaleString("tr-TR");
+  }
+
+  function esc(s) {
+    return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  function quickPrompts(dept) {
+    return {
+      sales: [
+        "Geçen aya göre ciro nasıl değişti?",
+        "En çok satan 5 markamız hangileri?",
+        "Hangi müşterilerimiz büyüme gösteriyor?"
+      ],
+      pricing: [
+        "Nakit döngümüz kaç gün?",
+        "Hangi ürünlerde marjımız düşüyor?",
+        "CCC'yi iyileştirmek için ne yapabiliriz?"
+      ],
+      warehouse: [
+        "Kritik stok seviyeleri hangi ürünlerde?",
+        "Son 90 günde hiç hareketi olmayan ürünler?",
+        "Stok devir hızımız nasıl?"
+      ],
+      it: [
+        "Hangi SAP verileri en güncel?",
+        "Brifing verilerim ne zaman yenilendi?",
+        "Veri aktarımında sorun var mı?"
+      ]
+    }[dept] || [];
+  }
+}
+
+// ─── Styles ────────────────────────────────────────────────────────────────────
+function biStyles() {
+  return `
+    #bi-surface { height:100vh; overflow:hidden; }
+    .bi-shell { display:flex; flex-direction:column; height:100vh; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; font-size:14px; background:#f5f6fa; }
+    .bi-header { display:flex; align-items:center; height:56px; background:#1a1a2e; padding:0 20px; gap:16px; flex-shrink:0; }
+    .bi-header-left { display:flex; align-items:center; width:200px; }
+    .bi-logo { display:flex; align-items:center; gap:10px; }
+    .bi-logo-text { color:#fff; font-size:15px; }
+    .bi-logo-text strong { color:#e2b04a; }
+    .bi-header-center { flex:1; display:flex; justify-content:center; }
+    .bi-dept-nav { display:flex; gap:4px; background:rgba(255,255,255,0.07); border-radius:10px; padding:4px; }
+    .bi-dept-tab { display:flex; align-items:center; gap:7px; padding:7px 16px; border:none; border-radius:7px; background:transparent; color:rgba(255,255,255,0.55); cursor:pointer; font-size:13px; font-weight:500; transition:all .15s; }
+    .bi-dept-tab:hover { background:rgba(255,255,255,0.1); color:#fff; }
+    .bi-dept-tab.active { background:#fff; color:var(--dept-color, #1a1a2e); font-weight:600; }
+    .bi-tab-icon { font-size:16px; }
+    .bi-header-right { display:flex; align-items:center; gap:12px; width:200px; justify-content:flex-end; }
+    .bi-tenant-name { color:rgba(255,255,255,0.45); font-size:12px; }
+    .bi-icon-btn { background:none; border:none; cursor:pointer; color:rgba(255,255,255,0.5); padding:6px; border-radius:6px; display:flex; }
+    .bi-icon-btn:hover { background:rgba(255,255,255,0.1); color:#fff; }
+    .bi-body { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+    /* Briefing */
+    .bi-briefing-bar { background:linear-gradient(135deg,#1e3a5f,#1a1a2e); flex-shrink:0; }
+    .bi-briefing { display:flex; align-items:flex-start; gap:14px; padding:12px 20px; }
+    .bi-briefing-icon { font-size:22px; margin-top:2px; }
+    .bi-briefing-body { flex:1; }
+    .bi-briefing-summary { color:#e8eef8; font-size:13px; line-height:1.5; margin-bottom:8px; }
+    .bi-briefing-pills { display:flex; flex-wrap:wrap; gap:8px; }
+    .bi-pill { padding:3px 10px; border-radius:20px; font-size:11px; font-weight:500; }
+    .bi-pill-blue   { background:rgba(37,99,235,.25); color:#93c5fd; }
+    .bi-pill-orange { background:rgba(217,119,6,.25); color:#fcd34d; }
+    .bi-pill-purple { background:rgba(124,58,237,.25); color:#c4b5fd; }
+    .bi-briefing-close { background:none; border:none; color:rgba(255,255,255,.3); cursor:pointer; font-size:16px; padding:4px; }
+    .bi-briefing-close:hover { color:#fff; }
+    .bi-briefing-loading { padding:12px 20px; color:rgba(255,255,255,.4); font-size:13px; }
+    /* Rooms */
+    .bi-rooms { flex:1; overflow:hidden; }
+    .bi-room { display:flex; height:100%; }
+    .bi-room-hidden { display:none; }
+    .bi-room-main { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:16px; }
+    /* KPI */
+    .bi-kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+    .bi-kpi-tile { background:#fff; border-radius:12px; border:1px solid #e8eaed; padding:16px; }
+    .bi-kpi-label { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:#888; font-weight:600; margin-bottom:6px; }
+    .bi-kpi-value { font-size:20px; font-weight:700; color:#1a1a2e; display:flex; align-items:center; gap:6px; }
+    .bi-kpi-sub { font-size:11px; color:#aaa; margin-top:4px; }
+    .bi-trend.up   { color:#059669; font-size:14px; }
+    .bi-trend.down { color:#dc2626; font-size:14px; }
+    .bi-kpi-loading { grid-column:1/-1; text-align:center; color:#aaa; padding:20px; }
+    .bi-kpi-error   { grid-column:1/-1; background:#fee2e2; color:#991b1b; border-radius:8px; padding:12px; }
+    /* Chart */
+    .bi-chart-area { background:#fff; border-radius:12px; border:1px solid #e8eaed; padding:20px; flex:1; min-height:260px; }
+    .bi-chart-title { font-size:13px; font-weight:600; color:#555; margin-bottom:12px; }
+    .bi-chart-placeholder { text-align:center; color:#ccc; padding:60px 0; }
+    .bi-no-data { text-align:center; color:#ccc; padding:40px; }
+    .bi-warning-banner { background:#fef3c7; border:1px solid #fcd34d; border-radius:8px; padding:10px 14px; margin-top:12px; font-size:13px; color:#92400e; }
+    /* Dead stock */
+    .bi-dead-stock { background:#fff; border-radius:12px; border:1px solid #e8eaed; padding:16px; margin-top:4px; }
+    .bi-dead-stock h4 { margin:0 0 12px; font-size:13px; color:#555; }
+    .bi-dead-item { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid #f0f2f4; font-size:13px; }
+    .bi-dead-item:last-child { border-bottom:none; }
+    /* IT table */
+    .bi-it-table { overflow-x:auto; }
+    .bi-it-table table { width:100%; border-collapse:collapse; font-size:13px; }
+    .bi-it-table th { padding:10px 12px; text-align:left; background:#f9fafb; border-bottom:1px solid #e8eaed; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:#888; }
+    .bi-it-table td { padding:10px 12px; border-bottom:1px solid #f0f2f4; }
+    .bi-red { color:#dc2626; font-weight:600; }
+    .bi-green { color:#059669; font-weight:600; }
+    /* Chat */
+    .bi-chat-panel { width:320px; min-width:320px; background:#fff; border-left:1px solid #e8eaed; display:flex; flex-direction:column; }
+    .bi-avatar-header { display:flex; align-items:center; gap:12px; padding:16px; background:linear-gradient(135deg, color-mix(in srgb, var(--dept-color) 10%, white), white); border-bottom:1px solid #e8eaed; }
+    .bi-avatar-orb { width:40px; height:40px; border-radius:50%; background:var(--dept-color,#1a1a2e); display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; }
+    .bi-avatar-name { font-weight:700; font-size:14px; color:#1a1a2e; }
+    .bi-avatar-status { font-size:11px; color:#059669; margin-top:2px; }
+    .bi-chat-messages { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
+    .bi-chat-welcome p { font-size:13px; color:#555; line-height:1.5; margin:0 0 12px; }
+    .bi-quick-prompts { display:flex; flex-direction:column; gap:6px; }
+    .bi-quick-btn { background:#f5f6fa; border:1px solid #e8eaed; border-radius:8px; padding:8px 12px; text-align:left; cursor:pointer; font-size:12px; color:#444; transition:all .12s; }
+    .bi-quick-btn:hover { background:#eff6ff; border-color:#bfdbfe; color:#1d4ed8; }
+    .bi-bubble { max-width:88%; }
+    .bi-bubble-user { align-self:flex-end; }
+    .bi-bubble-assistant { align-self:flex-start; }
+    .bi-bubble-user .bi-bubble-text { background:#1a1a2e; color:#fff; padding:10px 14px; border-radius:14px 14px 4px 14px; font-size:13px; line-height:1.5; }
+    .bi-bubble-assistant .bi-bubble-text { background:#f5f6fa; color:#333; padding:10px 14px; border-radius:14px 14px 14px 4px; font-size:13px; line-height:1.6; white-space:pre-wrap; }
+    .bi-chat-form { display:flex; border-top:1px solid #e8eaed; padding:12px; gap:8px; }
+    .bi-chat-input { flex:1; border:1px solid #d0d5dd; border-radius:10px; padding:9px 12px; font-size:13px; outline:none; }
+    .bi-chat-input:focus { border-color:#1a1a2e; box-shadow:0 0 0 3px rgba(26,26,46,.08); }
+    .bi-chat-send { background:#1a1a2e; color:#fff; border:none; border-radius:10px; padding:9px 12px; cursor:pointer; display:flex; align-items:center; }
+    .bi-chat-send:hover { background:#252540; }
+    @media (max-width: 900px) {
+      .bi-kpi-row { grid-template-columns:repeat(2,1fr); }
+      .bi-chat-panel { width:260px; min-width:260px; }
+    }
+  `;
+}

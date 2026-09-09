@@ -1,0 +1,36 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Finans Odası — hazırlanıyor</title>
+<!-- FINANS_ODASI_HOLD_V1 — oda gecici olarak kapali: hicbir hardcoded/placeholder sayi gostermemek icin. Canli veriye baglaniyor. -->
+<style>
+:root{--z0:#0a0e14;--z1:#111823;--tx0:#e6edf3;--tx1:#9aa7b4;--tx2:#5b6672;--cizgi:rgba(255,255,255,.08);--acc:#2ad4ee;--acc2:#4f86ff}
+*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--z0);color:var(--tx0);font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:32px}
+.card{max-width:560px;width:100%;background:var(--z1);border:1px solid var(--cizgi);border-radius:18px;padding:40px 36px;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,.35)}
+.logo{width:44px;height:44px;margin:0 auto 18px;display:block;filter:drop-shadow(0 2px 10px rgba(80,134,255,.4))}
+h1{font-size:22px;font-weight:700;margin:0 0 6px;letter-spacing:.2px}
+.sub{font-size:13px;color:var(--tx2);margin:0 0 22px}
+p{font-size:14px;line-height:1.7;color:var(--tx1);margin:0 0 14px}
+.hl{color:var(--tx0);font-weight:600}
+.chip{display:inline-flex;align-items:center;gap:7px;margin-top:20px;padding:8px 14px;border:1px solid var(--cizgi);border-radius:999px;font-size:12px;color:var(--tx1)}
+.dot{width:8px;height:8px;border-radius:50%;background:#f5a623;box-shadow:0 0 0 3px rgba(245,166,35,.15)}
+.sync{margin-top:14px;font-size:11px;color:var(--tx2)}
+</style></head><body>
+<div class="wrap"><div class="card">
+<svg class="logo" viewBox="0 0 100 100" fill="none"><defs><linearGradient id="g" x1="22" y1="76" x2="78" y2="24" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#2ad4ee"/><stop offset=".52" stop-color="#4f86ff"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs><path d="M50 26 L78 74 L22 74 Z" stroke="url(#g)" stroke-width="7.5" stroke-linejoin="round" stroke-linecap="round"/><circle cx="50" cy="26" r="8.4" fill="#fff"/><circle cx="50" cy="26" r="3.7" fill="#7c3aed"/></svg>
+<h1>Finans Odası hazırlanıyor</h1>
+<div class="sub">DERİVE Intelligence</div>
+<p>Oda geçici olarak kapalı. Sebep açık: <span class="hl">her sayı canlı kaynağa bağlanana kadar hiçbir yer-tutucu/sabit rakam göstermiyoruz.</span></p>
+<p>Ekrandaki her rakam bir sorguya kadar izlenebilir olduğunda — ticari sermaye, gecikmiş konsantrasyon, marka marjları, stok kırılımı — oda tam veri-güdümlü olarak açılacak.</p>
+<div class="chip"><span class="dot"></span> Canlı veriye bağlanıyor</div>
+<div class="sync" id="finSync"></div>
+</div></div>
+<script>
+// gercek ERP senkron zamani (kokpitle ayni kaynak) — tek canli, dogru bilgi
+(function(){var el=document.getElementById('finSync');if(!el)return;
+fetch('/api/bi/yukle/durum',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+ if(!d||!d.dosyalar||!d.dosyalar.length)return;var en=null;d.dosyalar.forEach(function(x){if(x&&x.son&&(!en||new Date(x.son)>new Date(en.son)))en=x;});
+ if(!en||!en.son)return;var o={timeZone:'Asia/Istanbul',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'};
+ el.textContent='ERP senkron '+new Date(en.son).toLocaleString('tr-TR',o);}).catch(function(){});
+})();
+</script>
+</body></html>

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# KONUM_OPSIYONEL_V1 deploy — yeni müşteri kaydında GPS zorunluluğunu kaldır. Rule 5: build+up. Idempotent.
+set -e
+cd /opt/krb-assessment
+if [ -f shells/saha.js ]; then SAHA=shells/saha.js; else SAHA=$(find . -maxdepth 3 -name saha.js -not -path '*/backups/*' -not -path '*/node_modules/*'|head -1); fi
+[ -f "$SAHA" ] || { echo "HATA: saha.js yok"; exit 1; }
+cp "$SAHA" "$SAHA.bak.$(date +%s)"
+printf '%s' 'IyEvdXNyL2Jpbi9lbnYgcHl0aG9uMwojIEtPTlVNX09QU0lZT05FTF9WMSDigJQgWWVuaSBtw7zFn3Rlcmkga2F5ZMSxbmRhIEdQUyBrb251bXUgQVJUSUsgWk9SVU5MVSBERcSexLBMLgojIFNlYmVwIChIw7xzZXlpbiBCaWxnaSk6IMWfYW50aXllZGUgxZ9lYmVrZSB5b2ssIG9maXMgUEMnZGUga29udW0gYWzEsW5hbcSxeW9yIOKGkiBrYXnEsXQgYmxva2Ugb2x1eW9yZHUuCiMgTm90OiBzdW51Y3UgKFBPU1QgL2FwaS9zYWhhL211c3RlcmlsZXIpIGxhdC9sbmcneWkgemF0ZW4gU0FLTEFNSVlPUjsgYmxvayB0YW1hbWVuIHPDvHJ0w7xubWV5ZGkuCiMgc2FoYS5qcyB5ZW5pIG3DvMWfdGVyaSBtb2RhbMSxLiBJZGVtcG90ZW50LgpkZWYgcmVhZChwKTogcmV0dXJuIG9wZW4ocCwgZW5jb2Rpbmc9InV0Zi04IikucmVhZCgpCmRlZiB3cml0ZShwLCBzKTogb3BlbihwLCAidyIsIGVuY29kaW5nPSJ1dGYtOCIpLndyaXRlKHMpCgpGUCA9ICJzYWhhLmpzIgpzID0gcmVhZChGUCkKaWYgIktPTlVNX09QU0lZT05FTF9WMSIgaW4gczoKICAgIHByaW50KCJrb251bS1vcHM6IGFscmVhZHkgcHJlc2VudCwgc2tpcCIpOyBwcmludCgiRE9ORS4iKTsgcmFpc2UgU3lzdGVtRXhpdAoKIyAoMSkgVXlhcsSxIG1ldG5pbmkgInpvcnVubHUiZGFuICJpc3RlxJ9lIGJhxJ9sxLEieWEgw6dldmlyIChoZXIgemFtYW4gZ8O2csO8bsO8ciwgbsO2dHIgcmVuaykKYTEgPSAnICAgICAgPGRpdiBpZD0ieW0ta29udW0tem9ydW5sdSIgc3R5bGU9ImZvbnQtc2l6ZToxMnB4O2NvbG9yOiNkYzI2MjY7Zm9udC13ZWlnaHQ6NjAwO21hcmdpbi1ib3R0b206NHB4O2Rpc3BsYXk6bm9uZSI+4pqgIFNhaGEgeml5YXJldGkgacOnaW4gR1BTIGtvbnVtdSB6b3J1bmx1ZHVyLjwvZGl2PicKbjEgPSAnICAgICAgPGRpdiBpZD0ieW0ta29udW0tem9ydW5sdSIgc3R5bGU9ImZvbnQtc2l6ZToxMnB4O2NvbG9yOiM2NDc0OGI7bWFyZ2luLWJvdHRvbTo0cHgiPvCfk40gS29udW0gaXN0ZcSfZSBiYcSfbMSxIOKAlCBzYWhhZGF5c2FuxLF6IHBpbmxleWluOyBvZmlzdGVuIHZleWEgxZ9lYmVrZSB5b2trZW4gYm/FnyBixLFyYWthYmlsaXJzaW5pei48L2Rpdj4nCmFzc2VydCBzLmNvdW50KGExKSA9PSAxLCAia29udW0gaGludCBhbmNob3IiCnMgPSBzLnJlcGxhY2UoYTEsIG4xLCAxKQoKIyAoMikgS2F5ZGV0OiBHUFMgem9ydW5sdWx1ayBibG/En3VudSBrYWxkxLFyIChLT05VTV9PUFNJWU9ORUxfVjEpCmEyID0gKCcgICAgaWYgKGcoInltLWtheW5hayIpID09PSAiU0FIQV9aSVlBUkVUSSIgJiYga29udW1EYXRhLmxhdCA9PSBudWxsKSB7XG4nCiAgICAgICcgICAgICB1eWFyaUVsLnN0eWxlLmRpc3BsYXkgPSAiYmxvY2siO1xuJwogICAgICAnICAgICAgdXlhcmkoIlNhaGEgeml5YXJldGkgacOnaW4gR1BTIGtvbnVtdSB6b3J1bmx1ZHVyLiBMw7x0ZmVuIFwnR1BTIGlsZSBLb251bXUgUGlubGVcJyBidXRvbnVuYSBiYXPEsW4uIik7XG4nCiAgICAgICcgICAgICByZXR1cm47XG4nCiAgICAgICcgICAgfVxuJykKbjIgPSAnICAgIC8vIEtPTlVNX09QU0lZT05FTF9WMSDigJQgR1BTIGFydMSxayB6b3J1bmx1IGRlxJ9pbCAoxZ9hbnRpeWUvxZ9lYmVrZSB5b2ssIG9maXMgUEMpLiBWYXJzYSBnw7ZuZGVyaWxpciwgeW9rc2EgYm/Fny5cbicKYXNzZXJ0IHMuY291bnQoYTIpID09IDEsICJrb251bSBibG9jayBhbmNob3IiCnMgPSBzLnJlcGxhY2UoYTIsIG4yLCAxKQoKd3JpdGUoRlAsIHMpCnByaW50KCJrb251bS1vcHM6IEdQUyB6b3J1bmx1bHXEn3Uga2FsZMSxcsSxbGTEsSwgaGludCBpc3RlxJ9lIGJhxJ9sxLEgeWFwxLFsZMSxIikKcHJpbnQoIkRPTkUuIikK' | base64 -d > /tmp/konum_opsiyonel.py
+SDIR=$(dirname "$SAHA"); cp /tmp/konum_opsiyonel.py "$SDIR/konum_opsiyonel.py"
+( cd "$SDIR" && python3 konum_opsiyonel.py ) && rm -f "$SDIR/konum_opsiyonel.py"
+node --check "$SAHA" && echo SAHA_OK
+docker build -t krb-assessment:secure .
+docker compose up -d --force-recreate krb-assessment
+sleep 4
+echo "== verify (blok=0, marker>=1) =="
+docker exec krb-assessment sh -c "grep -c 'GPS konumu zorunludur' /app/shells/saha.js" || true
+docker exec krb-assessment sh -c "grep -c KONUM_OPSIYONEL_V1 /app/shells/saha.js" || true
+echo "== DONE =="

@@ -21269,6 +21269,24 @@ async function requireTenantAdmin(request) {
 
   // GET /api/rakip/piyasa-ozet — brand+season+source summary for visual overview
   // PIYASA_OZET_V1
+  // B2B_OZET_ENDPOINT_V1 — B2B tedarikci alis fiyatlari (bi_b2b_alis)
+  if (request.method === 'GET' && url.pathname === '/api/b2b/ozet') {
+    const _bS = await requireModuleAccess(request,'intelligence').catch(()=>null)
+             || await requireModuleAccess(request,'saha').catch(()=>null);
+    const bTid = _bS && _bS.tenantId ? _bS.tenantId : null;
+    if (!bTid) return sendJson(response, 403, { error: 'yetki yok' });
+    try {
+      const urunler = (await pool.query(
+        `SELECT kaynak, marka, ebat, mevsim, segment, alis_fiyat, urun_kodu, left(urun_adi,90) AS urun_adi
+           FROM bi_b2b_alis WHERE tenant_id=$1::uuid ORDER BY marka, ebat`, [bTid])).rows;
+      const kaynaklar = (await pool.query(
+        `SELECT kaynak, count(*)::int AS n, max(scraped_at) AS son
+           FROM bi_b2b_alis WHERE tenant_id=$1::uuid GROUP BY kaynak ORDER BY n DESC`, [bTid])).rows;
+      const piyasa = (await pool.query(`SELECT marka, genislik, profil, cap, COALESCE(sm_mevsim,mevsim) AS mevsim, model, fiyat FROM bi_rakip_fiyat_son WHERE fiyat IS NOT NULL AND fiyat>0 AND genislik IS NOT NULL`)).rows; // B2B_PIYASA_V1
+      return sendJson(response, 200, { urunler, kaynaklar, piyasa });
+    } catch (e) { return sendJson(response, 500, { error: String(e && e.message || e) }); }
+  }
+
   if (request.method === 'GET' && url.pathname === '/api/rakip/piyasa-ozet') {
     const _pS = await requireModuleAccess(request,'intelligence').catch(()=>null)
              || await requireModuleAccess(request,'saha').catch(()=>null);

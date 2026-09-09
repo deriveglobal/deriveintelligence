@@ -101,6 +101,7 @@
 }
 
 html {
+  overscroll-behavior: none;   /* NO_PTR_YENILE_V1 — iPhone/tarayıcı aşağı-çek-yenile kapatıldı (reload=oturum uçuyordu) */
   background: var(--color-bg);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -13333,3 +13334,16 @@ body:has(#respondent-root),
 }
 
 /* ── END DERIVE VISUAL REDESIGN OVERRIDES ───────────────────── */
+
+/* IOS_LOGIN_ZOOM_FIX — iOS zooms when a focused input is <16px and WKWebView keeps that
+   zoom after login, shifting the saha reception ~41px. Force auth inputs to 16px on iOS
+   ONLY (@supports -webkit-touch-callout: true on iOS Safari/WKWebView, false on macOS +
+   Android Chrome) so desktop and Android stay pixel-identical. */
+@supports (-webkit-touch-callout: none) {
+  #auth-screen input, #auth-screen select, #auth-screen textarea { font-size: 16px; }
+}
+
+/* HIDE_YONETIM_MOBILE — floating #tenant-admin-toggle (Yonetim) overlaps the mobile saha nav
+   and is desktop-only; hide it when the mobile saha nav is present. .saha-nav exists only in
+   the mobile saha surface, so desktop/BI is untouched (kural 12). */
+body:has(.saha-nav) #tenant-admin-toggle { display: none !important; }

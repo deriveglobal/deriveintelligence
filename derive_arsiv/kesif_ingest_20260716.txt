@@ -1,0 +1,179 @@
+
+════════ 1. DONMA TARİHİ — canlı ERP tablolarında SON tarih (TESPIT §7: ~07-13 hipotezini kesinleştir) ════════
+    kaynak   | son_tarih  | satir  
+  -----------+------------+--------
+   tedarikci | 2026-07-09 | 146680
+   satis     | 2026-07-11 | 364785
+  (2 rows)
+  
+
+════════ 1b. SATIŞ — son 20 günün günlük satır sayısı (kuyruk nerede kesiliyor görülsün) ════════
+      gun     | satir 
+  ------------+-------
+   2026-07-11 |   106
+   2026-07-10 |   178
+   2026-07-09 |   251
+   2026-07-08 |   178
+   2026-07-07 |   148
+   2026-07-06 |   231
+   2026-07-04 |   143
+   2026-07-03 |   163
+   2026-07-02 |   214
+   2026-07-01 |   245
+   2026-06-30 |   252
+   2026-06-29 |   276
+   2026-06-27 |   132
+   2026-06-26 |   206
+   2026-06-25 |   211
+   2026-06-24 |   186
+   2026-06-23 |   208
+   2026-06-22 |   254
+   2026-06-20 |   118
+   2026-06-19 |   206
+  (20 rows)
+  
+
+════════ 2. STOK HAREKET — kolonları (tarih alanı adını görüp doğru sorgulayalım, VARSAYMADAN) ════════
+                                                                                                                                                string_agg                                                                                                                                              
+  ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+   id, tenant_id, ingested_at, belge_tarihi, belge_turu, hareket_sinifi, belge_no, muhatap_kodu, muhatap_adi, satis_calisani, depo, kalem_kodu, grup_adi, kategori, marka, kalem_tanimi, giris, cikis, lastik_mi, sevk_girisi_mi, notlar, birim_maliyet, giris_tutari, cikis_tutari, stok_bakiye_tutari
+  (1 row)
+  
+
+════════ 3. INGEST HEDEF TABLOLARI — ERP ham veri tablolarının listesi (satis/tedarikci/stok/fatura/hareket + yedekler) ════════
+                      relname                    |    satir     |  boyut  
+  -----------------------------------------------+--------------+---------
+   bi_satis_faturalari                           |      365,515 | 470 MB
+   bi_stok_hareketleri_olu_yedek                 |      358,028 | 296 MB
+   bi_stok_hareket                               |      580,016 | 267 MB
+   bi_satis_faturalari_yedek_20260713_070746     |      364,785 | 149 MB
+   bi_satis_faturalari_yedek_20260713_070640     |      322,855 | 132 MB
+   bi_tedarikci_faturalari                       |      146,680 | 84 MB
+   bi_fatura_tahsilat                            |      175,649 | 57 MB
+   bi_satis_faturalari_yedek_20260713_070459     |      124,564 | 50 MB
+   bi_satis_faturalari_yedek_20260713_054416     |      103,824 | 41 MB
+   bi_satis_faturalari_yedek_20260713_052539     |      102,574 | 40 MB
+   bi_satis_faturalari_yedek_20260713_052650     |      102,574 | 40 MB
+   bi_tedarikci_faturalari_yedek_20260713_072222 |       28,252 | 9256 kB
+   bi_stok_durumu_olu_yedek                      |        3,146 | 2040 kB
+   bi_stok_anlik                                 |        2,185 | 1416 kB
+   bi_satis_doviz_yedek_20260713_182902          |        2,690 | 280 kB
+   bi_tedarikci_tesvik                           |           20 | 152 kB
+   bi_ingestion_log                              |           50 | 96 kB
+   bi_kacan_satislar                             |            0 | 40 kB
+   saha_musteri_tedarikci_destek                 |            0 | 32 kB
+   saha_musteri_tedarikci_destek_log             |            0 | 24 kB
+   bi_tedarikci_kampanya                         |            0 | 24 kB
+  (21 rows)
+  
+
+════════ 4. YÜKLEME/LOG İZİ — bir yükleme kaydı tablosu var mı (son ingest ne zaman/nasıl oldu) ════════
+              table_name             
+  -----------------------------------
+   assessment_invitation_logs
+   assessment_reminder_logs
+   bi_deploy_log
+   bi_fiyat_listesi_uploads
+   bi_ingestion_log
+   bi_paylasim_log
+   krb_audit_logs
+   login_attempt_log
+   methodology_templates
+   methodology_versions
+   participant_upload_batches
+   saha_hata_log
+   saha_musteri_tedarikci_destek_log
+   saha_teklif_log
+   security_audit_log
+   system_error_logs
+  (16 rows)
+  
+
+════════ 5. #100 invmoving24 — böyle bir tablo/view VAR MI? (tam + benzer isim) ════════
+   table_name | table_type 
+  ------------+------------
+  (0 rows)
+  
+
+════════ 6. INGEST CRON'U VAR MI? — host crontab (iddia: ingest cron YOK; metrik 08:15 + nabız 08:35 + scraper var) ════════
+  SHELL=/bin/bash
+  
+  
+  
+  0 2 * * * cd /opt/price_monitor && source .env && /opt/price_monitor/venv/bin/python3 price_monitor.py scrape >> /var/log/price_monitor_full.log 2>&1
+  
+  30 4 * * * cd /opt/price_monitor && set -a && source .env && set +a && venv/bin/python3 price_monitor.py sizescan --site akakce --top 500 >> /var/log/price_monitor_sizescan.log 2>&1
+  15 5 * * * cd /opt/price_monitor && set -a && source .env && set +a && venv/bin/python3 price_monitor.py sizescan --site n11 --top 300 >> /var/log/price_monitor_sizescan.log 2>&1
+  0 6 * * * cd /opt/price_monitor && set -a && source .env && set +a && venv/bin/python3 price_monitor.py sizescan --site trendyol --top 300 >> /var/log/price_monitor_sizescan.log 2>&1
+  45 6 * * * cd /opt/price_monitor && set -a && source .env && set +a && venv/bin/python3 price_monitor.py sizescan --site pttavm --top 300 >> /var/log/price_monitor_sizescan.log 2>&1
+  30 7 * * * docker exec -i krb-assessment-postgres psql -U assessment_app -d assessment_platform < /opt/price_monitor/sql/history_job.sql >> /var/log/price_history.log 2>&1
+  0 * * * * /opt/price_monitor/run_watched.sh
+  0 4 * * * /opt/price_monitor/run_ozet.sh
+  */30 * * * * /opt/price_monitor/venv/bin/python3 /opt/krb-assessment/ops_monitor.py >> /var/log/ops_monitor.log 2>&1
+  0 7 * * * cd /opt/price_monitor && set -a && source .env && set +a && venv/bin/python3 sm_normalize.py --backfill >> /var/log/sm_normalize.log 2>&1
+  5 7 * * * cd /opt/price_monitor && set -a && source .env && set +a && venv/bin/python3 sm_classify.py --apply >> /var/log/sm_classify.log 2>&1
+  10 7 * * * cd /opt/price_monitor && set -a && . ./.env && set +a && venv/bin/python3 sm_master.py --sync >> /var/log/price_monitor/sm_master.log 2>&1
+  8 7 * * * docker exec -i krb-assessment-postgres psql -U assessment_app -d assessment_platform < /opt/price_monitor/sql/derive_segment.sql >> /var/log/segment_derive.log 2>&1
+  15 8 * * * /opt/krb-assessment/metrik_snapshot_gunluk.sh >> /var/log/metrik_snapshot.log 2>&1
+  35 8 * * * bash /opt/krb-assessment/nabiz.sh >> /var/log/nabiz.log 2>&1
+
+════════ 7. KODDA INGEST İZİ — #101 5MB limiti + upload/ingest/invmoving endpoint'leri (server_container.mjs) ════════
+  913:    create table if not exists participant_upload_batches (
+  914:      upload_batch_id uuid primary key default gen_random_uuid(),
+  917:      uploaded_by uuid references users(id) on delete set null,
+  1247:    create index if not exists idx_participant_upload_batches_assessment on participant_upload_batches (assessment_id, created_at desc);
+  5343:  if (buffer.length > 5 * 1024 * 1024) throw Object.assign(new Error("File too large. Maximum 5MB."), { statusCode: 413 });
+  8917:const uploadRoleAliases = [
+  8939:  for (const entry of uploadRoleAliases) {
+  9007:  if (buffer.length > 5 * 1024 * 1024) {
+  9008:    const error = new Error("Upload file is too large. Maximum size is 5MB.");
+  9769:      rows_uploaded: previewRows.length,
+  9778:      `insert into participant_upload_batches (assessment_id, company_id, uploaded_by, filename, status, preview_json)
+  9780:       returning upload_batch_id, created_at`,
+  9784:      upload_batch_id: batch.rows[0].upload_batch_id,
+  9799:      `select * from participant_upload_batches
+  9800:       where upload_batch_id = $1 and assessment_id = $2
+  9802:      [payload.uploadBatchId || payload.upload_batch_id, assessmentId]
+  9862:      `update participant_upload_batches
+  9864:       where upload_batch_id = $1`,
+  9865:      [batch.rows[0].upload_batch_id]
+  9869:      rows_uploaded: rows.length,
+  16488:    if (request.method === "POST" && url.pathname === "/api/frameworks/import-fleet") {
+  18972:  if (request.method === "POST" && url.pathname === "/api/project-participants/import") {
+  19308:  const assessmentParticipantUploadMatch = url.pathname.match(/^\/api\/assessments\/([^/]+)\/participants\/(upload-preview|import|create-sessions-bulk|send-invitations)$/);
+  19320:      if (action === "upload-preview") {
+  20062:    CREATE TABLE IF NOT EXISTS bi_ingestion_log (
+  20069:      error_detail text, file_hash text, ingest_version text NOT NULL DEFAULT '1'
+  20076:      export_date date NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(),
+  20090:      export_date date NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(),
+  20103:      export_date date NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(),
+  20113:      export_date date NOT NULL, ingested_at timestamptz NOT NULL DEFAULT now(),
+
+════════ 8. INGEST/SAP SCRIPT İZİ — repo'da SAP B1 pull (#102) ya da yükleme scripti var mı ════════
+  /opt/krb-assessment/deploy_onsiparis_yukle.sh
+  /opt/krb-assessment/deploy_yukleme.sh
+  /opt/krb-assessment/deploy_yukleme_ui.sh
+  /opt/krb-assessment/erp_hasar2_KURU.sh
+  /opt/krb-assessment/erp_hasar_KURU.sh
+  /opt/krb-assessment/erp_yukle_alis.sh
+  /opt/krb-assessment/erp_yukle_hepsi.sh
+  /opt/krb-assessment/erp_yukle.sh
+  /opt/krb-assessment/ingest_bul.sh
+  /opt/krb-assessment/ingest_kodu_oku.sh
+  /opt/krb-assessment/kesif_ingest_durum.sh
+  /opt/krb-assessment/yukle_hareket2.sh
+  /opt/krb-assessment/yukle_kesif2.sh
+  /opt/krb-assessment/yukle_kesif.sh
+  /opt/krb-assessment/kesif_ingest_durum.sh
+  /opt/krb-assessment/nakit_dongu.sh
+  /opt/krb-assessment/derive_arsiv/krb-session-outputs/0fbbd271-aaff-457d-b175-320b7d5438ae/3a666b7a-de7a-4846-af01-7c4f8f9c3aa3/local_a75fa66c-7677-46f1-b37b-e34f3c93fce1/outputs/generate_historical_request.js
+  /opt/krb-assessment/derive_arsiv/krb-session-outputs/0fbbd271-aaff-457d-b175-320b7d5438ae/3a666b7a-de7a-4846-af01-7c4f8f9c3aa3/local_a75fa66c-7677-46f1-b37b-e34f3c93fce1/outputs/generate_krb_doc.js
+  /opt/krb-assessment/derive_arsiv/krb-session-outputs/0fbbd271-aaff-457d-b175-320b7d5438ae/3a666b7a-de7a-4846-af01-7c4f8f9c3aa3/local_a75fa66c-7677-46f1-b37b-e34f3c93fce1/outputs/generate_it_request.js
+  /opt/krb-assessment/derive_arsiv/krb-session-outputs/0fbbd271-aaff-457d-b175-320b7d5438ae/3a666b7a-de7a-4846-af01-7c4f8f9c3aa3/local_a75fa66c-7677-46f1-b37b-e34f3c93fce1/outputs/run_stok_hareketleri.sh
+  /opt/krb-assessment/derive_arsiv/krb-session-outputs/0fbbd271-aaff-457d-b175-320b7d5438ae/3a666b7a-de7a-4846-af01-7c4f8f9c3aa3/local_668c974a-cb3d-45a1-95ca-239f281839d6/outputs/nakit_dongu.sh
+
+════════ 9. DİSK — taze yükleme için yer var mı (766MB ölü yedek biliniyor; %59 doluydu) ════════
+  Filesystem      Size  Used Avail Use% Mounted on
+  /dev/sda1        38G   24G   12G  68% /
+
+════════ BITTI — KİLİT SORULAR: (a) kesin donma tarihi = blok 1 son_tarih. (b) ingest ölü çünkü: hiç ingest cron'u yok mu (blok 6) / endpoint var ama tetiklenmiyor mu (blok 7) / SAP B1 pull kırık mı (blok 8)? (c) invmoving24 (#100) canlı bir nesne mi yoksa sadece kodda geçen bir ad mı (blok 5/7)? → Sonuç gelince: ONAR vs SNAPSHOT'ta devam çatalını birlikte kararlaştıracağız. ════════

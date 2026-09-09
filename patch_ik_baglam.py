@@ -1,0 +1,18 @@
+# -*- coding: utf-8 -*-
+# IK_NOTU_BAGLAM_V1 — rep_gelisim_uret.mjs: yonetici notu+tepki opus baglamina (yer gercegi)
+# HOST dosyasi; docker build GEREKMEZ (cron 04:00 / manuel docker exec node ile calisir).
+import io,os,sys,base64,json
+F=sys.argv[1] if len(sys.argv)>1 else "rep_gelisim_uret.mjs"
+D=json.loads('[["c2lzdGVtaW4gb3Rvbm9tIGJ1bGd1bGFyaSAoc2lzdGVtX3NpbnlhbGxlcmkpLCBzb24gc2FoYSB6aXlhcmV0IG5vdGxhcmksIHRla2xpZiBrYXlpcCBuZWRlbmxlcmku", "c2lzdGVtaW4gb3Rvbm9tIGJ1bGd1bGFyaSAoc2lzdGVtX3NpbnlhbGxlcmkpLCBzb24gc2FoYSB6aXlhcmV0IG5vdGxhcmksIHRla2xpZiBrYXlpcCBuZWRlbmxlcmksIHlvbmV0aWNpX25vdGxhcmkgKHlvbmV0aWNpbmluIERPR1JVREFOIGdvemxlbWkgLyBrb2NsdWsgbml5ZXRpIC8gYmFnbGFtIGR1emVsdG1lc2kpLCB5b25ldGljaV90ZXBraWxlcmkgKGdlY21pcyBva3VtYXlhIGRvZ3J1L3lhbmxpcy9la3NpayBnZXJpLWJpbGRpcmltKS4gWU9ORVRJQ0kgR0lSRElTSSA9IFlFUiBHRVJDRUdJOiBzZW5pbiBjaWthcmltaW5kYW4gVVNUVU4gdHV0OyBiaXIgdGVwa2kgYmlyIGlkZGlheWkgJ3lhbmxpcycgKG5vKSBpc2FyZXRsZWRpeXNlIG8gaWRkaWF5aSBURUtSQVIgRVRNRTsgJ2Vrc2lrJyAobWlkKSBpc2UgZHV6ZWx0bWV5aSBkaWtrYXRlIGFsOyAnYmFnbGFtJyBub3R1bnUgZG9ncnUga2FidWwgZXQ7IGJpciAna29jbHVrJyBuaXlldGkgdmFyc2EgYnUgYXkgZGF2cmFuaXNpbiBvIHlvbmUga2lwaXJkYXlpcCBraXBpcmRhbWFkaWdpbmkgZHVydXN0Y2UgKHlldGVybGkgdmVyaSB5b2tzYSAnZGFoYSBlcmtlbiBzb3lsZW1layB6b3InKSBkZWdlcmxlbmRpci4="], ["ICAgIGNvbnN0IGJnID0gKGF3YWl0IHBvb2wucXVlcnkoIlNFTEVDVCByZXBfZ2VsaXNpbV9iYWdsYW0oJDE6OnV1aWQsJDI6OnV1aWQpIGIiLFtULHIudXNlcl9pZF0pKS5yb3dzWzBdLmI7", "ICAgIGNvbnN0IGJnID0gKGF3YWl0IHBvb2wucXVlcnkoIlNFTEVDVCByZXBfZ2VsaXNpbV9iYWdsYW0oJDE6OnV1aWQsJDI6OnV1aWQpIGIiLFtULHIudXNlcl9pZF0pKS5yb3dzWzBdLmI7CiAgICAvKiBJS19OT1RVX0JBR0xBTV9WMSDigJQgeW9uZXRpY2kgbm90dSArIHRlcGtpOiB5ZXIgZ2VyY2VnaSBvbGFyYWsgYmFnbGFtYSBrYXQgKi8KICAgIGxldCBfeW49W10sIF95dD1bXTsKICAgIHRyeSB7CiAgICAgIF95biA9IChhd2FpdCBwb29sLnF1ZXJ5KCJTRUxFQ1QgdHVyLCBtZXRpbiwgeWF6YXJfYWQsIHRvX2NoYXIob2x1c3R1cnVsZHVfYXQsJ1lZWVktTU0tREQnKSBndW4gRlJPTSBzYWhhX3JlcF95b25ldGljaV9ub3R1IFdIRVJFIHRlbmFudF9pZD0kMTo6dXVpZCBBTkQgcmVwX3VzZXJfaWQ9JDI6OnV1aWQgQU5EIGFrdGlmIE9SREVSIEJZIG9sdXN0dXJ1bGR1X2F0IERFU0MgTElNSVQgMjAiLFtULHIudXNlcl9pZF0pKS5yb3dzOwogICAgICBfeXQgPSAoYXdhaXQgcG9vbC5xdWVyeSgiU0VMRUNUIGhlZGVmLCB0ZXBraSwgZHV6ZWx0bWUsIGhlZGVmX3JlZiwgdG9fY2hhcihvbHVzdHVydWxkdV9hdCwnWVlZWS1NTS1ERCcpIGd1biBGUk9NIHNhaGFfcmVwX2ljZ29ydV90ZXBraSBXSEVSRSB0ZW5hbnRfaWQ9JDE6OnV1aWQgQU5EIHJlcF91c2VyX2lkPSQyOjp1dWlkIE9SREVSIEJZIG9sdXN0dXJ1bGR1X2F0IERFU0MgTElNSVQgMzAiLFtULHIudXNlcl9pZF0pKS5yb3dzOwogICAgfSBjYXRjaCAoZSkgeyB0cnkgeyBjb25zb2xlLmVycm9yKCJbaWstbm90dS1iYWdsYW1dIiwgZSAmJiBlLm1lc3NhZ2UpOyB9IGNhdGNoKF8pe30gfQ=="], ["K0pTT04uc3RyaW5naWZ5KGJnKS5zbGljZSgwLDE4MDAwKX1dIH0pOw==", "K0pTT04uc3RyaW5naWZ5KGJnKS5zbGljZSgwLDE4MDAwKSsnXG5cbllPTkVUSUNJIEdJUkRJU0kgKHllciBnZXJjZWdpIOKAlCBjaWthcmltZGFuIHVzdHVuKTpcbicrSlNPTi5zdHJpbmdpZnkoe25vdGxhcjpfeW4sdGVwa2lsZXI6X3l0fSkuc2xpY2UoMCw0MDAwKX1dIH0pOw=="]]')
+s=io.open(F,encoding="utf-8").read()
+if "IK_NOTU_BAGLAM_V1" in s:
+    print("ZATEN VAR — IK_NOTU_BAGLAM_V1, atlandi"); sys.exit(0)
+for o64,n64 in D:
+    o=base64.b64decode(o64).decode(); n=base64.b64decode(n64).decode()
+    if n in s and o not in s: continue
+    c=s.count(o); assert c==1, "anchor=%d :: %s"%(c,o[:60])
+    s=s.replace(o,n,1)
+if not os.path.exists(F+".baglambak"):
+    io.open(F+".baglambak","w",encoding="utf-8").write(io.open(F,encoding="utf-8").read())
+io.open(F,"w",encoding="utf-8").write(s)
+print("OK IK_NOTU_BAGLAM_V1 — rep_gelisim_uret.mjs guncellendi")

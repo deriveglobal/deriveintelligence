@@ -1,0 +1,46 @@
+<!DOCTYPE html><html lang="tr" data-theme="dark"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Derive · İK Odası</title>
+<style>
+:root{--page:#09090b;--s1:#111116;--s2:#16161c;--line:rgba(255,255,255,.07);--ink0:#f5f5f1;--ink1:#adaca6;--ink2:#75746f;--ink3:#4c4c4a;--accent:#a78bfa;--glow:rgba(167,139,250,.14);--warn:#fab219;--up:#2fd06f;--r:16px;color-scheme:dark;}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--page);color:var(--ink0);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+body{padding:22px}.stage{max-width:1000px;margin:0 auto}
+.topbar{display:flex;align-items:center;gap:14px;padding:6px 4px 18px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:11px;font-weight:600}
+.brand .mk{width:26px;height:26px;border-radius:8px;background:conic-gradient(from 210deg,var(--accent),#7c3aed,var(--accent));box-shadow:0 0 20px var(--glow)}
+.brand b{font-weight:680}.brand .sub{color:var(--ink2)}.brand .fin{color:var(--accent);font-weight:680}
+.live{display:flex;align-items:center;gap:7px;color:var(--ink1);font-size:12px}
+.live .p{width:7px;height:7px;border-radius:50%;background:var(--up);animation:pulse 2.4s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(47,208,111,.5)}50%{box-shadow:0 0 0 6px rgba(47,208,111,0)}}
+.asof{margin-left:auto;color:var(--ink2);font-size:12px}
+.intro{background:var(--s2);border:1px solid var(--line);border-radius:var(--r);padding:15px 18px;margin-bottom:18px;color:var(--ink1);font-size:13.5px;line-height:1.6}
+.intro b{color:var(--ink0)}.cards{display:flex;flex-direction:column;gap:16px}
+.rep{background:var(--s1);border:1px solid var(--line);border-radius:var(--r);padding:20px 22px}
+.rep .h{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.rep .nm{font-size:19px;font-weight:640;letter-spacing:-.01em;color:var(--ink0)}
+.badge{font-size:10px;letter-spacing:.05em;text-transform:uppercase;padding:3px 9px;border-radius:6px;font-weight:640}
+.badge.taslak{background:rgba(250,178,25,.13);color:var(--warn)}
+.badge.ok{background:rgba(47,208,111,.14);color:var(--up)}
+.rep .model{margin-left:auto;color:var(--ink3);font-size:11px}
+.rep .portre p{font-size:14.5px;line-height:1.68;color:var(--ink0);font-weight:420;margin-bottom:11px}
+.rep .portre p:last-child{margin-bottom:0}
+.empty,.err{background:var(--s2);border:1px solid var(--line);border-radius:var(--r);padding:26px;text-align:center;color:var(--ink2);font-size:14px;line-height:1.6}
+.foot{margin-top:22px;color:var(--ink3);font-size:11.5px;line-height:1.6;text-align:center}
+</style></head><body>
+<div class="stage">
+  <div class="topbar">
+    <div class="brand"><span class="mk"></span><b>DERİVE</b><span class="sub">▸</span><span class="fin">İK Odası</span></div>
+    <div class="live"><span class="p" id="liveDot"></span><span id="liveTxt">canlı</span></div>
+    <div class="asof" id="asof">yükleniyor…</div>
+  </div>
+  <div class="intro"><b>Karakter &amp; Gelişim.</b> Her temsilcinin kendi satış, portföy, saha ve uygulama-kullanım verisinden çıkarılan karakter portresi ve gelişim yönü. Dil gelişim dilidir — yargı değil. Bu ilk tur <b>taslak</b>: veri biriktikçe derinleşir. Yalnız yetkili yöneticilere görünür.</div>
+  <div class="cards" id="cards"></div>
+  <div class="foot" id="foot"></div>
+</div>
+<script>
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function paras(t){var raw=String(t||'').trim();if(!raw)return '';return raw.split(/\n\s*\n/).map(function(p){return '<p>'+esc(p.trim()).replace(/\n/g,'<br>')+'</p>';}).join('');}
+function setLive(ok){var d=document.getElementById('liveDot'),t=document.getElementById('liveTxt');if(ok){if(t)t.textContent='canlı';if(d)d.style.background='var(--up)';}else{if(t)t.textContent='ulaşılamadı';if(d)d.style.background='var(--warn)';}}
+function render(data){var cards=document.getElementById('cards'),asof=document.getElementById('asof'),foot=document.getElementById('foot');var list=(data&&data.kisiler)||[];if(asof)asof.textContent=(data&&data.as_of)?('son okuma · '+data.as_of):'';if(!list.length){cards.innerHTML='<div class="empty">Henüz portre üretilmedi — veri birikiyor.</div>';if(foot)foot.textContent='';return;}cards.innerHTML=list.map(function(r){var badge=(r.guven==='taslak')?'<span class="badge taslak">taslak · ilk okuma</span>':(r.guven?'<span class="badge ok">'+esc(r.guven)+'</span>':'');var model=r.model?'<span class="model">'+esc(r.model)+'</span>':'';return '<div class="rep"><div class="h"><span class="nm">'+esc(r.ad)+'</span>'+badge+model+'</div><div class="portre">'+paras(r.portre)+'</div></div>';}).join('');if(foot)foot.textContent=list.length+' temsilci · yalnız yetkili yöneticilere görünür · aylık otomatik yenilenir';}
+function load(){fetch('/api/bi/ik/oda',{headers:{'Accept':'application/json'},credentials:'same-origin'}).then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).then(function(j){var d=(j&&j.data&&typeof j.data==='object')?j.data:j;render(d);setLive(true);}).catch(function(){setLive(false);var c=document.getElementById('cards');if(c)c.innerHTML='<div class="err">Canlı veriye ulaşılamadı. Sayfayı yenileyin.</div>';});}
+load();
+</script></body></html>

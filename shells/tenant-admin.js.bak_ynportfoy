@@ -1,0 +1,1171 @@
+// shells/tenant-admin.js — Derive Platform · Yönetim (Tenant Admin) Shell  v3
+// EKIP_YONETIM_V3 — full visual/UX redesign + unified access (İzinler = editable
+//   sub-tool matrix for every module: Saha 21 alt-araç + segment, Intelligence bölümleri).
+// Exported: initTenantAdminSurface(container, me, callbacks)
+//   callbacks = { apiFetch(path,opts)->json, switchToModule(id) }
+// Endpoints (unchanged): /api/tenant/me, /api/tenant/usage, /api/tenant/users,
+//   PATCH /api/tenant/users/:id {tenant_role|active}, PATCH /api/tenant/users/:id/modules,
+//   POST /api/tenant/users/invite, GET/DELETE /api/tenant/invitations.
+
+export function initTenantAdminSurface(container, me, callbacks) {
+  const { apiFetch, switchToModule } = callbacks;
+  let currentView = "overview";
+  let usersData = [];
+
+  // ─── Module access model (per-module roles + sub-permission catalog) ─────
+  const MODULES = {
+    saha: {
+      label: "Saha",
+      roles: [["rep", "Saha"], ["manager", "Müdür"], ["admin", "Admin"]],
+      segment: true,
+      groups: [
+        ["Sekmeler", [["ozet", "📊 Özet"], ["ciro", "💰 Ciro"], ["risk", "🚨 Risk"], ["etki", "📈 Saha ROI"], ["portfoy", "🩺 Portföy"], ["rotam", "🌅 Rotam"], ["kapsam", "📍 Kapsam"], ["ziyaretanaliz", "🔬 Ziyaret Analizi"], ["pipeline", "💼 Pipeline"], ["pazar", "🎯 Pazar"]]],  /* SEKME_CAP_V1 — saha sekmeleri = birincil yetki */
+        ["Saha", [["bugun", "Bugün"], ["ziyaretler", "Ziyaretler"], ["plan", "Plan"], ["musteriler", "Müşteriler"], ["musterikart", "Müşteri Kartı"], ["ebatkart", "Ebat Kartı"], ["teklif", "Teklif"], ["notlarim", "Notlarım"], ["rep-brain", "Rep-Brain"]]],
+        ["Zeka & Pazar", [["harita", "Harita"], ["piyasa", "Piyasa"], ["rakip", "Rakip"], ["oneriler", "Öneriler"], ["sahasesi-tum", "Saha Sesi · Tüm KRB"], ["sahasesi-temsilci", "Saha Sesi · Temsilci"]]],  /* SAHASESI_CAP_V1 */
+        ["Yönetim & Analiz", [["rapor", "Rapor"], ["kokpit", "Kokpit"], ["ceo", "CEO"], ["rep-aktivite", "Aktivite"], ["memnuniyet", "Memnuniyet"]]]  /* SEKME_CAP_V1 relokasyon: ciro/risk/rotam/kapsam -> Sekmeler */  /* MEMNUNIYET_IZIN_V1 */,  /* KAPSAM_TAD_V1 */  /* IZIN_YENIMODUL_V1 */
+        ["İletişim", [["duyurular", "Duyurular"], ["mesajlar", "Mesajlar"]]],
+        ["Sistem & Erişim", [["temsilciler", "Ekip"], ["sistem", "Sistem"]]]
+      ],
+      lock: ["ozet", "temsilciler", "sistem"],  /* SEKME_CAP_V1 — ozet kilitli */
+      gmRole: "admin"
+    },
+    intelligence: {
+      label: "Management",
+      roles: [["viewer", "Görüntüleyici"], ["analyst", "Analist"], ["manager", "Yönetici"], ["admin", "Admin"]],
+      segment: false,
+      groups: [
+        ["Bölümler", [["sales", "Satış"], ["pricing", "Fiyatlandırma"], ["warehouse", "Depo"], ["orders", "Siparişler"], ["it", "IT"], ["rakip", "Rakip"], ["brand-analysis", "Marka Analizi"], ["price-list", "Fiyat Listesi"]]],
+        ["Odalar", [["finansodasi", "Finans Odası"]]]  /* FINANS_IZIN_V1 */
+      ],
+      lock: [],
+      gmRole: "admin"
+    }
+  };
+  const modTools = (modId) => (MODULES[modId] ? MODULES[modId].groups.flatMap(g => g[1].map(t => t[0])) : []);
+  const DEFAULTS = {
+    saha: {
+      rep: ["bugun", "ziyaretler", "plan", "musteriler", "musterikart", "teklif", "notlarim", "rep-brain", "piyasa", "rakip", "rapor", "duyurular", "mesajlar", "oneriler", "rotam", "etki", "portfoy", "pipeline", "pazar", "ziyaretanaliz", "ozet"],  /* SEKME_CAP_V1 */  /* YETKI_FAZ1 */  /* IZIN_YENIMODUL_V1 */  /* ZA_YETKI_V1 */
+      manager: ["bugun", "ziyaretler", "plan", "musteriler", "musterikart", "teklif", "notlarim", "rep-brain", "piyasa", "rakip", "rapor", "duyurular", "mesajlar", "oneriler", "harita", "kokpit", "ceo", "ciro", "risk", "rotam", "kapsam", "etki", "portfoy", "pipeline", "pazar", "ziyaretanaliz", "sahasesi-tum", "sahasesi-temsilci", "ozet"],  /* SEKME_CAP_V1 */  /* YETKI_FAZ1 */  /* KAPSAM_TAD_V1 */  /* IZIN_YENIMODUL_V1 */  /* SAHASESI_CAP_V1 */
+      admin: modTools("saha")
+    },
+    intelligence: {
+      viewer: [],
+      analyst: ["sales", "pricing", "warehouse", "orders", "rakip", "price-list", "brand-analysis"],
+      manager: modTools("intelligence"),
+      admin: modTools("intelligence")
+    }
+  };
+
+  const myId = () => (window.__platformMe && (window.__platformMe.userId || window.__platformMe.id)) || me.userId || me.id || "";
+  const subModules = () => ((window.__platformMe && window.__platformMe.subscriptions) || me.subscriptions || []).map(s => s.moduleId).filter(id => MODULES[id]);
+
+  // ─── Skeleton ────────────────────────────────────────────────────────────
+  const initials = (me.name || me.email || "?").trim().slice(0, 2).toUpperCase();
+  container.innerHTML = `
+    <div class="ta-shell">
+    <aside class="ta-sidebar">
+      <div class="ta-brand">
+        <div class="ta-brand-mark">
+          <svg width="26" height="26" viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="#e2b04a"/><path d="M8 16h4l3-8 4 16 3-8h4" stroke="#1a1a2e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="ta-brand-txt"><span class="ta-brand-name">Yönetim</span><span class="ta-brand-sub">${esc(me.tenantName || "Şirket")}</span></div>
+      </div>
+      <nav class="ta-nav">
+        <div class="ta-nav-label">Genel</div>
+        ${navBtn("overview", "Genel Bakış", '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>')}
+        <div class="ta-nav-label">Erişim</div>
+        ${navBtn("team", "Ekip", '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>')}
+        <!-- YETKI_FAZ5B: eski "İzinler" grid nav'dan kaldırıldı (Bölümler/Kişiler/Roller/Denetim yerini aldı; renderPermissions kod olarak durur) -->
+        ${navBtn("bolumler", "Bölümler", '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>')}  <!-- YETKI_FAZ2B -->
+        ${navBtn("kisiler", "Kişiler", '<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>')}  <!-- YETKI_FAZ2CD -->
+        ${navBtn("roller", "Roller", '<path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z"/>')}  <!-- YETKI_FAZ2CD -->
+        ${navBtn("invite", "Davet Et", '<path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>')}
+        ${subModules().includes("saha") ? `<div class="ta-nav-label">Müşteriler</div>
+        ${navBtn("musteri-atama", "Atama", '<path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>')}  <!-- MUSTERI_ATAMA_V1 -->
+        <div class="ta-nav-label">Denetim</div>
+        ${navBtn("aktivite", "Aktivite", '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>')}
+        ${navBtn("yetki-denetim", "Yetki Denetimi", '<path d="M12 2l7 4v6c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/>')}  <!-- YETKI_FAZ5 -->
+        ${navBtn("yetki-log", "Yetki Günlüğü", '<path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="9"/>')}  <!-- YETKI_FAZ5B -->
+        ${navBtn("sistem", "Sistem", '<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>')}
+        ${navBtn("memnuniyet", "Memnuniyet", '<path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>')}
+        <div class="ta-nav-label">Yardım</div>
+        ${navBtn("yardim", "Yetki Rehberi", '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>')}  <!-- YETKI_YARDIM_V1 -->` : ""}
+      </nav>
+      <div class="ta-sidebar-foot">
+        <div class="ta-me"><div class="ta-me-av">${esc(initials)}</div><div class="ta-me-txt"><span class="ta-me-name">${esc(me.name || me.email || "")}</span><span class="ta-me-role">${me.tenantRole === "platform_owner" ? "Platform" : "Yönetici"}</span></div></div>
+        <button class="ta-back-btn" id="ta-back-btn"><svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>Management'e dön</button>
+      </div>
+    </aside>
+    <main class="ta-main">
+      <header class="ta-header">
+        <div><h1 class="ta-title" id="ta-view-title">Genel Bakış</h1><p class="ta-subtitle" id="ta-view-sub"></p></div>
+        <div class="ta-header-actions" id="ta-header-actions"></div>
+      </header>
+      <div class="ta-content" id="ta-content"><div class="ta-loading"><div class="ta-spin"></div>Yükleniyor…</div></div>
+    </main>
+    <div class="ta-toast-wrap" id="ta-toast-wrap"></div>
+    </div>
+    <style>${taStyles()}</style>
+  `;
+
+  function navBtn(view, label, paths) {
+    return `<button class="ta-nav-btn${view === "overview" ? " active" : ""}" data-view="${view}"><svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">${paths}</svg><span>${label}</span></button>`;
+  }
+
+  container.querySelectorAll(".ta-nav-btn").forEach(btn => btn.addEventListener("click", () => {
+    container.querySelectorAll(".ta-nav-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentView = btn.dataset.view;
+    renderView(currentView);
+  }));
+  container.querySelector("#ta-back-btn")?.addEventListener("click", () => {
+    container.style.display = "none";
+    const bi = document.getElementById("bi-surface");
+    if (bi) bi.style.display = "block";
+    else if (typeof switchToModule === "function") switchToModule("intelligence");
+  });
+
+  renderView("overview");
+
+  // ─── Dispatcher ────────────────────────────────────────────────────────────
+  async function renderView(view) {
+    const content = document.getElementById("ta-content");
+    const title = document.getElementById("ta-view-title");
+    const sub = document.getElementById("ta-view-sub");
+    const actions = document.getElementById("ta-header-actions");
+    content.innerHTML = `<div class="ta-loading"><div class="ta-spin"></div>Yükleniyor…</div>`;
+    actions.innerHTML = "";
+    const map = {
+      overview: ["Genel Bakış", "Abonelikler ve özet", renderOverview],
+      team: ["Ekip", "Kullanıcılar, roller ve durum", renderTeam],
+      /* YETKI_FAZ5B: "permissions" (eski İzinler grid) nav'dan kaldırıldı; renderPermissions kod olarak durur */
+      bolumler: ["Bölümler", "Org bölümleri — yetki şablonu + toplu uygula", renderBolumler],  /* YETKI_FAZ2B */
+      kisiler: ["Kişiler", "Kişi bazlı yetki editörü (rol/bölüm baz + özel)", renderKisiler],  /* YETKI_FAZ2CD */
+      roller: ["Roller", "Rol şablonları — varsayılan yetenek setleri", renderRoller],  /* YETKI_FAZ2CD */
+      invite: ["Davet Et", "Yeni kullanıcı davet bağlantısı", renderInvite],
+      "musteri-atama": ["Müşteri Atama", "Sorumlu temsilci ataması — mevcut varsayılan, değiştirilebilir", renderMusteriAtama],  /* MUSTERI_ATAMA_V1 */
+      aktivite: ["Aktivite", "Saha temsilci aktivitesi", renderAktivite],
+      "yetki-denetim": ["Yetki Denetimi", "Etkin-yetki denetçisi — bir kişinin yetkisi nereden geliyor", renderYetkiDenetim],  /* YETKI_FAZ5 */
+      "yetki-log": ["Yetki Günlüğü", "Yetki değişiklik günlüğü — kim, kime, ne zaman, ne", renderYetkiLog],  /* YETKI_FAZ5B */
+      sistem: ["Sistem", "Saha hata & sistem raporu", renderSistem],
+      memnuniyet: ["Memnuniyet", "Saha memnuniyet nabzi", renderMemnuniyet],
+      yardim: ["Yetki Rehberi", "Yetki modülü — teknik dokümantasyon", renderYardim]  /* YETKI_YARDIM_V1 */
+    };
+    const v = map[view]; if (!v) return;
+    title.textContent = v[0]; sub.textContent = v[1];
+    try { await v[2](content, actions); }
+    catch (err) { content.innerHTML = `<div class="ta-error">⚠ Yüklenemedi: ${esc(err.message)}</div>`; }
+  }
+
+  // ─── Overview ──────────────────────────────────────────────────────────────
+  async function renderOverview(content) {
+    const [tenant, usage] = await Promise.all([apiFetch("/api/tenant/me"), apiFetch("/api/tenant/usage")]);
+    const subs = tenant.subscriptions || [];
+    const cards = subs.map(s => {
+      const u = (usage || []).find(x => x.module_id === s.module_id) || {};
+      const seats = u.seats_used || 0;
+      const max = u.max_seats && u.max_seats !== "∞" ? Number(u.max_seats) : null;
+      const pct = max ? Math.min(100, Math.round((seats / max) * 100)) : 0;
+      const last = u.last_ingest ? new Date(u.last_ingest).toLocaleDateString("tr-TR") : "—";
+      return `<div class="ta-card ta-mod">
+        <div class="ta-mod-top"><strong>${esc(moduleLabel(s.module_id))}</strong><span class="ta-badge ta-badge-${s.status === "active" ? "active" : "trial"}">${esc(String(s.status || "").toUpperCase())}</span></div>
+        <div class="ta-mod-plan">${esc(s.plan_key || "—")}</div>
+        <div class="ta-seat"><div class="ta-seat-row"><span>Kullanıcı</span><span>${seats}${max ? " / " + max : ""}</span></div>${max ? `<div class="ta-seat-bar"><i style="width:${pct}%"></i></div>` : ""}</div>
+        <div class="ta-mod-foot"><span>Son veri · ${last}</span>${s.module_id === "intelligence" ? `<button class="ta-link" data-goto="intelligence">Modüle git →</button>` : ""}</div>
+      </div>`;
+    }).join("") || `<div class="ta-empty">Henüz aktif modül aboneliği yok.</div>`;
+
+    content.innerHTML = `
+      <div class="ta-kpis">
+        <div class="ta-kpi"><div class="ta-kpi-num">${tenant.seats_used || 0}</div><div class="ta-kpi-lbl">Aktif kullanıcı</div></div>
+        <div class="ta-kpi"><div class="ta-kpi-num">${subs.length}</div><div class="ta-kpi-lbl">Aktif modül</div></div>
+        <div class="ta-kpi"><div class="ta-kpi-num" style="font-size:18px">${esc(tenant.timezone || "Europe/Istanbul")}</div><div class="ta-kpi-lbl">Zaman dilimi</div></div>
+      </div>
+      <h2 class="ta-h2">Abonelikler</h2>
+      <div class="ta-grid">${cards}</div>`;
+    content.querySelectorAll("[data-goto]").forEach(b => b.addEventListener("click", () => switchToModule(b.dataset.goto)));
+  }
+
+  // ─── Team ────────────────────────────────────────────────────────────────────
+  async function renderTeam(content, actions) {
+    usersData = await apiFetch("/api/tenant/users");
+    actions.innerHTML = `<button class="ta-btn ta-btn-primary" id="ta-inv">+ Davet Et</button>`;
+    actions.querySelector("#ta-inv").onclick = () => container.querySelector('[data-view="invite"]').click();
+
+    if (!usersData.length) { content.innerHTML = `<div class="ta-empty">Henüz ekip üyesi yok.</div>`; return; }
+    const mine = myId();
+    const rows = usersData.map(u => {
+      const isMe = u.id === mine;
+      const isActive = u.tenant_active !== false;
+      const isAdmin = u.tenant_role === "tenant_admin" || u.tenant_role === "platform_owner";
+      const nm = u.full_name || u.name || u.email || "—";
+      const mods = (u.module_access || []).filter(m => m.active).map(m => `<span class="ta-tag">${esc(moduleLabel(m.module_id))}</span>`).join("") || `<span class="ta-muted">—</span>`;
+      const last = u.last_login_at ? new Date(u.last_login_at).toLocaleDateString("tr-TR") : "Hiç";
+      const roleBtn = !isMe ? `<button class="ta-btn ta-btn-xs ta-btn-secondary" data-uid="${esc(u.id)}" data-role="${esc(u.tenant_role)}" data-name="${esc(nm)}" data-act="role">${isAdmin ? "Üye yap" : "Admin yap"}</button>` : "";
+      const actBtn = !isMe ? `<button class="ta-btn ta-btn-xs ${isActive ? "ta-btn-danger" : "ta-btn-success"}" data-uid="${esc(u.id)}" data-active="${isActive}" data-name="${esc(nm)}" data-act="active">${isActive ? "Devre dışı" : "Aktif et"}</button>` : "";
+      return `<tr class="${isActive ? "" : "ta-row-off"}">
+        <td><div class="ta-user"><div class="ta-av">${esc(nm.trim().slice(0, 2).toUpperCase())}</div><div><div class="ta-user-nm">${esc(nm)}${isMe ? `<span class="ta-self">sen</span>` : ""}</div><div class="ta-user-em">${esc(u.email || "")}</div></div></div></td>
+        <td><span class="ta-badge ta-badge-${isAdmin ? "admin" : "member"}">${isAdmin ? "Admin" : "Üye"}</span></td>
+        <td>${isActive ? `<span class="ta-dot ta-dot-on"></span>Aktif` : `<span class="ta-dot ta-dot-off"></span>Pasif`}</td>
+        <td>${mods}</td>
+        <td class="ta-muted">${last}</td>
+        <td class="ta-act"><button class="ta-btn ta-btn-xs" data-uid="${esc(u.id)}" data-act="perm">İzinler</button>${roleBtn}${actBtn}</td>
+      </tr>`;
+    }).join("");
+    content.innerHTML = `<div class="ta-tablewrap"><table class="ta-table"><thead><tr><th>Kullanıcı</th><th>Rol</th><th>Durum</th><th>Modüller</th><th>Son giriş</th><th>İşlemler</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+
+    content.querySelectorAll('[data-act="perm"]').forEach(b => b.addEventListener("click", () => { container.querySelector('[data-view="permissions"]').click(); }));
+    content.querySelectorAll('[data-act="role"]').forEach(b => b.addEventListener("click", () => changeRole(b.dataset.uid, b.dataset.role, b.dataset.name)));
+    content.querySelectorAll('[data-act="active"]').forEach(b => b.addEventListener("click", () => toggleActive(b.dataset.uid, b.dataset.active === "true", b.dataset.name)));
+  }
+
+  async function changeRole(uid, cur, name) {
+    const isAdmin = cur === "tenant_admin" || cur === "platform_owner";
+    const newRole = isAdmin ? "member" : "tenant_admin";
+    if (!(await taConfirm(`${name} kullanıcısını "${newRole === "tenant_admin" ? "Admin" : "Üye"}" yap?`, newRole === "tenant_admin" ? "Admin yap" : "Üye yap"))) return;
+    try { await apiFetch(`/api/tenant/users/${uid}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tenant_role: newRole }) }); toast("Rol güncellendi", "ok"); renderView("team"); }
+    catch (err) { toast("Hata: " + err.message, "err"); }
+  }
+  async function toggleActive(uid, cur, name) {
+    if (!(await taConfirm(`${name} kullanıcısını ${cur ? "devre dışı bırak" : "yeniden aktif et"}?`, cur ? "Devre dışı" : "Aktif et", cur))) return;
+    try { await apiFetch(`/api/tenant/users/${uid}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active: !cur }) }); toast(cur ? "Kullanıcı pasifleştirildi" : "Kullanıcı aktifleştirildi", "ok"); renderView("team"); }
+    catch (err) { toast("Hata: " + err.message, "err"); }
+  }
+
+  // ─── Müşteri Atama (MUSTERI_ATAMA_V1 · fix MUSTERI_ATAMA_FIX_V1) ─────────────
+  const ATA = { data: null, sel: new Set(), q: "", rep: "", tip: "", loaded: false };
+  const ataKisa = (n) => { n = Math.round(Number(n) || 0); if (n >= 1e6) return "₺" + (Math.round(n / 1e5) / 10) + "M"; if (n >= 1e3) return "₺" + Math.round(n / 1e3) + "K"; return "₺" + n; };
+  // ── YETKI_FAZ2B — Bölümler (org bölüm/üyelik + şablon + toplu uygula) ──
+  async function renderBolumler(content) {
+    const { departments } = await apiFetch("/api/tenant/departments");
+    const groups = (MODULES.saha && MODULES.saha.groups) || [];
+    const SCOPES = [["kendi","Kendi","Yalnız kendine atanmış"],["bolge","Bölge","Atanmış il/bölge"],["bolum","Bölüm","Bölümüne ait"],["tumu","Tümü","Tüm tenant verisi"]];
+    let sel = departments[0] ? departments[0].id : null;
+    content.innerHTML = `<div class="tb-wrap"><div class="tb-side"><div class="tb-side-h"><span>Bölümler</span><button class="ta-btn ta-btn-xs" id="tb-new">＋ Yeni</button></div><div class="tb-list" id="tb-list"></div></div><div class="tb-main" id="tb-main"></div></div>`;
+    const listEl = content.querySelector("#tb-list");
+    const capCount = (d) => (d.template_json && Array.isArray(d.template_json.capabilities)) ? d.template_json.capabilities.length : 0;
+    const scLevel = (d) => (d.template_json && d.template_json.scope && d.template_json.scope.level) || "kendi";
+    const drawList = () => {
+      listEl.innerHTML = departments.map(d => `<div class="tb-drow${d.id===sel?' on':''}" data-id="${d.id}"><span class="tb-dico">${esc(d.ikon||'🏷️')}</span><span class="tb-dinfo"><b>${esc(d.ad)}</b><small>${capCount(d)} yetenek · kapsam ${esc(scLevel(d))}</small></span><span class="tb-dcount">${d.uye||0}</span></div>`).join("") || `<div class="ta-empty">Bölüm yok — ＋ Yeni ile oluştur.</div>`;
+      listEl.querySelectorAll("[data-id]").forEach(r=>r.addEventListener("click",()=>{ sel=r.dataset.id; drawList(); drawMain(); }));
+    };
+    const mainEl = content.querySelector("#tb-main");
+    async function drawMain() {
+      const d = departments.find(x=>x.id===sel);
+      if (!d) { mainEl.innerHTML = `<div class="ta-empty">Soldan bölüm seç.</div>`; return; }
+      const tpl = d.template_json || {capabilities:[],scope:{level:'kendi'}};
+      const caps = new Set(Array.isArray(tpl.capabilities)?tpl.capabilities:[]);
+      let curScope = (tpl.scope&&tpl.scope.level)||'kendi';
+      const grpHtml = groups.map(g=>`<div class="tb-grp"><div class="tb-grp-h">${esc(g[0])}</div><div class="tb-grid">${g[1].map(t=>`<label class="tb-tog${caps.has(t[0])?' on':''}"><input type="checkbox" data-cap="${t[0]}"${caps.has(t[0])?' checked':''}><span>${esc(t[1])}</span></label>`).join("")}</div></div>`).join("");
+      mainEl.innerHTML = `<div class="tb-head"><span class="tb-dico big">${esc(d.ikon||'🏷️')}</span><input class="tb-ad" id="tb-ad" value="${esc(d.ad)}"><span class="tb-uye" id="tb-uyec">${d.uye||0} üye</span><button class="ta-btn ta-btn-ghost ta-btn-xs" id="tb-members">Üyeler</button><button class="ta-btn ta-btn-ghost ta-btn-xs" id="tb-del">Sil</button></div>
+        <div class="tb-scope"><span class="tb-lbl">🎯 Veri kapsamı</span><div class="tb-scopes">${SCOPES.map(sc=>`<button class="tb-scp${curScope===sc[0]?' on':''}" data-scope="${sc[0]}"><b>${sc[1]}</b><small>${sc[2]}</small></button>`).join("")}</div><small class="tb-note">Kapsam saklanır; satır-seviyesi zorlama Faz 3'te bağlanacak.</small></div>
+        <div class="tb-lbl" style="margin:14px 0 6px">🧩 Yetenekler</div><div class="tb-caps">${grpHtml}</div>
+        <div id="tb-memberbox"></div>
+        <div class="tb-foot"><button class="ta-btn ta-btn-primary" id="tb-apply">Kaydet & ${d.uye||0} üyeye uygula</button><span class="tb-msg" id="tb-msg"></span></div>`;
+      mainEl.querySelectorAll(".tb-tog input").forEach(cb=>cb.addEventListener("change",()=>cb.closest(".tb-tog").classList.toggle("on",cb.checked)));
+      mainEl.querySelectorAll(".tb-scp").forEach(b=>b.addEventListener("click",()=>{ curScope=b.dataset.scope; mainEl.querySelectorAll(".tb-scp").forEach(x=>x.classList.toggle("on",x.dataset.scope===curScope)); }));
+      document.getElementById("tb-del").addEventListener("click", async ()=>{ if(!(await taConfirm(`"${esc(d.ad)}" bölümü silinsin mi? (üyelikler kalkar, kişilerin izinleri kalır)`,"Sil",true)))return; try{ await apiFetch(`/api/tenant/departments/${d.id}`,{method:"DELETE"}); const i=departments.findIndex(x=>x.id===d.id); departments.splice(i,1); sel=departments[0]?departments[0].id:null; drawList(); drawMain(); toast("Bölüm silindi","ok"); }catch(e){ toast("Hata: "+e.message,"err"); } });
+      document.getElementById("tb-members").addEventListener("click", ()=>drawMembers(d));
+      document.getElementById("tb-apply").addEventListener("click", async ()=>{
+        const msg=document.getElementById("tb-msg"), btn=document.getElementById("tb-apply"); btn.disabled=true; msg.textContent="…"; msg.className="tb-msg";
+        const newCaps=[...mainEl.querySelectorAll(".tb-tog input:checked")].map(c=>c.dataset.cap);
+        const tj={capabilities:newCaps, scope:{level:curScope, regions:(tpl.scope&&tpl.scope.regions)||[], segments:(tpl.scope&&tpl.scope.segments)||[]}};
+        const ad=(document.getElementById("tb-ad").value||"").trim()||d.ad;
+        try{
+          /* UX_YETKI_V1 — uye paneli aciksa bekleyen uyelik degisikligini de kaydet (tek tik) */
+          const _mbox=document.getElementById("tb-memberbox");
+          if(_mbox && _mbox.querySelector("input[data-uid]")){
+            const _add=[..._mbox.querySelectorAll("input[data-uid]:checked")].map(c=>c.dataset.uid);
+            const _rem=[..._mbox.querySelectorAll("input[data-uid]:not(:checked)")].map(c=>c.dataset.uid);
+            await apiFetch(`/api/tenant/departments/${d.id}/members`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({add:_add,remove:_rem})});
+            d.uye=_add.length;
+          }
+          await apiFetch(`/api/tenant/departments/${d.id}`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({ad,template_json:tj})});
+          const r=await apiFetch(`/api/tenant/departments/${d.id}/apply`,{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+          d.ad=ad; d.template_json=tj; msg.textContent=`✓ kaydedildi · ${r.uygulandi||0} üyeye uygulandı`; msg.className="tb-msg ok"; drawList();
+        }catch(e){ msg.textContent="Hata: "+e.message; msg.className="tb-msg err"; }
+        btn.disabled=false;
+      });
+    }
+    async function drawMembers(d) {
+      const box=document.getElementById("tb-memberbox"); if(box.innerHTML){ box.innerHTML=""; return; }
+      const { users }=await apiFetch(`/api/tenant/departments/${d.id}/members`);
+      box.innerHTML=`<div class="tb-members"><div class="tb-lbl">👥 Üyeler — işaretle → aşağıda "Kaydet & uygula" da kaydeder</div>  <!-- UX_YETKI_V1 --><div class="tb-mgrid">${users.map(u=>`<label class="tb-mrow"><input type="checkbox" data-uid="${u.id}"${u.uye?' checked':''}><span>${esc(u.ad)}</span></label>`).join("")}</div><div class="tb-foot2"><button class="ta-btn ta-btn-xs" id="tb-msave">Üyeliği kaydet</button><span class="tb-msg" id="tb-msg2"></span></div></div>`;
+      const before=new Set(users.filter(u=>u.uye).map(u=>u.id));
+      document.getElementById("tb-msave").addEventListener("click", async ()=>{
+        const now=new Set([...box.querySelectorAll("input:checked")].map(c=>c.dataset.uid));
+        const add=[...now].filter(x=>!before.has(x)), remove=[...before].filter(x=>!now.has(x));
+        const m2=document.getElementById("tb-msg2"); m2.textContent="…"; m2.className="tb-msg";
+        try{ await apiFetch(`/api/tenant/departments/${d.id}/members`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({add,remove})}); d.uye=now.size; m2.textContent=`✓ ${now.size} üye`; m2.className="tb-msg ok"; drawList(); const uc=document.getElementById("tb-uyec"); if(uc)uc.textContent=now.size+" üye"; const ab=document.getElementById("tb-apply"); if(ab)ab.textContent=`Kaydet & ${now.size} üyeye uygula`; }catch(e){ m2.textContent="Hata: "+e.message; m2.className="tb-msg err"; }
+      });
+    }
+    document.getElementById("tb-new").addEventListener("click", async ()=>{
+      try{ const r=await apiFetch("/api/tenant/departments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ad:"Yeni Bölüm"})}); departments.push({id:r.id,key:r.key,ad:"Yeni Bölüm",ikon:"🏷️",template_json:{capabilities:[],scope:{level:"kendi",regions:[],segments:[]}},aktif:true,uye:0}); sel=r.id; drawList(); drawMain(); }catch(e){ toast("Hata: "+e.message,"err"); }
+    });
+    drawList(); drawMain();
+  }
+
+  // ── YETKI_FAZ2CD — Kişiler editörü + Roller referansı ──
+  async function renderKisiler(content) {
+    usersData = await apiFetch("/api/tenant/users");
+    const mods = subModules(); if (!mods.length) { content.innerHTML = `<div class="ta-empty">Aktif modül aboneliği yok.</div>`; return; }
+    let kMod = mods[0], sel = usersData[0] ? usersData[0].id : null, q = "";
+    const mine = myId();
+    const isGuard = (u) => u.tenant_role === "tenant_admin" || u.tenant_role === "platform_owner" || u.id === mine;
+    content.innerHTML = `<div class="tk-wrap"><div class="tk-side"><div class="tk-search"><input id="tk-q" placeholder="Kişi ara — ad, e-posta"></div><div class="tk-list" id="tk-list"></div></div><div class="tk-main" id="tk-main"></div></div>`;
+    const listEl = content.querySelector("#tk-list"), mainEl = content.querySelector("#tk-main");
+    const drawList = () => {
+      const f = usersData.filter(u => !q || (`${u.full_name||''} ${u.email||''}`.toLowerCase().includes(q)));
+      listEl.innerHTML = f.map(u => { const nm=u.full_name||u.email||'—'; const m=(u.module_access||[]).find(x=>x&&x.module_id===kMod); const rl=(m&&m.module_role)||'—'; return `<div class="tk-urow${u.id===sel?' on':''}" data-id="${u.id}"><div class="tk-av">${esc(nm.trim().slice(0,2).toUpperCase())}</div><div class="tk-uinfo"><b>${esc(nm)}${isGuard(u)?' 👑':''}</b><small>${esc(u.email||'')}</small></div><span class="tk-ubadge">${esc(rl)}</span></div>`; }).join("") || `<div class="ta-empty">Kişi yok.</div>`;
+      listEl.querySelectorAll("[data-id]").forEach(r=>r.addEventListener("click",()=>{ sel=r.dataset.id; drawList(); drawMain(); }));
+    };
+    document.getElementById("tk-q").addEventListener("input", e=>{ q=e.target.value.toLowerCase(); drawList(); });
+    function drawMain() {
+      const u = usersData.find(x=>x.id===sel); if (!u) { mainEl.innerHTML = `<div class="ta-empty">Soldan kişi seç.</div>`; return; }
+      const guard = isGuard(u), cfg = MODULES[kMod];
+      const m = (u.module_access||[]).find(x=>x&&x.module_id===kMod), perms=(m&&m.permissions)||{};
+      const has = new Set(Array.isArray(perms.departments)?perms.departments:[]);
+      let role = (m&&m.module_role)||cfg.roles[0][0];
+      const nm = u.full_name||u.email||'—';
+      const modTabs = mods.map(id=>`<button class="tk-modtab${id===kMod?' on':''}" data-mod="${id}">${esc(moduleLabel(id))}</button>`).join("");
+      const roleOpts = cfg.roles.map(r=>`<option value="${r[0]}"${(role===r[0]||(guard&&r[0]===cfg.gmRole))?' selected':''}>${esc(r[1])}</option>`).join("");
+      const roleDef = new Set((DEFAULTS[kMod]&&DEFAULTS[kMod][role])||[]);
+      const grpHtml = cfg.groups.map(g=>{ const items=g[1]; const on=items.filter(t=>has.has(t[0])||guard).length;
+        return `<div class="tk-grp"><div class="tk-grp-h"><span class="tk-gn">${esc(g[0])}</span><span class="tk-gc">${on}/${items.length}</span><label class="tk-master"><input type="checkbox" data-gmaster="${esc(g[0])}"${on===items.length?' checked':''}${guard?' disabled':''}> tümü</label></div><div class="tk-grid">${items.map(t=>{ const lock=guard&&cfg.lock.includes(t[0]); const chk=has.has(t[0])||guard||lock; const tag=(chk&&!guard)?((Array.isArray(perms.personal_grant)&&perms.personal_grant.includes(t[0]))?'<span class="tk-tag ovr">kişisel</span>':'<span class="tk-tag def">bölüm</span>'):'';  /* UX_YETKI_V1 */ return `<label class="tk-tog${chk?' on':''}" data-grp="${esc(g[0])}"><input type="checkbox" class="tk-cap" data-cap="${t[0]}"${chk?' checked':''}${(guard||lock)?' disabled':''}><span>${esc(t[1])}${tag}</span></label>`; }).join("")}</div></div>`; }).join("");
+      mainEl.innerHTML = `<div class="tk-head"><div class="tk-av big">${esc(nm.trim().slice(0,2).toUpperCase())}</div><div class="tk-hinfo"><b>${esc(nm)}${guard?' 👑':''}</b><small>${esc(u.email||'')}</small></div><div class="tk-modtabs">${modTabs}</div></div>
+        <div class="tk-rolebar"><label class="tk-lbl2">Rol şablonu</label><select class="tk-role" id="tk-role"${guard?' disabled':''}>${roleOpts}</select>${cfg.segment?`<label class="tk-lbl2" style="margin-left:12px">Segment</label><select class="tk-seg" id="tk-seg"><option value=""${!perms.saha_tip?' selected':''}>Oto</option><option value="TUKETICI"${perms.saha_tip==='TUKETICI'?' selected':''}>Tüketici</option><option value="TICARI"${perms.saha_tip==='TICARI'?' selected':''}>Ticari</option><option value="KARMA"${perms.saha_tip==='KARMA'?' selected':''}>Karma</option></select>`:''}<span class="tk-rhint">${guard?'👑 yönetici — kilitli':'Rol seçince şablon dolar; tek tek özelleştir'}</span></div>
+        <div class="tk-actionsbar"><button class="ta-btn ta-btn-xs ta-btn-ghost" id="tk-all"${guard?' disabled':''}>Tümünü seç</button><button class="ta-btn ta-btn-xs ta-btn-ghost" id="tk-none"${guard?' disabled':''}>Tümünü temizle</button></div>
+        <div class="tk-caps">${grpHtml}</div>
+        <div class="tk-foot"><button class="ta-btn ta-btn-primary" id="tk-save"${guard?' disabled':''}>Kaydet</button><span class="tk-msg" id="tk-msg"></span></div>`;
+      mainEl.querySelectorAll(".tk-modtab").forEach(b=>b.addEventListener("click",()=>{ kMod=b.dataset.mod; drawList(); drawMain(); }));
+      if (guard) return;
+      const recount=()=>{ mainEl.querySelectorAll(".tk-grp").forEach(gp=>{ const cbs=[...gp.querySelectorAll(".tk-cap")]; const on=cbs.filter(c=>c.checked).length; gp.querySelector(".tk-gc").textContent=on+"/"+cbs.length; const gm=gp.querySelector("[data-gmaster]"); if(gm)gm.checked=on===cbs.length; cbs.forEach(c=>c.closest(".tk-tog").classList.toggle("on",c.checked)); }); };
+      mainEl.querySelectorAll(".tk-cap").forEach(cb=>cb.addEventListener("change",recount));
+      mainEl.querySelectorAll("[data-gmaster]").forEach(gm=>gm.addEventListener("change",()=>{ const g=gm.dataset.gmaster; mainEl.querySelectorAll('.tk-tog[data-grp="'+g+'"] .tk-cap').forEach(c=>{ if(!c.disabled)c.checked=gm.checked; }); recount(); }));
+      document.getElementById("tk-all").addEventListener("click",()=>{ mainEl.querySelectorAll(".tk-cap").forEach(c=>{ if(!c.disabled)c.checked=true; }); recount(); });
+      document.getElementById("tk-none").addEventListener("click",()=>{ mainEl.querySelectorAll(".tk-cap").forEach(c=>{ if(!c.disabled)c.checked=false; }); recount(); });
+      document.getElementById("tk-role").addEventListener("change", e=>{ const def=new Set((DEFAULTS[kMod]&&DEFAULTS[kMod][e.target.value])||[]); mainEl.querySelectorAll(".tk-cap").forEach(c=>{ if(!c.disabled)c.checked=def.has(c.dataset.cap); }); recount(); });
+      document.getElementById("tk-save").addEventListener("click", async ()=>{
+        const msg=document.getElementById("tk-msg"), btn=document.getElementById("tk-save"); btn.disabled=true; msg.textContent="…"; msg.className="tk-msg";
+        const checked=[...mainEl.querySelectorAll(".tk-cap:checked")].map(c=>c.dataset.cap);
+        const known=new Set(modTools(kMod)); const preserved=(Array.isArray(perms.departments)?perms.departments:[]).filter(d=>!known.has(d));
+        const departments=[...new Set([...preserved,...checked])]; const np={...perms,departments};
+        const segEl=document.getElementById("tk-seg"); if(cfg.segment){ const sv=segEl?segEl.value:''; if(sv)np.saha_tip=sv; else delete np.saha_tip; }
+        const role2=document.getElementById("tk-role").value||cfg.roles[0][0];
+        try{
+          await apiFetch(`/api/tenant/users/${u.id}/modules`,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({module_id:kMod,module_role:role2,permissions_json:np,active:(m?m.active!==false:true)})});
+          let e=(u.module_access||[]).find(x=>x&&x.module_id===kMod); if(!e){ e={module_id:kMod}; (u.module_access=u.module_access||[]).push(e); } e.module_role=role2; e.permissions=np;
+          msg.textContent="✓ kaydedildi"; msg.className="tk-msg ok"; drawList();
+          toast(`${nm} · ${moduleLabel(kMod)} izinleri güncellendi`,"ok");
+        }catch(err){ msg.textContent="Hata: "+err.message; msg.className="tk-msg err"; }
+        btn.disabled=false;
+      });
+    }
+    drawList(); drawMain();
+  }
+
+  async function renderRoller(content) {
+    const mods = subModules(); if (!mods.length) { content.innerHTML = `<div class="ta-empty">Aktif modül aboneliği yok.</div>`; return; }
+    content.innerHTML = `<div class="tr-wrap">${mods.map(mod=>{ const cfg=MODULES[mod]; const tools=modTools(mod); return `<div class="tr-mod"><div class="tr-modh">${esc(moduleLabel(mod))}</div>${cfg.roles.map(r=>{ const def=new Set((DEFAULTS[mod]&&DEFAULTS[mod][r[0]])||[]); return `<div class="tr-role"><div class="tr-rname">${esc(r[1])}<small>${def.size>=tools.length?'tüm araçlar':def.size+' araç'}</small></div><div class="tr-caps">${cfg.groups.flatMap(g=>g[1]).map(t=>`<span class="tr-cap${def.has(t[0])?' on':''}">${esc(t[1])}</span>`).join("")}</div></div>`; }).join("")}</div>`; }).join("")}</div><div class="ta-izin-hint" style="margin-top:14px">Roller = rol seçince gelen <b>varsayılan set</b> (Kişiler'de tek tek özelleştirilebilir). Şu an kod düzeyinde tanımlı; düzenlenebilir rol şablonları ileride.</div>`;
+  }
+
+  async function renderYetkiDenetim(content) {  /* YETKI_FAZ5 */
+    const usersD = await apiFetch("/api/tenant/users");
+    const cfg = MODULES.saha, groups = cfg.groups;
+    let sel = null, q = "";
+    content.innerHTML = `<div class="tk-wrap"><div class="tk-side"><div class="tk-search"><input id="yd-q" placeholder="Kişi ara — ad, e-posta"></div><div class="tk-list" id="yd-list"></div></div><div class="tk-main" id="yd-main"></div></div>`;
+    const listEl = content.querySelector("#yd-list"), mainEl = content.querySelector("#yd-main");
+    const drawList = () => {
+      const f = usersD.filter(u => !q || (`${u.full_name||''} ${u.email||''}`.toLowerCase().includes(q)));
+      listEl.innerHTML = f.map(u => { const nm=u.full_name||u.email||'—'; const m=(u.module_access||[]).find(x=>x&&x.module_id==='saha'); const rl=(m&&m.module_role)||'—'; return `<div class="tk-urow${u.id===sel?' on':''}" data-id="${u.id}"><div class="tk-av">${esc(nm.trim().slice(0,2).toUpperCase())}</div><div class="tk-uinfo"><b>${esc(nm)}</b><small>${esc(u.email||'')}</small></div><span class="tk-ubadge">${esc(rl)}</span></div>`; }).join("") || `<div class="ta-empty">Kişi yok.</div>`;
+      listEl.querySelectorAll("[data-id]").forEach(r=>r.addEventListener("click",()=>{ sel=r.dataset.id; drawList(); drawMain(); }));
+    };
+    document.getElementById("yd-q").addEventListener("input", e=>{ q=e.target.value.toLowerCase(); drawList(); });
+    async function drawMain() {
+      const u = usersD.find(x=>x.id===sel); if (!u) { mainEl.innerHTML = `<div class="ta-empty">Soldan bir kişi seç — yetkisinin nereden geldiğini gör.</div>`; return; }
+      mainEl.innerHTML = `<div class="ta-loading"><div class="ta-spin"></div>Yükleniyor…</div>`;
+      let d; try { d = await apiFetch(`/api/tenant/users/${u.id}/yetki-kaynak`); } catch(e){ mainEl.innerHTML = `<div class="ta-empty">Yüklenemedi: ${esc(e.message)}</div>`; return; }
+      const nm = u.full_name||u.email||'—';
+      const role = d.module_role || '—';
+      const isAdmin = role === 'admin';
+      const dU = new Set(); (d.bolumler||[]).forEach(b=>(b.caps||[]).forEach(c=>dU.add(c)));
+      const grant = new Set(d.personal_grant||[]), deny = new Set(d.personal_deny||[]), eff = new Set(d.departments||[]);
+      const capDepts = (cap) => (d.bolumler||[]).filter(b=>(b.caps||[]).includes(cap)).map(b=>b.ad);
+      const src = (cap) => {
+        if (isAdmin) return {c:"admin", t:"admin"};
+        if (deny.has(cap)) return {c:"deny", t:"kişisel ✗"};
+        if (eff.has(cap)) { const inD=dU.has(cap), inG=grant.has(cap); if (inD&&inG) return {c:"both", t:"bölüm+kişisel"}; if (inD) return {c:"dept", t:"bölüm"}; if (inG) return {c:"grant", t:"kişisel +"}; return {c:"eff", t:"var"}; }
+        return {c:"none", t:"—"};
+      };
+      const scopeLbl = (d.scope && d.scope.level) ? d.scope.level : "tümü";
+      const bolChips = (d.bolumler||[]).length ? d.bolumler.map(b=>`<span class="yd-bchip">${esc(b.ikon||'🏷️')} ${esc(b.ad)}</span>`).join("") : `<span class="yd-muted">bölüm yok</span>`;
+      const grpHtml = groups.map(g=>{
+        const caps = g[1].map(t=>{ const sc=src(t[0]); const deps=capDepts(t[0]);
+          const title = (sc.c==='dept'||sc.c==='both') ? ("Bölüm: "+deps.join(", ")) : sc.c==='grant' ? "Kişiler'den eklendi" : sc.c==='deny' ? "Bölümde var ama Kişiler'den çıkarıldı" : sc.c==='admin' ? "Admin tüm yetkilere sahip" : "Yetki yok";
+          return `<span class="yd-cap yd-src-${sc.c}" title="${esc(title)}">${esc(t[1])}<i>${esc(sc.t)}</i></span>`; }).join("");
+        return `<div class="yd-grp"><div class="yd-grp-h">${esc(g[0])}</div><div class="yd-caps">${caps}</div></div>`;
+      }).join("");
+      mainEl.innerHTML = `
+        <div class="yd-head"><div class="tk-av big">${esc(nm.trim().slice(0,2).toUpperCase())}</div><div class="tk-hinfo"><b>${esc(nm)}</b><small>${esc(u.email||'')}</small></div><span class="yd-role">${esc(role)}</span></div>
+        ${isAdmin?`<div class="yd-warn">👑 Bu kişi <b>admin</b> — bölüm/kişisel ayarına bakılmaz, tüm yetkilere sahiptir. Kısıtlamak için rolü rep/müdür yapılmalı.</div>`:''}
+        <div class="yd-meta"><span class="yd-mk">Veri kapsamı</span><span class="yd-mv">${esc(scopeLbl)}</span><span class="yd-mk">Bölümler</span><span class="yd-mv">${bolChips}</span><span class="yd-mk">Kişisel</span><span class="yd-mv">+${(d.personal_grant||[]).length} ekleme · −${(d.personal_deny||[]).length} çıkarma</span></div>
+        <div class="yd-legend"><span class="yd-cap yd-src-dept">bölüm</span><span class="yd-cap yd-src-grant">kişisel +</span><span class="yd-cap yd-src-both">bölüm+kişisel</span><span class="yd-cap yd-src-deny">kişisel ✗</span><span class="yd-cap yd-src-none">yok</span></div>
+        <div class="yd-groups">${grpHtml}</div>`;
+    }
+    drawList(); drawMain();
+  }
+
+  async function renderYetkiLog(content) {  /* YETKI_FAZ5B */
+    content.innerHTML = `<div class="ta-loading"><div class="ta-spin"></div>Yükleniyor…</div>`;
+    let d; try { d = await apiFetch("/api/tenant/yetki-log?limit=100"); } catch(e){ content.innerHTML = `<div class="ta-empty">Yüklenemedi: ${esc(e.message)}</div>`; return; }
+    const log = d.log || [];
+    const eL = { kisi_yetki:"Kişi yetkisi", bolum_uygula:"Bölüm uygula", uyelik:"Üyelik", rol:"Rol" };
+    const rel = (ts)=>{ const t=new Date(ts); if(isNaN(t))return"—"; const s2=Math.floor((Date.now()-t.getTime())/1000); if(s2<60)return"az önce"; if(s2<3600)return Math.floor(s2/60)+" dk önce"; if(s2<86400)return Math.floor(s2/3600)+" sa önce"; if(s2<2592000)return Math.floor(s2/86400)+" gün önce"; return t.toLocaleDateString("tr-TR"); };
+    const det = (l)=>{ const x=l.detay||{}; if(l.eylem==="kisi_yetki")return `${x.dep??"?"} yetki · +${x.grant??0}/−${x.deny??0}${x.role?" · "+esc(String(x.role)):""}`; if(l.eylem==="bolum_uygula")return `${x.uygulandi??0} üyeye uygulandı`; if(l.eylem==="uyelik")return `+${x.eklendi??0} / −${x.cikarildi??0} üye`; return esc(JSON.stringify(x)); };
+    const rows = log.map(l=>{ const actor=l.actor_ad||l.actor_email||"—"; const hedef=l.target_ad||l.target_email||(l.dept_ad?((l.dept_ikon||"🏷️")+" "+l.dept_ad):"—"); return `<tr><td class="yl-t">${esc(rel(l.ts))}</td><td>${esc(actor)}</td><td><span class="yl-ey yl-ey-${esc(l.eylem)}">${esc(eL[l.eylem]||l.eylem)}</span></td><td>${esc(hedef)}</td><td class="yl-d">${det(l)}</td></tr>`; }).join("");
+    content.innerHTML = `<div class="yl-wrap"><table class="yl-tbl"><thead><tr><th>Ne zaman</th><th>Kim</th><th>Eylem</th><th>Kime / Nereye</th><th>Detay</th></tr></thead><tbody>${rows||`<tr><td colspan="5" class="ta-empty" style="padding:20px">Henüz yetki değişikliği kaydı yok — bir bölüm uygula ya da Kişiler'den kaydet, burada görünür.</td></tr>`}</tbody></table></div>`;
+  }
+
+  async function renderMusteriAtama(content, actions) {
+    if (!ATA.loaded) { content.innerHTML = `<div class="ta-loading"><div class="ta-spin"></div>Yükleniyor…</div>`; ATA.data = await apiFetch("/api/tenant/musteri-atama"); ATA.loaded = true; }
+    const reps = (ATA.data && ATA.data.temsilciler) || [];
+    actions.innerHTML = `<input class="ta-input ta-fil" id="ata-q" placeholder="Firma / il ara…" value="${esc(ATA.q)}">
+      <select class="ta-input ta-fil" id="ata-rep"><option value="">Tüm temsilciler</option><option value="__none__"${ATA.rep === "__none__" ? " selected" : ""}>Atanmamış</option>${reps.map(r => `<option value="${esc(r.id)}"${ATA.rep === r.id ? " selected" : ""}>${esc(r.ad)}</option>`).join("")}</select>
+      <select class="ta-input ta-fil" id="ata-tip"><option value="">Tüm tipler</option><option value="TUKETICI"${ATA.tip === "TUKETICI" ? " selected" : ""}>Toptan (PSR)</option><option value="TICARI"${ATA.tip === "TICARI" ? " selected" : ""}>Filo (TBR-OTR)</option></select>`;
+    const qEl = actions.querySelector("#ata-q");
+    qEl.oninput = () => { ATA.q = qEl.value; drawAtamaBody(content); };
+    actions.querySelector("#ata-rep").onchange = (e) => { ATA.rep = e.target.value; drawAtamaBody(content); };
+    actions.querySelector("#ata-tip").onchange = (e) => { ATA.tip = e.target.value; drawAtamaBody(content); };
+    drawAtamaBody(content);
+  }
+  function drawAtamaBody(content) {
+    const reps = (ATA.data && ATA.data.temsilciler) || [], all = (ATA.data && ATA.data.musteriler) || [];
+    const repName = {}; reps.forEach(r => repName[r.id] = r.ad);
+    const atanmamis = all.filter(m => !m.rep_id).length;
+    const q = ATA.q.trim().toLowerCase();
+    let rows = all.filter(m => {
+      if (ATA.rep === "__none__") { if (m.rep_id) return false; } else if (ATA.rep && m.rep_id !== ATA.rep) return false;
+      if (ATA.tip && m.tip !== ATA.tip) return false;
+      if (q && !((m.firma || "").toLowerCase().includes(q) || (m.il || "").toLowerCase().includes(q))) return false;
+      return true;
+    });
+    const cap = 400, shown = rows.slice(0, cap);
+    const tipBadge = (t) => t === "TUKETICI" ? `<span class="ta-badge ta-badge-member">Toptan</span>` : t === "TICARI" ? `<span class="ta-badge ta-badge-admin">Filo</span>` : `<span class="ta-muted">—</span>`;
+    const selN = ATA.sel.size;
+    const bulk = `<div class="ta-atabar${selN ? " on" : ""}"><span><b>${selN}</b> müşteri seçili</span><select class="ta-input ta-fil" id="ata-bulk-rep"><option value="">Temsilci seç…</option>${reps.map(r => `<option value="${esc(r.id)}">${esc(r.ad)}</option>`).join("")}</select><button class="ta-btn ta-btn-primary ta-btn-xs" id="ata-bulk-go">Seçilenleri ata</button><button class="ta-btn ta-btn-xs" id="ata-bulk-clear">Temizle</button></div>`;
+    const rowsHtml = shown.map(m => `<tr data-mid="${esc(m.id)}">
+      <td><input type="checkbox" class="ata-cb" data-mid="${esc(m.id)}"${ATA.sel.has(m.id) ? " checked" : ""}></td>
+      <td><div class="ta-user-nm">${esc(m.firma)}</div><div class="ta-user-em">${esc(m.il || "—")}${m.ilce ? " · " + esc(m.ilce) : ""}</div></td>
+      <td>${tipBadge(m.tip)}</td>
+      <td class="ta-muted">${m.segment ? esc(m.segment) : "—"}</td>
+      <td class="ata-rep-cell">${m.rep ? esc(m.rep) : `<span class="ta-atawarn">atanmamış</span>`}</td>
+      <td class="ta-muted">${m.gun == null ? "hiç" : m.gun + "g"}</td>
+      <td class="ta-muted">${m.kod ? ataKisa(m.ciro) : "—"}</td>
+      <td class="ta-ataact"><button class="ta-btn ta-btn-xs" data-degis="${esc(m.id)}">Değiştir</button><button class="ta-btn ta-btn-xs ta-btn-secondary" data-gecmis="${esc(m.id)}">Geçmiş</button></td>
+    </tr>`).join("");
+    content.innerHTML = `<div class="ta-atastat">Toplam <b>${all.length}</b> müşteri · <b class="ta-atawarn">${atanmamis}</b> atanmamış${rows.length > cap ? ` · gösterilen ilk <b>${cap}</b> / ${rows.length} (aramayla daralt)` : ` · gösterilen <b>${shown.length}</b>`}</div>
+      ${bulk}
+      <div class="ta-tablewrap"><table class="ta-table"><thead><tr><th style="width:28px"><input type="checkbox" id="ata-all"></th><th>Firma</th><th>Tip</th><th>Segment</th><th>Sorumlu</th><th>Son ziy.</th><th>12a ciro</th><th>İşlem</th></tr></thead><tbody>${rowsHtml || `<tr><td colspan="8" class="ta-empty-sm">Eşleşen müşteri yok.</td></tr>`}</tbody></table></div>`;
+    content.querySelectorAll(".ata-cb").forEach(cb => cb.onchange = () => { if (cb.checked) ATA.sel.add(cb.dataset.mid); else ATA.sel.delete(cb.dataset.mid); drawAtamaBody(content); });
+    const allcb = content.querySelector("#ata-all"); if (allcb) allcb.onchange = () => { shown.forEach(m => { if (allcb.checked) ATA.sel.add(m.id); else ATA.sel.delete(m.id); }); drawAtamaBody(content); };
+    const go = content.querySelector("#ata-bulk-go"); if (go) go.onclick = async () => { const rep = content.querySelector("#ata-bulk-rep").value; if (!rep) { toast("Temsilci seç", "err"); return; } const ids = [...ATA.sel]; if (!ids.length) return; if (!(await taConfirm(`${ids.length} müşteriyi "${repName[rep] || ""}" temsilcisine ata?`, "Ata"))) return; ataPost(ids, rep, content); };
+    const clr = content.querySelector("#ata-bulk-clear"); if (clr) clr.onclick = () => { ATA.sel.clear(); drawAtamaBody(content); };
+    content.querySelectorAll("[data-degis]").forEach(b => b.onclick = () => {
+      const mid = b.dataset.degis, tr = b.closest("tr"), cell = tr.querySelector(".ata-rep-cell"), m = all.find(x => x.id === mid);
+      cell.innerHTML = `<span class="ta-atarep"><select class="ta-input ta-fil" data-sel>${reps.map(r => `<option value="${esc(r.id)}"${m && m.rep_id === r.id ? " selected" : ""}>${esc(r.ad)}</option>`).join("")}</select><button class="ta-btn ta-btn-xs ta-btn-primary" data-ok>✓ Kaydet</button><button class="ta-btn ta-btn-xs" data-no>Vazgeç</button></span>`;
+      cell.querySelector("[data-ok]").onclick = () => { const rep = cell.querySelector("[data-sel]").value; ataPost([mid], rep, content); };
+      cell.querySelector("[data-no]").onclick = () => drawAtamaBody(content);
+    });
+    content.querySelectorAll("[data-gecmis]").forEach(b => b.onclick = () => ataGecmis(b.dataset.gecmis, b.closest("tr")));
+  }
+  async function ataPost(ids, hedef_rep, content) {
+    try {
+      const r = await apiFetch("/api/tenant/musteri-atama", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ musteri_ids: ids, hedef_rep }) });
+      toast((r.degisen || 0) + " müşteri güncellendi", "ok");
+      ATA.loaded = false; ATA.sel.clear();
+      await renderMusteriAtama(document.getElementById("ta-content"), document.getElementById("ta-header-actions"));
+    } catch (e) { toast("Hata: " + e.message, "err"); }
+  }
+  async function ataGecmis(mid, tr) {
+    const nx = tr.nextElementSibling;
+    if (nx && nx.classList.contains("ta-atagec")) { nx.remove(); return; }
+    const row = document.createElement("tr"); row.className = "ta-atagec"; row.innerHTML = `<td colspan="8"><div class="g ta-muted">Yükleniyor…</div></td>`;
+    tr.after(row);
+    try {
+      const d = await apiFetch("/api/tenant/musteri-atama/gecmis?musteri_id=" + encodeURIComponent(mid));
+      const g = d.gecmis || [];
+      const body = g.length ? g.map(x => `<div class="g"><b>${new Date(x.ts).toLocaleDateString("tr-TR", { timeZone: "Europe/Istanbul" })}</b> — ${esc(x.aktor || "—")}: ${esc(x.eski || "—")} → <b>${esc(x.yeni || "—")}</b></div>`).join("") : `<div class="g ta-muted">Henüz atama değişikliği yok — ilk sahip Excel ziyaret defterinden geldi.</div>`;
+      row.innerHTML = `<td colspan="8"><div class="gt">📜 Atama geçmişi</div>${body}</td>`;
+    } catch (e) { row.innerHTML = `<td colspan="8"><div class="g ta-atawarn">Geçmiş yüklenemedi: ${esc(e.message)}</div></td>`; }
+  }
+
+  // ─── İzinler — unified editable access matrix ───────────────────────────────
+  let izinMod = null;
+  async function renderPermissions(content) {
+    usersData = await apiFetch("/api/tenant/users");
+    const mods = subModules();
+    if (!mods.length) { content.innerHTML = `<div class="ta-empty">Aktif modül aboneliği yok.</div>`; return; }
+    if (!izinMod || !mods.includes(izinMod)) izinMod = mods[0];
+    const tabs = mods.map(id => `<button class="ta-modtab${id === izinMod ? " active" : ""}" data-mod="${id}">${esc(moduleLabel(id))}</button>`).join("");
+    content.innerHTML = `<div class="ta-izin-head"><div class="ta-modtabs">${tabs}</div><div class="ta-izin-hint">Rol seçince varsayılan set gelir · değişiklik satırda <b>Kaydet</b> ile yazılır · 👑 yönetici kilitli</div></div><div id="ta-matrix"></div>`;
+    content.querySelectorAll(".ta-modtab").forEach(b => b.addEventListener("click", () => { izinMod = b.dataset.mod; renderPermissions(content); }));
+    buildMatrix(content.querySelector("#ta-matrix"), izinMod);
+  }
+
+  function buildMatrix(host, modId) {
+    const cfg = MODULES[modId];
+    const TOOLS = modTools(modId);
+    const mine = myId();
+    const sm = (u) => (u.module_access || []).find(x => x && x.module_id === modId) || null;
+    const isGuard = (u) => u.tenant_role === "tenant_admin" || u.tenant_role === "platform_owner" || u.id === mine;
+
+    const grpTh = cfg.groups.map(g => `<th class="ta-grp" colspan="${g[1].length}">${esc(g[0])}</th>`).join("");
+    const toolTh = cfg.groups.flatMap(g => g[1].map(t => `<th class="ta-toolh" title="${esc(t[1])}">${esc(t[1])}</th>`)).join("");
+    const roleOpts = (cur, guard) => cfg.roles.map(r => `<option value="${r[0]}"${(cur === r[0] || (guard && r[0] === cfg.gmRole)) ? " selected" : ""}>${esc(r[1])}</option>`).join("");
+    const segOpts = (cur) => { const c = String(cur || "").toUpperCase(); const o = (v, l) => `<option value="${v}"${c === v ? " selected" : ""}>${l}</option>`; return `<option value=""${!c ? " selected" : ""}>Oto</option>${o("TUKETICI", "Tüketici")}${o("TICARI", "Ticari")}${o("KARMA", "Karma")}`; };
+
+    const row = (u) => {
+      const m = sm(u), perms = (m && m.permissions) || {}, guard = isGuard(u);
+      const has = new Set(Array.isArray(perms.departments) ? perms.departments : []);
+      const _NEWK = ["ciro", "risk", "rotam"], _hasNewRec = _NEWK.some(k => has.has(k));  /* IZIN_ROLDEF_TAD_V1 */
+      const _rrole = (m && m.module_role) || cfg.roles[0][0], _rdefS = new Set((DEFAULTS[modId] && DEFAULTS[modId][_rrole]) || []);
+      const active = guard ? true : (m ? m.active !== false : false);
+      const nm = u.full_name || u.name || u.email || "—";
+      const cells = TOOLS.map(id => { const lock = guard && cfg.lock.includes(id); const chk = (has.has(id) || lock || guard || (_NEWK.includes(id) && !_hasNewRec && _rdefS.has(id))) ? " checked" : ""; const dis = lock || guard; return `<td class="ta-cell"><input type="checkbox" class="ta-tool" data-tool="${id}"${chk}${dis ? " disabled" : ""}></td>`; }).join("");  /* IZIN_ROLDEF_TAD_V1 */
+      return `<tr data-uid="${esc(u.id)}">
+        <td class="ta-sticky"><div class="ta-user"><div class="ta-av">${esc(nm.trim().slice(0, 2).toUpperCase())}</div><div><div class="ta-user-nm">${esc(nm)}${guard ? ` <span class="ta-crown" title="Yönetici — kilitli">👑</span>` : ""}</div><div class="ta-user-em">${esc(u.email || "")}</div></div></div><div class="ta-rowsave"><button class="ta-btn ta-btn-xs ta-save" disabled>Kaydet</button><span class="ta-rowmsg"></span></div></td>
+        <td><select class="ta-mini ta-role"${guard ? " disabled" : ""}>${roleOpts(m ? m.module_role : "", guard)}</select></td>
+        ${cfg.segment ? `<td><select class="ta-mini ta-seg">${segOpts(perms.saha_tip)}</select></td>` : ""}
+        <td class="ta-cell"><input type="checkbox" class="ta-active"${active ? " checked" : ""}${guard ? " disabled" : ""}></td>
+        ${cells}
+      </tr>`;
+    };
+
+    host.innerHTML = `<div class="ta-tablewrap ta-matrixwrap"><table class="ta-table ta-matrix"><thead>
+      <tr><th class="ta-sticky" rowspan="2">Kullanıcı (${usersData.length})</th><th rowspan="2">Rol</th>${cfg.segment ? `<th rowspan="2">Segment</th>` : ""}<th rowspan="2">Aktif</th>${grpTh}</tr>
+      <tr>${toolTh}</tr></thead><tbody>${usersData.map(row).join("")}</tbody></table></div>`;
+
+    const markDirty = (tr) => { const b = tr.querySelector(".ta-save"); b.disabled = false; b.classList.add("on"); tr.querySelector(".ta-rowmsg").textContent = ""; };
+    host.querySelectorAll("tr[data-uid]").forEach(tr => {
+      const roleSel = tr.querySelector(".ta-role");
+      roleSel && roleSel.addEventListener("change", () => {
+        const def = new Set((DEFAULTS[modId] && DEFAULTS[modId][roleSel.value]) || []);
+        tr.querySelectorAll(".ta-tool").forEach(cb => { if (!cb.disabled) cb.checked = def.has(cb.dataset.tool); });
+        markDirty(tr);
+      });
+      tr.querySelectorAll(".ta-tool, .ta-seg, .ta-active").forEach(el => el.addEventListener("change", () => markDirty(tr)));
+      tr.querySelector(".ta-save").addEventListener("click", () => saveRow(tr, modId));
+    });
+  }
+
+  async function saveRow(tr, modId) {
+    const cfg = MODULES[modId];
+    const uid = tr.dataset.uid;
+    const u = usersData.find(x => x.id === uid); if (!u) return;
+    const guard = u.tenant_role === "tenant_admin" || u.tenant_role === "platform_owner" || u.id === myId();
+    const btn = tr.querySelector(".ta-save"), msg = tr.querySelector(".ta-rowmsg");
+    let role = tr.querySelector(".ta-role").value || cfg.roles[0][0];
+    const segEl = tr.querySelector(".ta-seg");
+    let active = tr.querySelector(".ta-active").checked;
+    let checked = [...tr.querySelectorAll(".ta-tool:checked")].map(c => c.dataset.tool);
+    const m = (u.module_access || []).find(x => x && x.module_id === modId) || null;
+    const perms = (m && m.permissions) || {};
+    const known = new Set(modTools(modId));
+    const preserved = (Array.isArray(perms.departments) ? perms.departments : []).filter(d => !known.has(d));
+    let departments = [...new Set([...preserved, ...checked])];
+    if (guard) { role = cfg.gmRole; active = true; cfg.lock.forEach(t => { if (!departments.includes(t)) departments.push(t); }); }
+    const np = { ...perms, departments };
+    if (cfg.segment) { const seg = segEl ? segEl.value : ""; if (seg) np.saha_tip = seg; else delete np.saha_tip; }
+    btn.disabled = true; btn.textContent = "…"; msg.textContent = ""; msg.className = "ta-rowmsg";
+    try {
+      await apiFetch(`/api/tenant/users/${uid}/modules`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ module_id: modId, module_role: role, permissions_json: np, active }) });
+      let e = (u.module_access || []).find(x => x && x.module_id === modId);
+      if (!e) { e = { module_id: modId }; (u.module_access = u.module_access || []).push(e); }
+      e.module_role = role; e.permissions = np; e.active = active;
+      btn.textContent = "✓"; btn.classList.remove("on"); msg.textContent = "kaydedildi"; msg.className = "ta-rowmsg ok";
+      setTimeout(() => { btn.textContent = "Kaydet"; btn.disabled = true; }, 1400);
+      toast(`${u.full_name || u.email} · ${moduleLabel(modId)} izinleri güncellendi`, "ok");
+    } catch (err) { btn.disabled = false; btn.textContent = "Kaydet"; msg.textContent = "Hata: " + err.message; msg.className = "ta-rowmsg err"; }
+  }
+
+  // ─── Invite ──────────────────────────────────────────────────────────────────
+  async function renderInvite(content) {
+    const mods = subModules();
+    const modOpts = mods.map(id => `<option value="${id}">${esc(moduleLabel(id))}</option>`).join("");
+    content.innerHTML = `<div class="ta-two">
+      <div class="ta-card ta-form">
+        <p class="ta-form-intro">Yeni kullanıcıya modül erişimi için davet bağlantısı oluşturun.</p>
+        <form id="ta-invf">
+          <label class="ta-lbl">E-posta *</label>
+          <input type="email" id="inv-email" class="ta-input" placeholder="kullanici@sirket.com" required>
+          <label class="ta-lbl">Profil (hızlı)</label>
+          <select id="inv-prof" class="ta-input"><option value="">— Profil seç (ya da aşağıdan elle) —</option><option value="yonetim">Yönetim — tüm BI (admin)</option><option value="yonetim_full">Yönetim (BI + Saha) — çift modül</option><option value="bi_izleyici">BI İzleyici — salt-okunur</option><option value="saha_temsilci">Saha Temsilcisi (rep)</option><option value="saha_mudur">Saha Müdürü (manager)</option></select>
+          <label class="ta-lbl">Modül</label>
+          <select id="inv-mod" class="ta-input"><option value="">— Sadece tenant üyesi —</option>${modOpts}</select>
+          <label class="ta-lbl">Rol</label>
+          <select id="inv-role" class="ta-input"></select>
+          <div id="inv-subs"></div>
+          <button type="submit" class="ta-btn ta-btn-primary ta-btn-full">Davet bağlantısı oluştur</button>
+        </form>
+        <div id="inv-res"></div>
+      </div>
+      <div><h3 class="ta-h3">Bekleyen davetler</h3><div id="inv-pending"><div class="ta-loading"><div class="ta-spin"></div>Yükleniyor…</div></div></div>
+    </div>`;
+
+    const modSel = content.querySelector("#inv-mod"), roleSel = content.querySelector("#inv-role"), subsBox = content.querySelector("#inv-subs");
+    const updSubCount = () => { const el = content.querySelector("#inv-subcount"); if (!el) return; const all = subsBox.querySelectorAll(".inv-sub").length, on = subsBox.querySelectorAll(".inv-sub:checked").length; el.textContent = on + "/" + all + " seçili"; };
+    const syncMod = () => { /* INVITE_SELALL_V1 */
+      const cfg = MODULES[modSel.value];
+      roleSel.innerHTML = cfg ? cfg.roles.map(r => `<option value="${r[0]}">${esc(r[1])}</option>`).join("") : `<option value="">—</option>`;
+      roleSel.disabled = !cfg;
+      if (!cfg) { subsBox.innerHTML = ""; return; }
+      const items = cfg.groups.flatMap(g => g[1]).map(t => `<label class="ta-chk"><input type="checkbox" class="inv-sub" value="${t[0]}"><span>${esc(t[1])}</span></label>`).join("");
+      subsBox.innerHTML = `<div class="ta-subhead"><label class="ta-lbl" style="margin:18px 0 0">Alt-araç / bölüm erişimi</label><div class="ta-subtools"><span class="ta-subcount" id="inv-subcount"></span><button type="button" class="ta-chip" id="inv-all">Tümünü seç</button><button type="button" class="ta-chip" id="inv-none">Temizle</button></div></div><div class="ta-subgrid">${items}</div>`;
+      const setAll = v => { subsBox.querySelectorAll(".inv-sub").forEach(c => { c.checked = v; }); updSubCount(); };
+      subsBox.querySelector("#inv-all").onclick = () => setAll(true);
+      subsBox.querySelector("#inv-none").onclick = () => setAll(false);
+      subsBox.querySelectorAll(".inv-sub").forEach(c => c.addEventListener("change", updSubCount));
+      updSubCount();
+    };
+    modSel.addEventListener("change", syncMod); syncMod();
+    let _multiSel = null; /* MULTI_MODULE_INVITE_CLIENT_V1 */
+    const _allDeps = (mod) => (MODULES[mod] ? MODULES[mod].groups.flatMap(g => g[1]).map(t => t[0]) : []);
+    const profSel = content.querySelector("#inv-prof");
+    if (profSel) profSel.addEventListener("change", () => { /* INVITE_PROFIL_V1 */
+      _multiSel = null; modSel.disabled = false;
+      const MULTI = { yonetim_full: [{ module_id: "intelligence", module_role: "admin" }, { module_id: "saha", module_role: "manager" }] };
+      if (MULTI[profSel.value]) {
+        _multiSel = MULTI[profSel.value].map(m => ({ module_id: m.module_id, module_role: m.module_role, permissions_json: { departments: _allDeps(m.module_id) } }));
+        modSel.value = ""; syncMod(); modSel.disabled = true;
+        subsBox.innerHTML = `<div class="ta-subhead" style="margin-top:18px"><label class="ta-lbl">Bu profil şu modülleri verir</label></div><div class="ta-subgrid">` + _multiSel.map(m => `<span class="ta-tag">${esc(moduleLabel(m.module_id))} · ${esc(m.module_role)} · tüm bölümler</span>`).join("") + `</div>`;
+        return;
+      }
+      const P = { yonetim:{mod:"intelligence",role:"admin"}, bi_izleyici:{mod:"intelligence",role:"viewer"}, saha_temsilci:{mod:"saha",role:"rep"}, saha_mudur:{mod:"saha",role:"manager"} }[profSel.value];
+      if (!P) return;
+      modSel.value = P.mod; syncMod(); roleSel.value = P.role;
+      subsBox.querySelectorAll(".inv-sub").forEach(c => { c.checked = true; }); updSubCount();
+    });
+    modSel.addEventListener("change", () => { _multiSel = null; if (profSel) profSel.value = ""; });
+
+    content.querySelector("#ta-invf").addEventListener("submit", async e => {
+      e.preventDefault();
+      const email = content.querySelector("#inv-email").value.trim();
+      const modId = modSel.value, role = roleSel.value;
+      const subs = [...content.querySelectorAll(".inv-sub:checked")].map(i => i.value);
+      const res = content.querySelector("#inv-res");
+      res.innerHTML = `<div class="ta-loading"><div class="ta-spin"></div>Oluşturuluyor…</div>`;
+      try {
+        const _payload = _multiSel ? { email, modules: _multiSel } : { email, module_id: modId || undefined, module_role: role || undefined, permissions_json: subs.length ? { departments: subs } : {} };
+        const data = await apiFetch("/api/tenant/users/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(_payload) });
+        res.innerHTML = `<div class="ta-ok-box"><strong>Davet oluşturuldu</strong><div class="ta-invlink" id="inv-link">${esc(data.inviteUrl)}</div><div class="ta-ok-actions"><button class="ta-btn ta-btn-xs" id="inv-copy">Kopyala</button><span class="ta-muted">${esc(data.expiresIn || "")} içinde geçersiz</span></div></div>`;
+        const cp = res.querySelector("#inv-copy"); cp && cp.addEventListener("click", () => { navigator.clipboard && navigator.clipboard.writeText(data.inviteUrl); toast("Bağlantı kopyalandı", "ok"); });
+        loadPending(content.querySelector("#inv-pending"));
+        content.querySelector("#ta-invf").reset(); _multiSel = null; modSel.disabled = false; if (profSel) profSel.value = ""; syncMod();
+      } catch (err) { res.innerHTML = `<div class="ta-error">${esc(err.message)}</div>`; }
+    });
+    loadPending(content.querySelector("#inv-pending"));
+  }
+
+  async function loadPending(panel) {
+    try {
+      const invites = await apiFetch("/api/tenant/invitations");
+      if (!invites.length) { panel.innerHTML = `<div class="ta-empty-sm">Bekleyen davet yok.</div>`; return; }
+      const rows = invites.map(inv => `<tr><td>${esc(inv.invited_email)}</td><td>${inv.module_id ? esc(moduleLabel(inv.module_id)) + " / " + esc(inv.module_role || "") : "—"}</td><td class="ta-muted">${new Date(inv.expires_at).toLocaleDateString("tr-TR")}</td><td><button class="ta-btn ta-btn-xs ta-btn-danger" data-invid="${esc(inv.id)}" data-email="${esc(inv.invited_email)}">İptal</button></td></tr>`).join("");
+      panel.innerHTML = `<div class="ta-tablewrap"><table class="ta-table ta-compact"><thead><tr><th>E-posta</th><th>Modül / Rol</th><th>Son geçerlilik</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      panel.querySelectorAll("[data-invid]").forEach(b => b.addEventListener("click", async () => {
+        if (!(await taConfirm(`${b.dataset.email} davetini iptal et?`, "İptal et", true))) return;
+        try { await apiFetch(`/api/tenant/invitations/${b.dataset.invid}`, { method: "DELETE" }); toast("Davet iptal edildi", "ok"); loadPending(panel); }
+        catch (err) { toast("Hata: " + err.message, "err"); }
+      }));
+    } catch (err) { panel.innerHTML = `<div class="ta-error">Davetler yüklenemedi: ${esc(err.message)}</div>`; }
+  }
+
+  // ─── UX helpers: toast + confirm ───────────────────────────────────────────
+  function toast(text, kind) {
+    const wrap = document.getElementById("ta-toast-wrap"); if (!wrap) return;
+    const el = document.createElement("div"); el.className = "ta-toast ta-toast-" + (kind || "ok"); el.textContent = text;
+    wrap.appendChild(el); requestAnimationFrame(() => el.classList.add("show"));
+    setTimeout(() => { el.classList.remove("show"); setTimeout(() => el.remove(), 250); }, 2600);
+  }
+  function taConfirm(text, okLabel, danger) {
+    return new Promise(resolve => {
+      const ov = document.createElement("div"); ov.className = "ta-modal-ov";
+      ov.innerHTML = `<div class="ta-modal"><div class="ta-modal-body">${esc(text)}</div><div class="ta-modal-foot"><button class="ta-btn ta-btn-ghost" data-x>Vazgeç</button><button class="ta-btn ${danger ? "ta-btn-danger" : "ta-btn-primary"}" data-ok>${esc(okLabel || "Onayla")}</button></div></div>`;
+      document.body.appendChild(ov);
+      const done = (v) => { ov.remove(); resolve(v); };
+      ov.querySelector("[data-x]").onclick = () => done(false);
+      ov.querySelector("[data-ok]").onclick = () => done(true);
+      ov.addEventListener("click", e => { if (e.target === ov) done(false); });
+    });
+  }
+
+  // ─── Denetim: Aktivite (saha temsilci aktivitesi) ──────────────────────────
+  // Denetim: Memnuniyet (saha nabiz) — MEMNUNIYET_PANEL_V1
+  function renderYardim(content) {  /* YETKI_YARDIM_V1 */
+    content.innerHTML = `<div class="yh">
+      <div class="yh-hero"><h1>🔐 Yetki Modülü — Teknik Rehber</h1><p>KRB saha yetkileri tek bir cebirle yönetilir: <b>yetki = (bölüm şablonları ∪ kişisel-ekleme) − kişisel-çıkarma</b>. Deny-by-default: bir kişide açıkça verilmeyen kapalıdır. Admin rolü tüm kapıları bypass eder.</p></div>
+
+      <div class="yh-sec"><h2>1 · Beş ekran, tek zincir</h2><div class="yh-cards">
+        <div class="yh-card"><div class="yh-ct">📦 Bölümler</div><p><b>Grubun yasası.</b> Bölüm şablonunda ne işaretliyse üyeleri onu alır; kaldırınca üyeden düşer. "Kaydet &amp; uygula" üyeleri şablona hizalar.</p></div>
+        <div class="yh-card"><div class="yh-ct">👤 Kişiler</div><p><b>Kişisel istisna.</b> Bölüm dışında ekleme (kişisel +) ya da bölümden çıkarma (kişisel −). Bu istisnalar sonraki "uygula"da <b>ezilmez</b>.</p></div>
+        <div class="yh-card"><div class="yh-ct">⭐ Roller</div><p><b>Referans.</b> Rol seçilince gelen varsayılan set (rep/müdür/admin). Salt-oku; gerçek yönetim Bölümler + Kişiler.</p></div>
+        <div class="yh-card"><div class="yh-ct">🛡️ Yetki Denetimi</div><p><b>Durum.</b> Kişiye bak → her yetki nereden: bölüm / kişisel-ekleme / kişisel-çıkarma / admin.</p></div>
+        <div class="yh-card"><div class="yh-ct">🕘 Yetki Günlüğü</div><p><b>Tarih.</b> Kim, kime/nereye, ne zaman, ne değişikliği yaptı (kişi yetkisi / bölüm uygula / üyelik).</p></div>
+      </div></div>
+
+      <div class="yh-sec"><h2>2 · Çekirdek model</h2>
+        <div class="yh-formula">yetki(kişi) = ( ⋃ üye_olduğu_bölüm_şablonları ∪ personal_grant ) − personal_deny</div>
+        <ul>
+          <li><b>Deny-by-default:</b> kişinin <code>departments[]</code>'ı doluysa yalnız oradakini görür; boşsa rol varsayılanına düşer.</li>
+          <li><b>personal_grant / personal_deny:</b> Kişiler'deki ekleme/çıkarma burada saklanır; bölüm "uygula" bunları korur.</li>
+          <li><b>Admin bypass:</b> saha rolü <code>admin</code> olan kişi departments'a bakılmadan hepsini görür. Kısıtlanacak kişi <b>rep</b> veya <b>müdür</b> olmalı.</li>
+          <li><b>Çıkış-giriş:</b> yetki değişince kişi oturumunu yenilemeli (yetkiler girişte yüklenir; iOS PWA cache yapışkan → uygulamayı öldür-aç).</li>
+        </ul>
+      </div>
+
+      <div class="yh-sec"><h2>3 · İki eksen</h2>
+        <table class="yh-tbl"><thead><tr><th>Eksen</th><th>Ne</th><th>Değerler</th></tr></thead><tbody>
+          <tr><td><b>Yetkinlik (capability)</b></td><td>Hangi araç / sekme</td><td>ozet, ciro, risk, etki, portfoy, rotam, kapsam, pipeline, pazar, müşteriler, teklif, …</td></tr>
+          <tr><td><b>Veri kapsamı (scope)</b></td><td>Hangi kayıtlar</td><td><b>Kendi</b> · <b>Bölge</b> (atanmış il) · <b>Bölüm</b> (bölüm arkadaşları) · <b>Tümü</b></td></tr>
+        </tbody></table>
+        <p class="yh-note">Kapsam bölüm şablonunda seçilir; server liste + tekil kart + agregat raporlarda (Kapsam/Portföy/Saha ROI) zorlar. <code>tümü / ayarsız / admin</code> → filtre yok.</p>
+      </div>
+
+      <div class="yh-sec"><h2>4 · Üç katman (client == server)</h2>
+        <table class="yh-tbl"><thead><tr><th>Katman</th><th>Nerede</th><th>Ne yapar</th></tr></thead><tbody>
+          <tr><td>Config</td><td><code>MODULES.saha.groups</code></td><td>Hangi capability'ler var; grid'i besler</td></tr>
+          <tr><td>Client kapı</td><td><code>_rTabOk</code> / <code>_dok</code> (saha.js/desktop)</td><td>Ekranda sekme/aracı gösterir-gizler (deny-by-default)</td></tr>
+          <tr><td>Server enforce</td><td><code>_enforceSahaDept</code> / <code>_sahaCap</code> / <code>_sahaScopeSql</code></td><td>API'de kapatır (token bilen de giremez) + kapsam WHERE</td></tr>
+        </tbody></table>
+        <p class="yh-note">Client kapısı ile server zorlaması <b>birebir</b> aynı olmalı. <b>Sert</b> yetki (Saha ROI=<code>etki</code>, Portföy=<code>portfoy</code>) hem gizler hem 403 verir. <b>View-cap</b> (Pipeline/Pazar/Özet) ekranı gizler ama veri paylaşımlı rapor ucundan gelir.</p>
+      </div>
+
+      <div class="yh-sec"><h2>5 · Sık işler</h2><div class="yh-how">
+        <div class="yh-step"><span class="yh-n">A</span><div><b>Bir gruba yetki ver</b><br>Bölümler › bölümü seç → gruplarda işaretle → (üyeler açıksa işaretle) → <b>Kaydet &amp; uygula</b>. Tüm üyeler şablona hizalanır.</div></div>
+        <div class="yh-step"><span class="yh-n">B</span><div><b>Tek kişiyi kısıtla</b><br>Kişiler › kişiyi seç → istemediğin sekmelerin işaretini kaldır → <b>Kaydet</b>. <code>personal_deny</code> oluşur; grup etkilenmez, sonraki uygula ezmez.</div></div>
+        <div class="yh-step"><span class="yh-n">C</span><div><b>Tek kişiye ekstra ver</b><br>Kişiler › kişiyi seç → bölümde olmayan yetkiyi işaretle → <b>Kaydet</b>. <code>personal_grant</code> oluşur; yalnız o kişide.</div></div>
+        <div class="yh-step"><span class="yh-n">D</span><div><b>"Neden bunu görüyor?"</b><br>Denetim › Yetki Denetimi › kişiyi seç → her yetkinin kaynağı renk-kodlu. Admin ise net uyarı çıkar.</div></div>
+        <div class="yh-step"><span class="yh-n">E</span><div><b>Veri kapsamını ayarla</b><br>Bölümler › bölüm › Veri kapsamı: Kendi/Bölge/Bölüm/Tümü → uygula. Sahiplik kaynağı: Müşteriler › Atama (<code>sorumlu_rep</code>).</div></div>
+      </div></div>
+
+      <div class="yh-sec"><h2>6 · Uçlar (endpoint)</h2>
+        <table class="yh-tbl"><thead><tr><th>Uç</th><th>Ne</th></tr></thead><tbody>
+          <tr><td><code>GET/POST /api/tenant/departments</code></td><td>Bölüm listele / oluştur</td></tr>
+          <tr><td><code>PATCH/DELETE /api/tenant/departments/:id</code></td><td>Şablon güncelle / sil</td></tr>
+          <tr><td><code>GET/POST …/departments/:id/members</code></td><td>Üye listele / ekle-çıkar (recompute)</td></tr>
+          <tr><td><code>POST …/departments/:id/apply</code></td><td>Şablonu üyelere uygula (recompute)</td></tr>
+          <tr><td><code>PATCH /api/tenant/users/:id/modules</code></td><td>Kişi yetkisi (personal_grant/deny türetir)</td></tr>
+          <tr><td><code>GET /api/tenant/users/:id/yetki-kaynak</code></td><td>Etkin-yetki denetçisi verisi</td></tr>
+          <tr><td><code>GET /api/tenant/yetki-log</code></td><td>Yetki değişiklik günlüğü</td></tr>
+          <tr><td><code>SAHA_DEPT_MAP</code> (server)</td><td>Her saha ucu → gerekli capability (enforce)</td></tr>
+        </tbody></table>
+      </div>
+
+      <div class="yh-sec"><h2>7 · Veri modeli</h2>
+        <p><code>tenant_user_modules.permissions_json</code> (module_id = 'saha'):</p>
+        <pre class="yh-code">{
+  "departments":    ["ozet","risk","etki", ...],   // ETKIN yetki (gating bunu okur)
+  "personal_grant": ["kapsam"],                     // kisisel ekleme
+  "personal_deny":  ["ciro"],                       // kisisel cikarma
+  "scope": { "level":"kendi|bolge|bolum|tumu", "regions":[], "segments":[] },
+  "saha_tip": "TUKETICI|TICARI|KARMA"
+}</pre>
+        <table class="yh-tbl"><thead><tr><th>Tablo</th><th>Ne</th></tr></thead><tbody>
+          <tr><td><code>tenant_department</code></td><td>Bölüm + <code>template_json{capabilities,scope}</code></td></tr>
+          <tr><td><code>tenant_department_membership</code></td><td>Kişi ↔ bölüm üyeliği</td></tr>
+          <tr><td><code>tenant_yetki_log</code></td><td>Değişiklik günlüğü (actor/target/department/eylem/detay/ts)</td></tr>
+          <tr><td><code>saha_musteri.sorumlu_rep</code></td><td>Veri kapsamının kaynağı (Atama panelinden)</td></tr>
+        </tbody></table>
+      </div>
+
+      <div class="yh-sec yh-warn-sec"><h2>⚠ Dikkat</h2><ul>
+        <li><b>Admin = her şey.</b> Bir kişi "hepsini görüyorsa" önce saha rolüne bak — admin departments'ı okumaz.</li>
+        <li><b>"Uygula" grubu hizalar.</b> Şablonu tüm-grup tabanı olarak kur; tek kişiyi Kişiler'den ayır.</li>
+        <li><b>Çıkış-giriş şart.</b> Yetki değişikliği aktif oturuma anında yansımaz.</li>
+        <li><b>Kayıt bırak.</b> Her yapısal değişiklik <code>bi_insa_gunlugu</code> + <code>bi_yetenek</code>'e işlenir (fingerprint sözleşmesi).</li>
+      </ul></div>
+
+      <div class="yh-foot">KRB / Derive · Yetki Modülü v2 · Bölümler=yasa · Kişiler=istisna · Roller=referans · Denetim=durum+tarih</div>
+    </div>`;
+  }
+
+  async function renderMemnuniyet(content) {
+    let d;
+    try { d = await apiFetch("/api/saha/nabiz-ozet"); }
+    catch (e) { content.innerHTML = `<div class="ta-empty">Memnuniyet verisi yuklenemedi: ${esc(e.message)}</div>`; return; }
+    const oz = d.ozet || {}, hf = d.hafta || {}, dag = d.dagilim || [];
+    const mx = Math.max(1, ...dag.map(x => x.adet));
+    const rk = (v) => v >= 9 ? "#067647" : v >= 7 ? "#f59e0b" : "#b42318";
+    const bar = (x) => `<div style="display:flex;align-items:center;gap:8px;margin:3px 0"><span style="width:20px;text-align:right;font-weight:700;color:${rk(x.deger)}">${x.deger}</span><div style="flex:1;background:#f2f4f7;border-radius:5px;height:16px"><div style="width:${Math.round(x.adet/mx*100)}%;background:${rk(x.deger)};height:16px;border-radius:5px"></div></div><span class="ta-muted" style="width:24px">${x.adet}</span></div>`;
+    const dt = (z) => z ? new Date(z).toLocaleString("tr-TR", { day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit" }) : "—";
+    const repRow = (r) => `<tr><td><b>${esc(r.ad||"—")}</b></td><td style="text-align:center;font-weight:700;color:${rk(+r.deger)}">${r.deger==null?"—":r.deger}</td><td class="ta-muted" style="white-space:nowrap">${dt(r.zaman)}</td></tr>`;
+    const m3 = (m) => `<div style="padding:8px 0;border-bottom:1px solid #f2f4f7;font-size:12.5px"><div style="display:flex;justify-content:space-between;margin-bottom:2px"><b>${esc(m.ad||"—")}</b><span class="ta-muted">${dt(m.zaman)}</span></div>${m.soru?`<div class="ta-muted" style="margin-bottom:2px">${esc(m.soru)}</div>`:""}<div style="color:#1a2233">${esc(m.cevap||m.capa||"—")}</div></div>`;
+    content.innerHTML = `
+      <div class="ta-izin-head"><div class="ta-izin-hint">Genel: <b>${oz.rep||0}</b> temsilci · <b>${oz.adet||0}</b> cevap · ort deger <b>${oz.ort==null?"—":oz.ort}</b>/10 · bu hafta ${hf.rep||0} temsilci (ort ${hf.ort==null?"—":hf.ort})</div></div>
+      <div class="ta-grid">
+        <div class="ta-card"><h3 class="ta-h3">Deger capasi dagilimi (0-10)</h3>${dag.length?dag.map(bar).join(""):`<div class="ta-empty-sm">Henuz cevap yok</div>`}</div>
+        <div class="ta-card"><h3 class="ta-h3">Temsilci basina son cevap</h3>${(d.repler&&d.repler.length)?`<div class="ta-tablewrap"><table class="ta-table ta-compact"><thead><tr><th>Temsilci</th><th style="text-align:center">Deger</th><th>Zaman</th></tr></thead><tbody>${d.repler.map(repRow).join("")}</tbody></table></div>`:`<div class="ta-empty-sm">Kayit yok</div>`}</div>
+      </div>
+      <div class="ta-card" style="margin-top:16px"><h3 class="ta-h3">Asistan soru cevaplari (Mod-3) · ${(d.mod3||[]).length}</h3>${(d.mod3&&d.mod3.length)?d.mod3.map(m3).join(""):`<div class="ta-empty-sm">Henuz asistan cevabi yok</div>`}</div>`;
+  }
+
+  async function renderAktivite(content) {
+    const gun = renderAktivite._gun || 7;
+    let d;
+    try { d = await apiFetch("/api/saha/rep-aktivite?gun=" + gun); }
+    catch (e) { content.innerHTML = `<div class="ta-empty">Saha aktivitesi yüklenemedi: ${esc(e.message)}</div>`; return; }
+    const reps = d.repler || [];
+    const online = reps.filter(r => r.online).length;
+    const rel = (ts) => { if (!ts) return "—"; const x = Math.floor((Date.now() - new Date(ts).getTime()) / 1000); if (x < 60) return "az önce"; if (x < 3600) return Math.floor(x / 60) + " dk önce"; if (x < 86400) return Math.floor(x / 3600) + " sa önce"; return Math.floor(x / 86400) + " gün önce"; };
+    const dt = (ts) => ts ? new Date(ts).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+    const odaAd = { bugun: "Bugün", ziyaretler: "Ziyaretler", musteriler: "Müşteri", iskonto: "Teklif", teklif: "Teklif", rapor: "Rapor", plan: "Plan", "rep-brain": "Rep-Brain", asistan: "Rep-Brain", piyasa: "Piyasa", rakip: "Rakip", saha: "Saha", kokpit: "Kokpit", ceo: "CEO" };
+    const gbtn = (g, l) => `<button class="ta-modtab${g === gun ? " active" : ""}" data-g="${g}">${l}</button>`;
+    const row = (r) => `<tr>
+      <td><span class="ta-dot ${r.online ? "ta-dot-on" : "ta-dot-off"}"></span><b>${esc(r.ad)}</b></td>
+      <td class="ta-muted" style="white-space:nowrap">${dt(r.son_giris)}</td>
+      <td style="white-space:nowrap;color:${r.online ? "#067647" : "#6b7280"}">${r.online ? "çevrimiçi" : rel(r.son_aktivite)}</td>
+      <td style="text-align:center">${r.dk_bugun} dk</td>
+      <td style="text-align:center">${r.dk_hafta} dk</td>
+      <td style="text-align:center">${r.ziyaret}</td>
+      <td style="text-align:center;color:${r.hata > 0 ? "#b42318" : "inherit"};font-weight:${r.hata > 0 ? "700" : "400"}">${r.hata}</td>
+      <td class="ta-muted">${r.en_cok_oda ? esc(odaAd[r.en_cok_oda] || r.en_cok_oda) : "—"}</td>
+    </tr>`;
+    content.innerHTML = `
+      <div class="ta-izin-head"><div class="ta-modtabs">${gbtn(1, "Bugün")}${gbtn(7, "7 gün")}${gbtn(30, "30 gün")}</div><div class="ta-izin-hint">${online}/${reps.length} çevrimiçi</div></div>
+      ${reps.length ? `<div class="ta-tablewrap"><table class="ta-table"><thead><tr><th>Temsilci</th><th>Son giriş</th><th>Son işlem</th><th style="text-align:center">Bugün</th><th style="text-align:center">7 gün</th><th style="text-align:center">Ziyaret</th><th style="text-align:center">Hata</th><th>En çok</th></tr></thead><tbody>${reps.map(row).join("")}</tbody></table></div>` : `<div class="ta-empty">Kayıt yok</div>`}`;
+    content.querySelectorAll(".ta-modtab").forEach(b => b.addEventListener("click", () => { renderAktivite._gun = parseInt(b.dataset.g, 10); renderView("aktivite"); }));
+  }
+
+  // ─── Denetim: Sistem (saha hata raporu) ────────────────────────────────────
+  async function renderSistem(content) {
+    const gun = renderSistem._gun || 7;
+    let d;
+    try { d = await apiFetch("/api/saha/hata-raporu?gun=" + gun); }
+    catch (e) { content.innerHTML = `<div class="ta-empty">Hata raporu yüklenemedi: ${esc(e.message)}</div>`; return; }
+    const renk = { API_HATA: "#ef4444", JS_HATA: "#f97316", AG_HATA: "#8b5cf6", YAVAS_API: "#f59e0b", SESSIZ_HATA: "#6b7280" };
+    const gbtn = (g, l) => `<button class="ta-modtab${g === gun ? " active" : ""}" data-g="${g}">${l}</button>`;
+    const etag = (t) => `<span style="display:inline-block;background:${renk[t] || "#64748b"};color:#fff;border-radius:5px;padding:2px 9px;font-size:11px;font-weight:700">${esc(t)}</span>`;
+    const tipRow = (t) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f2f4f7">${etag(t.tip)}<b style="font-size:17px">${t.sayi}</b></div>`;
+    const epRow = (e) => `<div style="padding:8px 0;border-bottom:1px solid #f2f4f7;font-size:12.5px"><div style="font-family:ui-monospace,monospace;color:#3d4657;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.endpoint || "-")}</div><div style="display:flex;gap:14px;margin-top:2px"><span style="color:#b42318">${e.sayi} hata</span>${e.ort_ms ? `<span class="ta-muted">ort ${e.ort_ms}ms</span>` : ""}</div></div>`;
+    const uRow = (u) => `<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #f2f4f7;font-size:12.5px"><span>${esc(u.kullanici || "-")}</span><b style="color:#b42318">${u.sayi}</b></div>`;
+    const sRow = (h) => `<div style="padding:9px 0;border-bottom:1px solid #f2f4f7;font-size:12.5px"><div style="display:flex;justify-content:space-between;margin-bottom:3px">${etag(h.tip)}<span class="ta-muted">${new Date(h.ts).toLocaleString("tr-TR")}</span></div><div style="color:#1a2233;margin-bottom:2px">${esc(h.hata_mesaji || "-")}</div><div class="ta-muted" style="font-family:ui-monospace,monospace">${esc(h.endpoint || h.view_adi || "")}</div></div>`;
+    content.innerHTML = `
+      <div class="ta-izin-head"><div class="ta-modtabs">${gbtn(1, "Bugün")}${gbtn(7, "7 gün")}${gbtn(30, "30 gün")}</div><div class="ta-izin-hint">son ${gun} gün</div></div>
+      <div class="ta-grid">
+        <div class="ta-card"><h3 class="ta-h3">🐛 Hata Özeti</h3>${(d.ozet && d.ozet.length) ? d.ozet.map(tipRow).join("") : `<div class="ta-empty-sm">Hata kaydı yok 🎉</div>`}</div>
+        ${(d.endpoint_ozet && d.endpoint_ozet.length) ? `<div class="ta-card"><h3 class="ta-h3">En çok hata veren endpoint</h3>${d.endpoint_ozet.slice(0, 12).map(epRow).join("")}</div>` : ""}
+        ${(d.user_ozet && d.user_ozet.length) ? `<div class="ta-card"><h3 class="ta-h3">Kullanıcı bazlı</h3>${d.user_ozet.slice(0, 12).map(uRow).join("")}</div>` : ""}
+      </div>
+      <div class="ta-card" style="margin-top:16px"><h3 class="ta-h3">Son hatalar · ${(d.son_hatalar || []).length}</h3>${(d.son_hatalar && d.son_hatalar.length) ? d.son_hatalar.slice(0, 50).map(sRow).join("") : `<div class="ta-empty-sm">Kayıt yok</div>`}</div>`;
+    content.querySelectorAll(".ta-modtab").forEach(b => b.addEventListener("click", () => { renderSistem._gun = parseInt(b.dataset.g, 10); renderView("sistem"); }));
+  }
+
+  function moduleLabel(id) { return (MODULES[id] && MODULES[id].label) || { assessment: "Assessment", intelligence: "Management", saha: "Saha" }[id] || id; }
+  function esc(s) { return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;"); }
+}
+
+// ─── Styles ──────────────────────────────────────────────────────────────────
+function taStyles() {
+  return `
+    #tenant-admin-surface{font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:#1a2030;-webkit-font-smoothing:antialiased}
+    #tenant-admin-surface *{box-sizing:border-box}
+    .ta-shell{position:fixed;inset:0;display:flex;background:#f6f7f9;overflow:hidden;z-index:1000;color-scheme:light}
+    .ta-sidebar{width:244px;min-width:244px;background:linear-gradient(180deg,#16161f,#131320);display:flex;flex-direction:column;color:#fff}
+    .ta-brand{display:flex;align-items:center;gap:12px;padding:20px 18px;border-bottom:1px solid rgba(255,255,255,.06)}
+    .ta-brand-mark{display:flex;border-radius:8px;box-shadow:0 4px 12px rgba(230,185,90,.28)}
+    .ta-brand-txt{display:flex;flex-direction:column;line-height:1.25}
+    .ta-brand-name{font-weight:700;font-size:15px;letter-spacing:-.01em}
+    .ta-brand-sub{font-size:11.5px;color:rgba(255,255,255,.42);text-overflow:ellipsis;overflow:hidden;white-space:nowrap;max-width:160px}
+    .ta-nav{flex:1;padding:14px 12px;display:flex;flex-direction:column;gap:2px;overflow-y:auto}
+    .ta-nav-label{font-size:10px;text-transform:uppercase;letter-spacing:.09em;color:rgba(255,255,255,.3);padding:14px 10px 6px;font-weight:700}
+    .ta-nav-btn{position:relative;display:flex;align-items:center;gap:12px;padding:10px 12px;border:0;border-radius:10px;background:transparent;color:rgba(255,255,255,.62);cursor:pointer;font-size:13.5px;font-weight:550;text-align:left;transition:.15s}
+    .ta-nav-btn svg{opacity:.85;transition:.15s}
+    .ta-nav-btn:hover{background:rgba(255,255,255,.06);color:#fff}
+    .ta-nav-btn.active{background:rgba(230,185,90,.14);color:#eec574}
+    .ta-nav-btn.active svg{stroke:#eec574;opacity:1}
+    .ta-nav-btn.active::before{content:"";position:absolute;left:-12px;top:9px;bottom:9px;width:3px;border-radius:0 3px 3px 0;background:#e6b95a}
+    .ta-sidebar-foot{padding:12px 12px 16px;border-top:1px solid rgba(255,255,255,.06)}
+    .ta-me{display:flex;align-items:center;gap:11px;padding:10px 8px 14px}
+    .ta-me-av{width:36px;height:36px;border-radius:50%;background:linear-gradient(135deg,#e6b95a,#d99f3c);color:#15151f;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex-shrink:0}
+    .ta-me-txt{display:flex;flex-direction:column;line-height:1.3;overflow:hidden}
+    .ta-me-name{font-size:13px;font-weight:600;text-overflow:ellipsis;overflow:hidden;white-space:nowrap;max-width:135px}
+    .ta-me-role{font-size:11px;color:rgba(255,255,255,.4)}
+    .ta-back-btn{display:flex;align-items:center;gap:8px;width:100%;padding:10px 12px;border:0;border-radius:10px;background:rgba(255,255,255,.05);color:rgba(255,255,255,.6);cursor:pointer;font-size:12.5px;font-weight:550;transition:.15s}
+    .ta-back-btn:hover{background:rgba(230,185,90,.14);color:#eec574}
+    .ta-main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
+    .ta-header{display:flex;align-items:flex-start;justify-content:space-between;padding:24px 34px 20px;background:#fff;border-bottom:1px solid #ebedf2}
+    .ta-title{margin:0;font-size:22px;font-weight:750;color:#12182a;letter-spacing:-.02em}
+    .ta-subtitle{margin:4px 0 0;font-size:13px;color:#8a919f}
+    .ta-header-actions{display:flex;gap:10px;flex-shrink:0}
+    .ta-content{flex:1;overflow:auto;padding:28px 34px}
+    .ta-h2,.ta-h3{font-size:12px;font-weight:700;color:#7a8290;text-transform:uppercase;letter-spacing:.06em;margin:6px 0 14px}
+    .ta-h3{margin:0 0 12px}
+    .ta-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px}
+    .ta-kpi{background:#fff;border:1px solid #e8eaf0;border-radius:16px;padding:20px 22px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+    .ta-kpi-num{font-size:32px;font-weight:780;color:#12182a;line-height:1;letter-spacing:-.02em}
+    .ta-kpi-lbl{font-size:12.5px;color:#8a919f;margin-top:8px;font-weight:500}
+    .ta-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
+    .ta-card{background:#fff;border:1px solid #e8eaf0;border-radius:16px;padding:20px;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+    .ta-mod{transition:.16s}
+    .ta-mod:hover{box-shadow:0 6px 20px -8px rgba(16,24,40,.14);transform:translateY(-1px)}
+    .ta-mod-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+    .ta-mod-top strong{font-size:15.5px;color:#12182a}
+    .ta-mod-plan{font-size:12.5px;color:#8a919f;margin-bottom:16px}
+    .ta-seat-row{display:flex;justify-content:space-between;font-size:12.5px;color:#5b6472;margin-bottom:7px;font-weight:500}
+    .ta-seat-bar{height:7px;background:#eef0f4;border-radius:5px;overflow:hidden}
+    .ta-seat-bar i{display:block;height:100%;background:linear-gradient(90deg,#e6b95a,#d99f3c);border-radius:5px}
+    .ta-mod-foot{display:flex;align-items:center;justify-content:space-between;margin-top:16px;font-size:12px;color:#9aa1ae}
+    .ta-link{border:0;background:none;color:#2563eb;font-weight:650;font-size:12.5px;cursor:pointer;padding:0}
+    .ta-link:hover{text-decoration:underline}
+    .ta-badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.01em}
+    .ta-badge-active{background:#e7f8ef;color:#067647}.ta-badge-trial{background:#fef6e7;color:#b25e09}
+    .ta-badge-admin{background:#f0edfe;color:#6939d6}.ta-badge-member{background:#e8f1fe;color:#1d68d4}
+    .ta-tablewrap{background:#fff;border:1px solid #e8eaf0;border-radius:16px;overflow:auto;box-shadow:0 1px 2px rgba(16,24,40,.04)}
+    .ta-table{width:100%;border-collapse:collapse;font-size:13.5px}
+    .ta-table th{padding:13px 18px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#8a919f;background:#fafbfc;border-bottom:1px solid #ebedf2;font-weight:700;white-space:nowrap}
+    .ta-table td{padding:13px 18px;border-bottom:1px solid #f2f4f7;vertical-align:middle;color:#3d4657;background:#fff}
+    .ta-table tbody tr:last-child td{border-bottom:0}
+    .ta-table tbody tr:hover td{background:#fafbfc}
+    .ta-compact th,.ta-compact td{padding:9px 13px;font-size:12.5px}
+    .ta-row-off td{opacity:.5}
+    .ta-user{display:flex;align-items:center;gap:12px}
+    .ta-av{width:34px;height:34px;border-radius:50%;background:#eef0f5;color:#525b6b;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0}
+    .ta-user-nm{font-weight:650;color:#1a2233;display:flex;align-items:center;gap:6px;font-size:13.5px}
+    .ta-user-em{font-size:12px;color:#98a0ae;margin-top:1px}
+    .ta-self{background:#eef2ff;color:#4338ca;border-radius:5px;font-size:10px;font-weight:700;padding:1px 6px}
+    .ta-crown{font-size:12.5px}
+    .ta-tag{display:inline-block;padding:3px 9px;background:#eef2ff;color:#4338ca;border-radius:6px;font-size:11.5px;font-weight:600;margin:1px 4px 1px 0}
+    .ta-muted{color:#a6adba}
+    .ta-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle}
+    .ta-dot-on{background:#12b76a;box-shadow:0 0 0 3px rgba(18,183,106,.14)}.ta-dot-off{background:#cdd3dd}
+    .ta-act{white-space:nowrap;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+    .ta-btn{padding:9px 16px;border-radius:10px;border:1px solid #e2e5ec;background:#fff;cursor:pointer;font-size:13.5px;font-weight:600;color:#3d4657;transition:.14s;line-height:1}
+    .ta-btn:hover{background:#f7f8fa;border-color:#d7dbe3}
+    .ta-btn-xs{padding:6px 12px;font-size:12px;border-radius:8px}
+    .ta-btn-primary{background:#12182a;color:#fff;border-color:#12182a}.ta-btn-primary:hover{background:#222a42;border-color:#222a42}
+    .ta-btn-secondary{background:#eef2ff;color:#4338ca;border-color:#dde3fe}.ta-btn-secondary:hover{background:#e2e8ff}
+    .ta-btn-danger{background:#fef3f2;color:#b42318;border-color:#fcd9d3}.ta-btn-danger:hover{background:#fee4e0}
+    .ta-btn-success{background:#e7f8ef;color:#067647;border-color:#b6ecd0}.ta-btn-success:hover{background:#d3f3e1}
+    .ta-btn-ghost{background:transparent;border-color:transparent;color:#6b7280}.ta-btn-ghost:hover{background:#f0f1f4}
+    .ta-btn-full{width:100%;margin-top:18px;padding:12px}
+    .ta-izin-head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+    .ta-modtabs{display:inline-flex;background:#eceef2;border-radius:11px;padding:4px}
+    .ta-modtab{border:0;background:transparent;padding:8px 18px;border-radius:8px;font-size:13px;font-weight:650;color:#5b6472;cursor:pointer;transition:.14s}
+    .ta-modtab.active{background:#fff;color:#12182a;box-shadow:0 1px 3px rgba(16,24,40,.12)}
+    .ta-izin-hint{font-size:12px;color:#9aa1ae}
+    .ta-matrixwrap{max-height:calc(100vh - 258px)}
+    .ta-matrix{width:auto;min-width:0}
+    .ta-matrix th,.ta-matrix td{border-right:1px solid #f2f4f7}
+    .ta-matrix tbody td{background:#fff}
+    .ta-matrix tbody tr:hover td{background:#f8fafc}
+    .ta-matrix .ta-grp{text-align:center;background:#f6f7f9;color:#7a8290;font-size:10px;letter-spacing:.06em;padding:7px 6px}
+    .ta-toolh{font-size:9px;text-align:center;width:74px;min-width:74px;white-space:normal;overflow-wrap:anywhere;line-height:1.15;padding:8px 6px;vertical-align:bottom;color:#8a919f;letter-spacing:0}
+    .ta-cell{text-align:center;padding:9px 6px;width:74px;min-width:74px}
+    .ta-tool,.ta-active{appearance:none;-webkit-appearance:none;width:18px;height:18px;margin:0;border:1.5px solid #cbd5e1;border-radius:5px;background:#fff;cursor:pointer;position:relative;vertical-align:middle;transition:.12s}
+    .ta-tool:hover,.ta-active:hover{border-color:#2563eb}
+    .ta-tool:checked,.ta-active:checked{background:#2563eb;border-color:#2563eb}
+    .ta-tool:checked::after,.ta-active:checked::after{content:"";position:absolute;left:5px;top:2px;width:4px;height:8px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg)}
+    .ta-tool:disabled,.ta-active:disabled{cursor:not-allowed}
+    .ta-tool:disabled:not(:checked),.ta-active:disabled:not(:checked){background:#eef0f4;border-color:#dce0e7}
+    .ta-tool:disabled:checked,.ta-active:disabled:checked{background:#e0a93f;border-color:#e0a93f}
+    .ta-sticky{position:sticky;left:0;z-index:2;background:#fff;box-shadow:6px 0 10px -8px rgba(16,24,40,.22);min-width:230px}
+    .ta-matrix tbody tr:hover .ta-sticky{background:#f8fafc}
+    .ta-matrix thead .ta-sticky{z-index:3;background:#fafbfc}
+    .ta-mini{font-size:12px;padding:6px 8px;border:1px solid #dde1e8;border-radius:8px;background:#fff;color:#3d4657;font-weight:550}
+    .ta-mini:disabled{background:#f4f5f7;color:#9aa1ae}
+    .ta-role{min-width:98px}.ta-seg{min-width:86px}
+    .ta-rowsave{display:flex;align-items:center;gap:8px;margin-top:8px}
+    .ta-save{padding:5px 12px;font-size:12px;border-radius:8px}
+    .ta-save.on{background:#2563eb;color:#fff;border-color:#2563eb}.ta-save.on:hover{background:#1d4ed8}
+    .ta-rowmsg{font-size:11px;color:#9aa1ae}.ta-rowmsg.ok{color:#067647}.ta-rowmsg.err{color:#d92d20}
+    .ta-two{display:grid;grid-template-columns:1.1fr 1fr;gap:28px;align-items:start}
+    @media(max-width:960px){.ta-two{grid-template-columns:1fr}}
+    .ta-form{padding:26px}
+    .ta-form-intro{margin:0 0 18px;color:#6b7280;font-size:13px}
+    .ta-lbl{display:block;font-weight:650;font-size:12.5px;color:#4b5462;margin:18px 0 7px}
+    .ta-input{width:100%;padding:11px 13px;border:1px solid #d7dbe3;border-radius:10px;font-size:14px;outline:none;background:#fff;color:#12182a;color-scheme:light;transition:.14s} /* INVITE_INPUT_FIX_V1 */
+    .ta-input option{color:#12182a;background:#fff}
+    .ta-input:focus{border-color:#12182a;box-shadow:0 0 0 3px rgba(18,24,42,.08)}
+    .ta-subhead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap} /* INVITE_SELALL_V1 */
+    .ta-subtools{display:flex;align-items:center;gap:8px}
+    .ta-subcount{font-size:11.5px;color:#8a93a2;font-variant-numeric:tabular-nums}
+    .ta-chip{border:1px solid #d7dbe3;background:#fff;color:#2563eb;font-weight:650;font-size:11.5px;padding:5px 10px;border-radius:8px;cursor:pointer;transition:.12s}
+    .ta-chip:hover{background:#eff4ff;border-color:#93b4f5}
+    .ta-subgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:7px 12px;margin-top:10px}
+    .ta-chk{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;color:#4b5462;padding:8px 11px;border:1px solid #e6eaf0;border-radius:9px;background:#fff;transition:.12s;user-select:none}
+    .ta-chk:hover{border-color:#c3ccd9;background:#fafbfd}
+    .ta-chk input{accent-color:#2563eb;width:15px;height:15px;flex:none}
+    .ta-chk:has(input:checked){border-color:#2563eb;background:#eff4ff;color:#12182a;font-weight:600}
+    @media(max-width:520px){.ta-subgrid{grid-template-columns:1fr}}
+    .ta-ok-box{background:#e7f8ef;border:1px solid #b6ecd0;border-radius:12px;padding:16px;margin-top:18px}
+    .ta-invlink{font-family:ui-monospace,'SF Mono',monospace;font-size:12px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;padding:10px 12px;margin:10px 0;word-break:break-all}
+    .ta-ok-actions{display:flex;align-items:center;gap:12px}
+    .ta-loading{padding:48px;text-align:center;color:#9aa1ae;display:flex;flex-direction:column;align-items:center;gap:13px}
+    .ta-spin{width:24px;height:24px;border:2.5px solid #e8eaf0;border-top-color:#e6b95a;border-radius:50%;animation:taspin .7s linear infinite}
+    @keyframes taspin{to{transform:rotate(360deg)}}
+    .ta-error{padding:16px;background:#fef3f2;color:#b42318;border-radius:12px;border:1px solid #fcd9d3}
+    .ta-empty{padding:56px;text-align:center;color:#a6adba;background:#fff;border:1px dashed #dde1e8;border-radius:16px}
+    .ta-empty-sm{padding:20px;text-align:center;color:#a6adba;font-size:13px}
+    .ta-toast-wrap{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);z-index:100000;display:flex;flex-direction:column;gap:8px;align-items:center}
+    .ta-toast{padding:12px 20px;border-radius:12px;font-size:13.5px;font-weight:600;color:#fff;background:#12182a;box-shadow:0 10px 30px rgba(16,24,40,.3);opacity:0;transform:translateY(12px);transition:.24s}
+    .ta-toast.show{opacity:1;transform:translateY(0)}
+    .ta-toast-ok{background:#067647}.ta-toast-err{background:#b42318}
+    .ta-modal-ov{position:fixed;inset:0;background:rgba(16,20,30,.52);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;z-index:100001;padding:20px}
+    .ta-modal{background:#fff;border-radius:18px;padding:26px;width:430px;max-width:100%;box-shadow:0 30px 70px rgba(0,0,0,.32)}
+    .ta-modal-body{font-size:15px;color:#1a2233;line-height:1.55}
+    .ta-modal-foot{display:flex;justify-content:flex-end;gap:10px;margin-top:24px}
+    /* MUSTERI_ATAMA_STYLE_V1 — Müşteri Atama paneli (renkler mevcut paletten) */
+    .ta-fil{width:auto;min-width:150px;flex:0 0 auto}
+    .ta-atastat{font-size:13px;color:#a6adba;margin-bottom:12px}
+    .ta-atastat b{color:#12182a}
+    .ta-atawarn{color:#b42318;font-weight:700}
+    .ta-atabar{display:none;align-items:center;gap:10px;background:#eef2ff;border:1px solid #dde3fe;border-radius:10px;padding:9px 13px;margin-bottom:12px;font-size:13px;color:#3d4657}
+    .ta-atabar.on{display:flex}
+    .ta-atabar b{color:#12182a}
+    .ta-ataact{white-space:nowrap;text-align:right}
+    .ta-ataact .ta-btn{margin-left:6px}
+    .ta-atarep{display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap}
+    .ta-atagec td{background:#fafbfc;font-size:12.5px;color:#5a6172}
+    .ta-atagec .gt{font-weight:700;color:#12182a;margin-bottom:4px}
+    .ta-atagec .g{padding:3px 0}
+    .ta-atagec b{color:#12182a}
+     /* YETKI_FAZ2B — Bölümler */
+     .tb-wrap{display:grid;grid-template-columns:260px 1fr;gap:16px;align-items:start}
+     .tb-side{background:#fff;border:1px solid #e6e9ef;border-radius:14px;overflow:hidden}
+     .tb-side-h{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;border-bottom:1px solid #eef0f4}
+     .tb-list{padding:6px}
+     .tb-drow{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;cursor:pointer}
+     .tb-drow.on{background:#eef4ff;border:1px solid #c7dbfe}
+     .tb-drow:not(.on):hover{background:#f6f7f9}
+     .tb-dico{font-size:18px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;background:#f2f4f8;border-radius:8px;flex-shrink:0}
+     .tb-dico.big{width:38px;height:38px;font-size:22px}
+     .tb-dinfo{flex:1;min-width:0;display:flex;flex-direction:column}.tb-dinfo b{font-size:13.5px;color:#12182a}.tb-dinfo small{font-size:11px;color:#8a92a3}
+     .tb-dcount{font-size:11px;font-weight:700;color:#5a6172;background:#eef0f4;border-radius:999px;padding:2px 9px}
+     .tb-main{background:#fff;border:1px solid #e6e9ef;border-radius:14px;padding:16px 18px;min-height:200px}
+     .tb-head{display:flex;align-items:center;gap:12px}
+     .tb-ad{flex:1;font-size:16px;font-weight:700;color:#12182a;border:1px solid transparent;border-radius:8px;padding:6px 8px;background:transparent}
+     .tb-ad:focus{border-color:#c7dbfe;background:#f8faff;outline:none}
+     .tb-uye{font-size:12px;color:#8a92a3;font-weight:600}
+     .tb-lbl{font-size:12px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#6b7280}
+     .tb-scope{margin-top:14px;padding-top:14px;border-top:1px solid #eef0f4}
+     .tb-scopes{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:8px 0 6px}
+     .tb-scp{border:1px solid #e6e9ef;border-radius:10px;padding:9px 10px;background:#fff;cursor:pointer;text-align:left}
+     .tb-scp.on{border-color:#16a36a;background:#effaf3}
+     .tb-scp b{display:block;font-size:12.5px;color:#12182a}.tb-scp small{font-size:10.5px;color:#8a92a3}
+     .tb-note{font-size:11px;color:#8a92a3}
+     .tb-caps{display:flex;flex-direction:column;gap:10px}
+     .tb-grp{border:1px solid #eef0f4;border-radius:10px;padding:10px 12px;background:#fafbfc}
+     .tb-grp-h{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8a92a3;margin-bottom:8px}
+     .tb-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
+     .tb-tog{display:flex;align-items:center;gap:8px;padding:6px 9px;border:1px solid #e6e9ef;border-radius:8px;font-size:12.5px;color:#4a5262;cursor:pointer;background:#fff}
+     .tb-tog.on{border-color:#c7dbfe;background:#eef4ff;color:#12182a;font-weight:600}
+     .tb-tog input{accent-color:#2f6fed}
+     .tb-foot{display:flex;align-items:center;gap:12px;margin-top:16px;padding-top:14px;border-top:1px solid #eef0f4}
+     .tb-foot2{display:flex;align-items:center;gap:10px;margin-top:10px}
+     .tb-msg{font-size:12px;color:#8a92a3}.tb-msg.ok{color:#16a36a}.tb-msg.err{color:#d64550}
+     .tb-members{margin-top:14px;padding-top:14px;border-top:1px solid #eef0f4}
+     .tb-mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;margin:8px 0}
+     .tb-mrow{display:flex;align-items:center;gap:8px;padding:6px 9px;border:1px solid #eef0f4;border-radius:8px;font-size:12.5px;color:#4a5262;cursor:pointer}
+     .tb-mrow input{accent-color:#2f6fed}
+     /* YETKI_FAZ2CD — Kişiler + Roller */
+     .tk-wrap{display:grid;grid-template-columns:280px 1fr;gap:16px;align-items:start}
+     .tk-side{background:#fff;border:1px solid #e6e9ef;border-radius:14px;overflow:hidden}
+     .tk-search{padding:10px}.tk-search input{width:100%;border:1px solid #dfe3ea;border-radius:9px;padding:9px 11px;font-size:13px}
+     .tk-list{padding:4px 8px 8px;max-height:70vh;overflow:auto}
+     .tk-urow{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;cursor:pointer}
+     .tk-urow.on{background:#eef4ff;border:1px solid #c7dbfe}.tk-urow:not(.on):hover{background:#f6f7f9}
+     .tk-av{width:32px;height:32px;border-radius:9px;background:linear-gradient(135deg,#2f6fed,#5b8def);color:#fff;font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+     .tk-av.big{width:40px;height:40px;font-size:14px}
+     .tk-uinfo{flex:1;min-width:0;display:flex;flex-direction:column}.tk-uinfo b{font-size:13px;color:#12182a}.tk-uinfo small{font-size:11px;color:#8a92a3;text-overflow:ellipsis;overflow:hidden;white-space:nowrap}
+     .tk-ubadge{font-size:10.5px;font-weight:700;color:#5a6172;background:#eef0f4;border-radius:999px;padding:2px 8px}
+     .tk-main{background:#fff;border:1px solid #e6e9ef;border-radius:14px;padding:16px 18px;min-height:220px}
+     .tk-head{display:flex;align-items:center;gap:12px;border-bottom:1px solid #eef0f4;padding-bottom:12px}
+     .tk-hinfo{flex:1;display:flex;flex-direction:column}.tk-hinfo b{font-size:15px;color:#12182a}.tk-hinfo small{font-size:12px;color:#8a92a3}
+     .tk-modtabs{display:flex;gap:2px;background:#f2f4f8;border-radius:9px;padding:3px}
+     .tk-modtab{border:0;background:transparent;color:#6b7280;font-weight:700;font-size:12px;padding:6px 12px;border-radius:7px;cursor:pointer}.tk-modtab.on{background:#fff;color:#12182a;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+     .tk-rolebar{display:flex;align-items:center;gap:8px;margin-top:12px;flex-wrap:wrap}
+     .tk-lbl2{font-size:12px;color:#6b7280;font-weight:600}
+     .tk-role,.tk-seg{border:1px solid #d7dbe4;border-radius:8px;padding:6px 10px;font-size:13px;font-weight:600;color:#12182a;background:#fff}
+     .tk-rhint{font-size:11.5px;color:#8a92a3;margin-left:auto}
+     .tk-actionsbar{display:flex;gap:8px;margin:12px 0 6px}
+     .tk-caps{display:flex;flex-direction:column;gap:10px}
+     .tk-grp{border:1px solid #eef0f4;border-radius:10px;padding:10px 12px;background:#fafbfc}
+     .tk-grp-h{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+     .tk-gn{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8a92a3}
+     .tk-gc{font-size:11px;color:#8a92a3}.tk-master{margin-left:auto;font-size:11px;color:#8a92a3;display:flex;align-items:center;gap:5px;cursor:pointer}
+     .tk-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px}
+     .tk-tog{display:flex;align-items:center;gap:8px;padding:6px 9px;border:1px solid #e6e9ef;border-radius:8px;font-size:12.5px;color:#4a5262;cursor:pointer;background:#fff}
+     .tk-tog.on{border-color:#c7dbfe;background:#eef4ff;color:#12182a;font-weight:600}
+     .tk-tog input{accent-color:#2f6fed}
+     .tk-tag{font-size:9px;font-weight:700;padding:1px 5px;border-radius:5px;margin-left:6px}
+     .tk-tag.def{background:#eef0f4;color:#8a92a3}.tk-tag.ovr{background:#fff3e0;color:#b26a00}
+     .tk-foot{display:flex;align-items:center;gap:12px;margin-top:16px;padding-top:14px;border-top:1px solid #eef0f4}
+     .tk-msg{font-size:12px;color:#8a92a3}.tk-msg.ok{color:#16a36a}.tk-msg.err{color:#d64550}
+     .tr-wrap{display:flex;flex-direction:column;gap:16px}
+     /* YETKI_FAZ5 — yetki denetci */
+     .yd-head{display:flex;align-items:center;gap:12px;padding-bottom:12px;border-bottom:1px solid #e6e8ee}
+     .yd-role{margin-left:auto;font-size:11px;font-weight:800;background:#eef2ff;color:#3730a3;padding:3px 10px;border-radius:999px;text-transform:uppercase;letter-spacing:.04em}
+     .yd-warn{margin:12px 0;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;color:#92400e;font-size:13px}
+     .yd-meta{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:14px 0;font-size:13px;align-items:center}
+     .yd-mk{color:#6b7280;font-weight:700}
+     .yd-mv{color:#111827}
+     .yd-bchip{display:inline-block;background:#f1f5f9;border-radius:8px;padding:2px 8px;margin:0 4px 4px 0;font-size:12px}
+     .yd-muted{color:#94a3b8}
+     .yd-legend{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 16px}
+     .yd-groups{display:flex;flex-direction:column;gap:14px}
+     .yd-grp-h{font-size:11px;font-weight:800;color:#374151;text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
+     .yd-caps{display:flex;flex-wrap:wrap;gap:6px}
+     .yd-cap{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 9px;border-radius:8px;border:1px solid transparent}
+     .yd-cap i{font-style:normal;font-size:10px;opacity:.75}
+     .yd-src-dept{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}
+     .yd-src-grant{background:#fffbeb;color:#b45309;border-color:#fde68a}
+     .yd-src-both{background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe}
+     .yd-src-deny{background:#fef2f2;color:#b91c1c;border-color:#fecaca;text-decoration:line-through}
+     .yd-src-admin{background:#ecfdf5;color:#047857;border-color:#a7f3d0}
+     .yd-src-eff{background:#f0fdf4;color:#15803d;border-color:#bbf7d0}
+     .yd-src-none{background:#f8fafc;color:#94a3b8;border-color:#eef2f6}
+     /* YETKI_FAZ5B — yetki gunlugu */
+     .yl-wrap{overflow-x:auto}
+     .yl-tbl{width:100%;border-collapse:collapse;font-size:13px}
+     .yl-tbl th{text-align:left;padding:8px 10px;color:#6b7280;font-weight:800;border-bottom:1px solid #e6e8ee;font-size:11px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+     .yl-tbl td{padding:9px 10px;border-bottom:1px solid #f1f5f9;color:#111827;vertical-align:top}
+     .yl-t{color:#6b7280;white-space:nowrap}
+     .yl-d{color:#475569}
+     .yl-ey{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:#f1f5f9;color:#334155;white-space:nowrap}
+     .yl-ey-kisi_yetki{background:#eff6ff;color:#1d4ed8}
+     .yl-ey-bolum_uygula{background:#f5f3ff;color:#6d28d9}
+     .yl-ey-uyelik{background:#ecfdf5;color:#047857}
+     /* YETKI_YARDIM_V1 — yetki rehberi */
+     .yh{max-width:920px;line-height:1.6;color:#1f2937}
+     .yh-hero{background:linear-gradient(135deg,#1e293b,#334155);color:#fff;padding:22px 24px;border-radius:14px;margin-bottom:20px}
+     .yh-hero h1{margin:0 0 8px;font-size:22px}
+     .yh-hero p{margin:0;color:#cbd5e1;font-size:14px}.yh-hero b{color:#fff}
+     .yh-sec{margin:22px 0}
+     .yh-sec h2{font-size:16px;color:#0f172a;border-bottom:2px solid #eef2f6;padding-bottom:8px;margin:0 0 14px}
+     .yh-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+     .yh-card{background:#f8fafc;border:1px solid #eef2f6;border-radius:12px;padding:14px}
+     .yh-ct{font-weight:800;margin-bottom:6px;font-size:14px}
+     .yh-card p{margin:0;font-size:13px;color:#475569}
+     .yh-formula{background:#0f172a;color:#a7f3d0;font-family:ui-monospace,Menlo,monospace;font-size:13px;padding:14px 16px;border-radius:10px;text-align:center;margin-bottom:14px;overflow-x:auto}
+     .yh ul{margin:8px 0;padding-left:20px}.yh li{margin:6px 0;font-size:13px}
+     .yh-tbl{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0}
+     .yh-tbl th{text-align:left;background:#f1f5f9;padding:8px 10px;font-weight:700;font-size:12px}
+     .yh-tbl td{padding:8px 10px;border-bottom:1px solid #f1f5f9;vertical-align:top}
+     .yh-note{font-size:12px;color:#64748b;background:#f8fafc;border-left:3px solid #cbd5e1;padding:8px 12px;border-radius:0 8px 8px 0;margin:8px 0}
+     .yh-how{display:flex;flex-direction:column;gap:10px}
+     .yh-step{display:flex;gap:12px;background:#f8fafc;border:1px solid #eef2f6;border-radius:10px;padding:12px;font-size:13px}
+     .yh-n{flex:none;width:26px;height:26px;border-radius:50%;background:#1d4ed8;color:#fff;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:13px}
+     .yh code{background:#eef2f6;padding:1px 6px;border-radius:5px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#0f172a}
+     .yh-code{background:#0f172a;color:#e2e8f0;padding:14px 16px;border-radius:10px;font-size:12px;overflow-x:auto;line-height:1.5;white-space:pre}
+     .yh-warn-sec ul{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:12px 12px 12px 32px}
+     .yh-warn-sec li{color:#92400e}
+     .yh-foot{margin-top:24px;padding-top:14px;border-top:1px solid #eef2f6;color:#94a3b8;font-size:12px;text-align:center}
+     .tr-mod{background:#fff;border:1px solid #e6e9ef;border-radius:14px;padding:14px 16px}
+     .tr-modh{font-size:13px;font-weight:800;color:#12182a;margin-bottom:10px}
+     .tr-role{padding:10px 0;border-top:1px solid #eef0f4}
+     .tr-rname{font-size:13px;font-weight:700;color:#12182a;margin-bottom:6px}.tr-rname small{font-weight:500;color:#8a92a3;margin-left:8px}
+     .tr-caps{display:flex;flex-wrap:wrap;gap:5px}
+     .tr-cap{font-size:11.5px;padding:3px 9px;border-radius:999px;background:#f2f4f8;color:#a7adba;border:1px solid #eef0f4}
+     .tr-cap.on{background:#eef4ff;color:#2f6fed;border-color:#c7dbfe;font-weight:600}
+  `;
+}

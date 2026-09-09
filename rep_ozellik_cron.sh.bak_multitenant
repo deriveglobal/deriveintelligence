@@ -1,0 +1,5 @@
+#!/bin/sh
+PGP=$(docker exec krb-assessment printenv DATABASE_URL | sed -E 's#^[^:]+://[^:]+:([^@]+)@.*#\1#')
+TID='f8a5d20f-ecf8-4ce2-a492-69268fbb03fa'
+docker exec -i -e PGPASSWORD="$PGP" krb-assessment-postgres psql -U assessment_app -d assessment_platform -h 127.0.0.1 \
+  -c "SELECT hesapla_rep_ozellik('$TID'::uuid,current_date); SELECT hesapla_rep_ozellik_ek('$TID'::uuid,current_date); SELECT hesapla_rep_ozellik_ek2('$TID'::uuid,current_date);"

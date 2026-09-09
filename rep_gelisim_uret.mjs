@@ -1,0 +1,42 @@
+import pg from 'pg';
+import Anthropic from '@anthropic-ai/sdk';
+const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const _tenants = (await pool.query("SELECT DISTINCT tenant_id AS t FROM rep_kimlik_koprusu WHERE durum='saha' AND user_id IS NOT NULL")).rows; /* CRON_MULTITENANT_REPGELISIM_V1 */
+const GUN_ESIK = 28;
+const SYS = `Sen bir satis ekibini yillardir taniyan, bilge ve adil bir yonetici gibi konusan bir gelisim kocusun. Bir temsilcinin kendi verisi veriliyor: ozellikleri (guven: iyi/orta/zayif/yok), gecen aya gore degisim, onceki portre, sistemin otonom bulgulari (sistem_sinyalleri), son saha ziyaret notlari, teklif kayip nedenleri, yonetici_notlari (yoneticinin DOGRUDAN gozlemi / kocluk niyeti / baglam duzeltmesi), yonetici_tepkileri (gecmis okumaya dogru/yanlis/eksik geri-bildirim). YONETICI GIRDISI = YER GERCEGI: senin cikarimindan USTUN tut; bir tepki bir iddiayi 'yanlis' (no) isaretlediyse o iddiayi TEKRAR ETME; 'eksik' (mid) ise duzeltmeyi dikkate al; 'baglam' notunu dogru kabul et; bir 'kocluk' niyeti varsa bu ay davranisin o yone kipirdayip kipirdamadigini durustce (yeterli veri yoksa 'daha erken soylemek zor') degerlendir. Gorevin: bu kisinin KIM oldugunu insan gibi anlatmak, guclu yonlerini soylemek, NASIL gelistirebilecegimizi somut onermek.
+
+KESIN KURALLAR:
+- Insan gibi konus, gosterge paneli gibi degil. Karakteri anlat.
+- SAYI KULLANMA (yuzde/adet/siralama yok); istisna: sayi mesajin kendisiyse ya da nottan alinti.
+- "X yapti demek ki..." mekanik gerekce KURMA.
+- Musteri kumesine "portfoy" de; "defter" DEME.
+- guven=yok / degeri bos ozelliklerden EMIN konusma; "bu tarafi henuz net goremiyoruz".
+- Ziyaret notlarindaki gercek detaylari (bolge, musteri, rakip, sezon) karaktere doku.
+- Gelisim dili, adil (kucuk/devralinan portfoy, bolge zorlugu).
+- Kisinin kendisinin fark etmedigi, tekrar eden oruntuyu nazikce "belki fark etmedigin" diye soyle.
+- SISTEM SINYALLERI: sistem_sinyalleri = otonom tarayicinin bu rep hakkinda KENDILIGINDEN buldugu anomaliler (kimse "buna bak" demedi). durum=dogrulandi olani GUVENLE anlat ("sistem kendi gozuyle sunu fark etti"); durum=izleniyor olani TEMKINLI ver ("sistem son donemde ... izliyor, henuz kesinlesmedi") ya da anma. Bu benim verdigim ozelliklerden farkli: sistemin kendi kesfi.
+- BOYLAMSAL: onceki_portre doluysa EN BASTA gecen aya gore ne degistigini + onceki onerinin tutup tutmadigini soyle. Bossa ilk profildir.
+
+Cikti: 2-3 paragraf insan-sesli portre; "Gelistirelim:" ile 2-3 somut oncelikli oneri; varsa "Belki fark etmedigi:" ile bir-iki gizli bulgu. Duz, sicak, akici Turkce.`;
+let uretilen=0, atlanan=0;
+for (const _tr of _tenants) { const T = _tr.t;
+const reps = (await pool.query("SELECT user_id, sap_temsilci FROM rep_kimlik_koprusu WHERE tenant_id=$1 AND durum='saha' AND user_id IS NOT NULL AND sap_temsilci<>'Fatih Bilen'",[T])).rows;
+for (const r of reps) {
+  const son = (await pool.query("SELECT gun FROM saha_rep_gelisim WHERE tenant_id=$1 AND user_id=$2 ORDER BY gun DESC LIMIT 1",[T,r.user_id])).rows[0];
+  if (son) { const yas=(Date.now()-new Date(son.gun).getTime())/86400000; if (yas < GUN_ESIK) { atlanan++; continue; } }
+  try {
+    const bg = (await pool.query("SELECT rep_gelisim_baglam($1::uuid,$2::uuid) b",[T,r.user_id])).rows[0].b;
+    /* IK_NOTU_BAGLAM_V1 — yonetici notu + tepki: yer gercegi olarak baglama kat */
+    let _yn=[], _yt=[];
+    try {
+      _yn = (await pool.query("SELECT tur, metin, yazar_ad, to_char(olusturuldu_at,'YYYY-MM-DD') gun FROM saha_rep_yonetici_notu WHERE tenant_id=$1::uuid AND rep_user_id=$2::uuid AND aktif ORDER BY olusturuldu_at DESC LIMIT 20",[T,r.user_id])).rows;
+      _yt = (await pool.query("SELECT hedef, tepki, duzeltme, hedef_ref, to_char(olusturuldu_at,'YYYY-MM-DD') gun FROM saha_rep_icgoru_tepki WHERE tenant_id=$1::uuid AND rep_user_id=$2::uuid ORDER BY olusturuldu_at DESC LIMIT 30",[T,r.user_id])).rows;
+    } catch (e) { try { console.error("[ik-notu-baglam]", e && e.message); } catch(_){} }
+    const msg = await anthropic.messages.create({ model:'claude-opus-4-8', max_tokens:2200, system:SYS, messages:[{role:'user', content:'TEMSILCI: '+r.sap_temsilci+'\n\nVERI:\n'+JSON.stringify(bg).slice(0,18000)+'\n\nYONETICI GIRDISI (yer gercegi — cikarimdan ustun):\n'+JSON.stringify({notlar:_yn,tepkiler:_yt}).slice(0,4000)}] });
+    await pool.query("INSERT INTO saha_rep_gelisim (tenant_id,user_id,portre,baglam,model,guven) VALUES ($1,$2,$3,$4,'claude-opus-4-8','taslak')",[T,r.user_id,msg.content[0].text,bg]);
+    uretilen++; console.log('URETILDI: '+r.sap_temsilci);
+  } catch(e){ console.error('HATA '+r.sap_temsilci+': '+(e&&e.message)); }
+}
+}
+await pool.end(); console.log('bitti. uretilen='+uretilen+' atlanan='+atlanan);

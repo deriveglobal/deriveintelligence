@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="tr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DERİVE ▸ KRB Finans Kokpiti</title>
+<style>
+  :root{
+    --void:#05070a; --panel:#0c1116; --panel2:#0f151c;
+    --hair:rgba(90,200,220,.16); --hair2:rgba(90,200,220,.30);
+    --ink:#dfeef2; --ink2:#8ba3ad; --mut:#5a6b73;
+    --cyan:#39d6e5; --grn:#37e0a0; --amb:#f5b73c; --red:#ff5860; --blu:#4aa8ff; --vio:#9b8cff;
+    --glow:0 0 0 1px var(--hair), 0 0 22px rgba(20,120,140,.10) inset;
+    --mono:ui-monospace,"SF Mono","Roboto Mono",Menlo,Consolas,monospace;
+    --font:system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:
+     radial-gradient(1200px 600px at 20% -10%, rgba(30,90,110,.18), transparent 60%),
+     linear-gradient(#04060a,#05070a);
+     color:var(--ink);font-family:var(--font);overflow:hidden}
+  body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+     background-image:linear-gradient(var(--hair) 1px,transparent 1px),linear-gradient(90deg,var(--hair) 1px,transparent 1px);
+     background-size:44px 44px;opacity:.05}
+  .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  /* top bar */
+  .top{position:fixed;top:0;left:0;right:0;height:46px;z-index:40;display:flex;align-items:center;gap:14px;
+     padding:0 16px;background:linear-gradient(#0a0f14,#070b0f);border-bottom:1px solid var(--hair2)}
+  .brand{font-weight:700;letter-spacing:2px;font-size:14px;color:var(--cyan);text-shadow:0 0 12px rgba(57,214,229,.5)}
+  .brand small{color:var(--ink2);font-weight:400;letter-spacing:1px;margin-left:6px;font-size:11px}
+  .tf{display:flex;gap:4px;margin-left:8px}
+  .tf button{font-family:var(--mono);background:#0b1218;color:var(--ink2);border:1px solid var(--hair);border-radius:5px;
+     padding:4px 10px;font-size:11px;cursor:pointer;letter-spacing:.5px}
+  .tf button[aria-pressed="true"]{background:rgba(57,214,229,.14);color:var(--cyan);border-color:var(--hair2);box-shadow:0 0 10px rgba(57,214,229,.25)}
+  .rt{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:11px;color:var(--ink2)}
+  .lamp{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;letter-spacing:.5px;
+     padding:3px 8px;border-radius:4px;border:1px solid var(--hair);background:#0a1015}
+  .lamp b{width:7px;height:7px;border-radius:50%;display:inline-block}
+  .lg{background:var(--grn);box-shadow:0 0 8px var(--grn)} .la{background:var(--amb);box-shadow:0 0 8px var(--amb)}
+  .lr{background:var(--red);box-shadow:0 0 9px var(--red);animation:blink 1.4s steps(1) infinite} .lc{background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+  @keyframes blink{50%{opacity:.35}}
+
+  /* annunciator strip */
+  .annun{position:fixed;top:46px;left:0;right:0;height:36px;z-index:39;display:flex;align-items:center;gap:8px;
+     padding:0 16px;background:#070b0f;border-bottom:1px solid var(--hair);overflow-x:auto}
+  .ann{font-family:var(--mono);font-size:10.5px;letter-spacing:.8px;padding:4px 10px;border-radius:4px;white-space:nowrap;
+     border:1px solid var(--hair);color:var(--ink2);display:flex;align-items:center;gap:7px;cursor:default}
+  .ann.on-r{color:#ffd7d9;border-color:rgba(255,88,96,.5);background:rgba(255,88,96,.08)}
+  .ann.on-a{color:#ffe6b8;border-color:rgba(245,183,60,.45);background:rgba(245,183,60,.07)}
+  .ann.on-g{color:#c7f6e2;border-color:rgba(55,224,160,.4);background:rgba(55,224,160,.06)}
+  .ann .d{width:8px;height:8px;border-radius:2px}
+
+  /* canvas + panels */
+  #cv{position:absolute;top:82px;left:0;right:0;bottom:0;overflow:auto;z-index:1}
+  .pnl{position:absolute;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--hair);
+     border-radius:9px;box-shadow:var(--glow);display:flex;flex-direction:column;overflow:hidden;min-width:210px;min-height:120px}
+  .pnl.drag{z-index:30;box-shadow:0 0 0 1px var(--hair2),0 14px 40px rgba(0,0,0,.5)}
+  .ph{height:28px;display:flex;align-items:center;gap:8px;padding:0 10px;cursor:grab;user-select:none;
+     background:linear-gradient(#0e151b,#0b1116);border-bottom:1px solid var(--hair)}
+  .ph .t{font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--cyan);font-weight:600}
+  .ph .t::before{content:"▸ "}
+  .ph .r{margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--mut);letter-spacing:.5px}
+  .pb{flex:1;overflow:auto;padding:11px}
+  .rz{position:absolute;right:2px;bottom:2px;width:14px;height:14px;cursor:nwse-resize;z-index:5;
+     background:linear-gradient(135deg,transparent 45%,var(--hair2) 45%,var(--hair2) 55%,transparent 55%)}
+  .pb::-webkit-scrollbar,#cv::-webkit-scrollbar,.annun::-webkit-scrollbar{height:8px;width:8px}
+  .pb::-webkit-scrollbar-thumb,#cv::-webkit-scrollbar-thumb{background:var(--hair2);border-radius:8px}
+
+  /* ⓘ */
+  .i{cursor:help;color:var(--mut);font-size:10px;border:1px solid var(--hair);border-radius:50%;
+     width:14px;height:14px;display:inline-flex;align-items:center;justify-content:center;margin-left:5px;vertical-align:middle}
+  .i:hover{color:var(--cyan);border-color:var(--hair2)}
+  #pop{position:fixed;z-index:60;max-width:300px;background:#0b1218;border:1px solid var(--hair2);border-radius:8px;
+     padding:11px 13px;font-size:11.5px;line-height:1.5;color:var(--ink2);box-shadow:0 14px 40px rgba(0,0,0,.6);display:none}
+  #pop b{color:var(--ink)} #pop .row{margin-top:5px} #pop .k{color:var(--cyan);font-family:var(--mono);font-size:9.5px;letter-spacing:.5px;text-transform:uppercase}
+
+  /* vitals */
+  .vit{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;height:100%}
+  .gauge{background:#0a1015;border:1px solid var(--hair);border-radius:8px;padding:9px 10px;display:flex;flex-direction:column;gap:2px}
+  .gauge .lab{font-size:9.5px;letter-spacing:.6px;text-transform:uppercase;color:var(--ink2);display:flex;align-items:center}
+  .gauge .big{font-family:var(--mono);font-size:26px;font-weight:600;line-height:1.1;letter-spacing:-.5px}
+  .gauge .big small{font-size:11px;color:var(--ink2)}
+  .gauge .was{font-family:var(--mono);font-size:10px;color:var(--mut)}
+  .gauge .dl{font-family:var(--mono);font-size:11px;font-weight:600;display:inline-flex;align-items:center;gap:4px}
+  .up{color:var(--grn)} .down{color:var(--red)} .flat{color:var(--ink2)}
+
+  /* generic bars */
+  .brow{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:11.5px}
+  .brow .nm{width:96px;flex:0 0 96px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .brow .bar{height:11px;border-radius:3px;flex:0 0 auto;min-width:2px;box-shadow:0 0 8px rgba(0,0,0,.3)}
+  .brow .v{font-family:var(--mono);font-size:11px;color:var(--ink2);white-space:nowrap}
+  .mj{font-family:var(--mono);font-weight:600;padding:0 5px;border-radius:3px}
+  .flag{color:#ffd7d9}
+  .why{background:transparent;border:1px solid var(--hair2);color:var(--cyan);border-radius:5px;padding:2px 8px;font-size:10.5px;cursor:pointer;font-family:var(--mono)}
+  .drill{margin:7px 0 4px;padding:9px;border:1px solid var(--hair);border-radius:7px;background:#0a1015;font-size:11.5px;line-height:1.5;color:var(--ink2);display:none}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+  .cp{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;border:1px solid var(--hair);color:var(--ink2)}
+  .cp.n{color:#ffb0b4;border-color:rgba(255,88,96,.4)} .cp.p{color:#9ff0cf;border-color:rgba(55,224,160,.4)}
+  .oneri{margin-top:7px;color:var(--ink);border-left:2px solid var(--cyan);padding-left:8px}
+
+  /* signals pager */
+  .sig-wrap{height:100%;display:flex;flex-direction:column}
+  .sig-card{flex:1;display:flex;flex-direction:column;gap:7px;overflow:auto}
+  .sig-tag{font-family:var(--mono);font-size:9.5px;letter-spacing:.8px;color:var(--mut);display:flex;justify-content:space-between;align-items:center}
+  .sig-oz{font-size:13px;font-weight:600;line-height:1.35;color:var(--ink)}
+  .sig-an{font-size:11.5px;line-height:1.5;color:var(--ink2)}
+  .sig-nav{display:flex;align-items:center;gap:8px;margin-top:8px;border-top:1px solid var(--hair);padding-top:7px}
+  .sig-nav button{font-family:var(--mono);background:#0b1218;border:1px solid var(--hair2);color:var(--cyan);border-radius:5px;width:30px;height:24px;cursor:pointer}
+  .sig-nav .pos{font-family:var(--mono);font-size:10.5px;color:var(--mut)}
+  .relpill{font-family:var(--mono);font-size:9.5px;padding:1px 6px;border-radius:3px;border:1px solid var(--hair)}
+  .r-k{color:var(--grn)} .r-y{color:var(--amb)} .r-v{color:var(--red)}
+
+  svg{display:block;width:100%;overflow:visible}
+  .ax{fill:var(--mut);font-size:9px;font-family:var(--mono)}
+  .gl{stroke:var(--hair);stroke-width:1}
+  .foot{position:fixed;bottom:0;left:0;right:0;height:0}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="brand">DERİVE<small>▸ KRB FİNANS KOKPİTİ</small></div>
+  <div class="tf" id="tf"></div>
+  <div class="rt">
+    <span class="lamp"><b class="lg"></b>PİYASA CANLI</span>
+    <span class="lamp"><b class="la"></b>ERP T-5G</span>
+    <span id="clock" class="num"></span>
+  </div>
+</div>
+<div class="annun" id="annun"></div>
+<div id="cv"></div>
+<div id="pop"></div>
+
+<script>
+const DATA = {
+  trend:[
+    {ay:"25-07",ciro:49.9,stok:182.9,dso:93},{ay:"25-08",ciro:45.4,stok:200.9,dso:84},
+    {ay:"25-09",ciro:73.2,stok:195.6,dso:93},{ay:"25-10",ciro:58.4,stok:174.3,dso:100},
+    {ay:"25-11",ciro:62.8,stok:163.4,dso:122},{ay:"25-12",ciro:66.9,stok:176.4,dso:126},
+    {ay:"26-01",ciro:40.6,stok:133.5,dso:81},{ay:"26-02",ciro:29.1,stok:132.7,dso:73},
+    {ay:"26-03",ciro:33.6,stok:167.0,dso:67},{ay:"26-04",ciro:96.0,stok:173.7,dso:74},
+    {ay:"26-05",ciro:86.1,stok:232.6,dso:112},{ay:"26-06",ciro:96.9,stok:272.4,dso:134},
+    {ay:"26-07",ciro:31.7,stok:235.4,dso:130}],
+  marka:[
+    {m:"SAILUN",c:159.9,mj:19.8,st:20.5,law:1,imp:1},{m:"LASSA",c:125.4,mj:5.8,st:67.2},
+    {m:"CONTINENTAL",c:105.6,mj:4.3,st:37.3},{m:"BRIDGESTONE",c:74.8,mj:7.3,st:47.8},
+    {m:"KUMHO",c:73.2,mj:15.1,st:15.6},{m:"HERKUL",c:22.6,mj:-4.0,st:0.6},
+    {m:"AVON+",c:21.0,mj:-4.4,st:0.4},{m:"MATADOR",c:18.2,mj:17.3,st:15.3},
+    {m:"KRB",c:11.9,mj:-17.8,st:0.5},{m:"MAXAM",c:9.1,mj:34.8,st:8.8,imp:1},
+    {m:"HUBTRAC",c:8.3,mj:33.8,st:1.2,imp:1},{m:"YOKOHAMA",c:6.7,mj:21.5,st:6.7,imp:1}],
+  segment:[
+    {s:"TBR",c:305.2,mj:14.2},{s:"PSR",c:262.0,mj:8.4},{s:"YENİLEME",c:68.8,mj:-6.2},
+    {s:"OTR",c:29.1,mj:20.9},{s:"LSR",c:15.6,mj:21.5},{s:"IND",c:3.3,mj:14.5},
+    {s:"TAMİR",c:2.4,mj:22.0},{s:"KARKAS",c:0.8,mj:27.5}],
+  sezon:[{s:"TİCARİ(yok)",c:425.5,mj:11.7},{s:"YAZ",c:171.8,mj:4.2},{s:"KIŞ",c:59.0,mj:18.2},{s:"4 MEVSİM",c:31.3,mj:13.4}],
+  kanal:[
+    {k:"TOPTAN",c:298.3,mj:4.7},{k:"FİLO",c:220.3,mj:12.6},{k:"PERAKENDE",c:106.5,mj:15.9},
+    {k:"TEDARİKÇİ",c:69.5,mj:18.4,note:"mahsup?"},{k:"E-TİCARET",c:11.0,mj:21.7},{k:"DİĞER",c:6.9,mj:12.0}],
+  insights:[{"bolum": "marka-marj", "tip": "marj-dusus", "ozet": "BRIDGESTONE: marj %15,1 → %9,6 (ciro 17.4→56.2M)", "anlati": "Bridgestone'a baktığımızda, marjın bir önceki döneme kıyasla %15,1'den %9,6'ya gerilediğini görüyoruz; bu ciddi bir erozyon. Birim maliyetlerdeki yükseliş tek başına yaklaşık 2,5 milyon TL baskı oluşturmuş ve bu düşüşün temel sürücüsü olarak öne çıkıyor. Söz konusu maliyet baskısının büyük olasılıkla kur ve enflasyon kaynaklı olduğunu düşünüyorum — dolar ilgili dönemde %22 artmış; ancak elimizdeki kur verisi sınırlı kaldığı için bunu kesin bir nedensellik olarak sunmak doğru olmaz, temkinli değerlendirmek gerekiyor. Öte yandan şunu da eklemem lazım: 4 tedarikçi teşviki bu hesaba henüz dahil edilmedi, dolayısıyla gerçek net marj burada gördüğümüzden daha iyi bir noktada olabilir; bu teşvikler netleştiğinde tabloyu yeniden değerlendirmeliyiz.", "oneri": "Önerim: fiyat güncellemesi yapın ve tedarikçi primini maliyet hesabına dahil edin.", "guven": "kismi"}, {"bolum": "marka-marj", "tip": "marj-dusus", "ozet": "LASSA: marj %11,3 → %5,5 (ciro 33.4→94.9M)", "anlati": "Lassa markasında kâr marjı %11,3'ten %5,5'e gerilemiş durumda; bu düşüş ciddi bir baskıya işaret ediyor. Birim maliyetlerdeki artış tek başına yaklaşık 5,3 milyon TL'lik bir yük oluşturmuş ve bu yükün kur ile enflasyon kaynaklı olması kuvvetle muhtemel — nitekim dolar söz konusu dönemde %22 değer kazanmış. Bununla birlikte elimizdeki kur verisi sınırlı olduğundan bunu kesin bir neden olarak sunmaktan kaçınıyorum, bu noktada temkinli olmakta fayda var. Öte yandan 4 tedarikçi teşviki maliyet hesabına henüz yansımadı; bu teşvikler dahil edildiğinde net marjın mevcut görünümden daha iyi çıkması mümkün.", "oneri": "Önerim: fiyat güncellemesi yapın ve tedarikçi primini maliyet hesabına dahil edin.", "guven": "kismi"}, {"bolum": "marka-trend", "tip": "ciro-düşüş", "ozet": "ROADX: ciro %-89 düştü (10.2→1.2M). Neden — stok? tedarik? rakip? müşteri kaybı?", "anlati": null, "oneri": null, "guven": "kesin"}, {"bolum": "marka-marj", "tip": "marj-dusus", "ozet": "CONTINENTAL: marj %13,9 → %1,6 (ciro 38.2→66.7M)", "anlati": "Continental'de tablo oldukça net: önceki dönemde %13,9 olan kâr marjı bugün %1,6'ya gerilemiş durumda ve bunun arkında birbirine bağlı iki temel sorun var. İlki, satış karmanızın düşük marjlı — hatta zararlı — ürünlere doğru belirgin biçimde kayması; en çarpıcı örnek 205/55R16 ebadı, bu ürünü altı ayda 139 adetten 561 adede taşımışsınız, ancak söz konusu ebatta marj %-6,7, yani her satışta fiilen zarar ediyorsunuz ve benzer durumda olan başka ebatlar da mevcut. İkinci sorun ise maliyet tarafında: birim maliyetlerdeki artış tek başına marjınıza yaklaşık 3,5 milyon TL baskı yapmış; bu baskının büyük olasılıkla kur ve enflasyon kaynaklı olduğunu düşünüyorum, nitekim dolar bu dönemde %22 artmış, ancak elimizdeki kur verisi sınırlı olduğu için bunu kesin bir sebep olarak sunmak doğru olmaz, doğrulanmalı. Öte yandan şunu da belirtmeliyim: 3 tedarikçi teşviki henüz maliyetlere yansıtılmamış, dolayısıyla net marjın bu rakamdan daha iyi çıkması mümkün. Genel tabloya temkinli bakmakta fayda var; mevcut veriyle kesin bir yargıya varmak", "oneri": "Önerim: hem maliyeti artan ürünlerde zam/tedarikçi primi pazarlığı yapın, hem de zararına büyüyen ebatları ya fiyatlandırın ya da hacmini kısın.", "guven": "kismi"}, {"bolum": "marka-trend", "tip": "ciro↑marj↓", "ozet": "CONTINENTAL: ciro %72 arttı (40.4→69.5M) ama marj oranı %15→%9 düştü. Fiyat/iskonto gözden geçir.", "anlati": null, "oneri": null, "guven": "kesin"}, {"bolum": "marka-trend", "tip": "ciro-düşüş", "ozet": "SAILUN: ciro %-77 düştü (143.2→32.4M). Neden — stok? tedarik? rakip? müşteri kaybı?", "anlati": null, "oneri": null, "guven": "kesin"}, {"bolum": "marka-trend", "tip": "ciro-düşüş", "ozet": "AVON+: ciro %-52 düştü (15.1→7.2M). Neden — stok? tedarik? rakip? müşteri kaybı?", "anlati": null, "oneri": null, "guven": "kesin"}, {"bolum": "musteri", "tip": "tahsilat-riski", "ozet": "YEDİ OTO MAMÜLLERİ SAN.TİC.LTD.ŞTİ.: net risk 30.5M (vadesi geçmiş 19.0M)", "anlati": "YEDİ OTO MAMÜLLERİ SAN.TİC.LTD.ŞTİ.'nin son 6 aylık performansına baktığımızda, cirosunun 13,2 milyon TL'den 20,2 milyon TL'ye çıkarak %53 büyüdüğünü görüyoruz; bu, dikkat edilmesi gereken bir büyüme fırsatına işaret ediyor. Vadesi geçmiş bakiyenin 19,0 milyon TL ile mevcut 15,0 milyon TL'lik kredi limitinin üzerinde olması ilk bakışta endişe verici görünse de ortalama tahsilat süresinin yalnızca 8 gün olması, bu rakamın büyük ihtimalle anlık bir kesit bakiyesi olduğuna, kalıcı bir tahsilat riski olmadığına işaret ediyor; dolayısıyla tek taraflı bir okuma yanıltıcı olacaktır. Öte yandan 60 günlük vadeye karşın ortalama tahsilat süresinin 51 gün olması, müşterinin vadelerine genel olarak uyumlu davrandığını gösteriyor. Kredi limitinin güncel olmayabileceği de göz önüne alındığında, büyüyen ciroya paralel olarak limitin gözden geçirilmesi değerlendirilebilir.", "oneri": "Öneri: tahsilat planı; yeni sevkiyatı bakiye netleşene kadar gözden geçir.", "guven": "yaklasik"}, {"bolum": "musteri", "tip": "ciro-dususu", "ozet": "E TİCARET PAZARAMA: ciro 0.7→0.2M", "anlati": "E Ticaret Pazarама'nın son 6 aylık performansına bakıldığında ciddi bir ciro erimesi göze çarpmaktadır: ciro 0,7 milyon TL'den 0,2 milyon TL'ye inerek %-69 oranında gerilemiştir. Vadesi geçmiş bakiye olarak kayıtlarda 14,7 milyon TL görünmekle birlikte, bu rakamı doğrudan tahsilat riski olarak okumak yanıltıcı olur; ortalama tahsilat süresi 0 gün olduğundan söz konusu bakiyenin anlık bir snapshot yansıması olduğu kuvvetle muhtemeldir. Bununla birlikte 14,7 milyon TL'lik bu rakam müşterinin tahmini yıllık cirosunun (~0,4 milyon TL) çok üzerinde olduğundan veri bütünlüğü açısından şüphe uyandırmakta olup muhasebeyle mutlaka teyit edilmelidir. Tek taraflı bir okuma yanıltıcı sonuçlar doğurabileceğinden bu müşteri için hem ciro trendi hem de bakiye tutarlılığı birlikte değerlendirilmelidir.", "oneri": "Öneri: önce bu bakiyeyi muhasebeyle doğrula; kirli olabilir.", "guven": "kismi"}, {"bolum": "musteri", "tip": "tahsilat-riski", "ozet": "İSB LASTİK KAPLAMA LOJ.SAN.VE TİC.LTD.ŞTİ.: net risk 13.5M (vadesi geçmiş 1.1M)", "anlati": "İSB LASTİK KAPLAMA LOJ.SAN.VE TİC.LTD.ŞTİ. için dikkat edilmesi gereken kritik bir netleştirme var: ilk bakışta vadesi geçmiş 1,1 milyon TL alacak görünse de tablonun tamamına bakıldığında bu firmaya bizim de 4,0 milyon TL borcumuz bulunuyor ve net pozisyon yaklaşık 13,5 milyon TL düzeyinde seyrediyor. Dolayısıyla yalnızca alacak tarafına odaklanmak yanıltıcı bir tablo ortaya çıkarır; doğru aksiyonu alabilmek için öncelikle karşılıklı mutabakat ve takas sürecinin tamamlanması gerekiyor. Bu veriler yaklaşık nitelikte olup kesin rakamlar mutabakat sonrasında netleşecektir.", "oneri": "Öneri: alacak-borç mutabakatı/takas; net başabaşsa öncelik düşük.", "guven": "yaklasik"}, {"bolum": "musteri", "tip": "ciro-dususu", "ozet": "FEVZİ BİLEN: ciro 3.8→0.0M", "anlati": "Son 6 ayda hiç alım gerçekleştirmeyen bu müşteri, önceki 6 ayda 3,8 milyon TL ciro üretmişti; sessiz kayıp riski açısından öncelikli takip gerektiren bir profil söz konusu. Ödeme davranışı incelendiğinde ortalama tahsilat süresinin 13 gün olduğu görülüyor; peşin ve kredi kartı tek çekim vade yapısı düşünüldüğünde bu süre makul seyretmekte, yani geçmiş dönemdeki ticari ilişki finansal açıdan sorunsuz yürümüş. Bununla birlikte, güçlü ödeme sicrine rağmen ani alım durmasının tek başına olumlu yorumlanması yanıltıcı olur; alım kesilmesinin arkasındaki nedenin — rakip tedarikçiye geçiş, iş hacmi daralması ya da başka bir etken — sorumlu temsilci aracılığıyla sahada netleştirilmesi gerekiyor.", "oneri": "Öneri: temsilci (Fatih Bilen) acil ziyaret etsin; alım neden durdu öğrenilsin.", "guven": "yaklasik"}, {"bolum": "musteri", "tip": "ciro-dususu", "ozet": "T.B.R. LASTİK OTOM.NAK.SAN.DIŞ TİC.LTD.ŞTİ.: ciro 9.2→1.8M", "anlati": "T.B.R. LASTİK OTOM.NAK.SAN.DIŞ TİC.LTD.ŞTİ.'nin son 6 aylık performansına baktığımızda ciddi bir daralma göze çarpıyor: ciro 9,2 milyon TL'den 1,8 milyon TL'ye gerileyerek yaklaşık %80 oranında düşmüş. Buna ek olarak 1,2 milyon TL vadesi geçmiş bakiye bulunuyor; bu rakam portföy riski açısından dikkatle takip edilmesi gereken bir seviye. Öte yandan ortalama tahsilat süresinin 21 gün olması, tanımlı 90 günlük vadenin çok gerisinde kalındığını gösteriyor ve bu durum müşterinin ödeme kapasitesine dair tek taraflı bir okuma yapılmasının yanıltıcı olabileceğine işaret ediyor; zira düşen ciro ile açık bakiyeyi birlikte değerlendirmek, gerçek riski doğru konumlandırmak açısından kritik önem taşıyor.", "oneri": "Öneri: tahsilat planı; yeni sevkiyatı bakiye netleşene kadar gözden geçir.", "guven": "yaklasik"}, {"bolum": "marka-marj", "tip": "marj-dusus", "ozet": "MATADOR: marj %20,0 → %11,9 (ciro 12.3→7.4M)", "anlati": "Matador markasında önceki döneme kıyasla ciddi bir marj erozyonu yaşandığını net biçimde görüyoruz: marj %20'den %11,9'a gerilemiş. Bu düşüşün arkında iki temel dinamik var. Birincisi, satış karması belirgin şekilde düşük marjlı ürünler lehine kaymış; en çarpıcı örnek 195/50R15 ebadı — altı ayda 10 adetten 92 adede taşınan bir hacim söz konusu, ancak bu ürünün marjı yalnızca %7,7; yani fiilen zararına çalışıyorsunuz ve benzer durumda birkaç ebat daha mevcut. İkincisi, birim maliyetler yükselmiş ve bu tek başına marja yaklaşık 0,6 milyon TL baskı uygulamış; elimizdeki kur verisi sınırlı olduğundan bunu kesin bir nedene bağlamak doğru olmaz, bu nedenle temkinli değerlendiriyorum. Öte yandan tablonun bir miktar daha iyi görünme ihtimali var: 3 tedarikçi teşviki henüz maliyetlere yansıtılmamış, dolayısıyla net marj bu rakamın üzerinde çıkabilir. Son olarak, 205/55R16 ebadıyla ilgili alım niyeti sinyalleri geliyor; bu ebadın marj profiline ve stok pozisyonunuza etkisini karardan önce doğrulanmalı.", "oneri": "Önerim: hem maliyeti artan ürünlerde zam/tedarikçi primi pazarlığı yapın, hem de zararına büyüyen ebatları ya fiyatlandırın ya da hacmini kısın.", "guven": "kismi"}, {"bolum": "musteri", "tip": "tahsilat-riski", "ozet": "FARK GROUP OTO LASTİK OTOMOTİV İNŞAAT SANAYİ VE TİCARET LİMİTED ŞİRKETİ: net risk 6.3M (vadesi geçmiş 6.3M)", "anlati": "FARK GROUP OTO LASTİK OTOMOTİVİ değerlendirirken dikkat edilmesi gereken kritik bir nokta var: vadesi geçmiş bakiye 6,3 milyon TL olarak görünüyor ve kayıtlı kredi limiti 0,0 milyon TL — bu teknik olarak limit aşımına işaret ediyor, ancak limitin güncel olup olmadığı ayrıca sorgulanmalı. Öte yandan ortalama tahsilat süresi yalnızca 13 gün; tanımlı vade 90 gün olmasına karşın müşterinin bu kadar hızlı ödeme yapıyor olması, 6,3 milyon TL'lik vadesi geçmiş bakiyenin anlık bir snapshot görüntüsü olduğuna, kalıcı bir tahsilat riski olmadığına kuvvetle işaret ediyor. Dolayısıyla bu iki veriyi ayrı ayrı okumak yanıltıcı olur; vadesi geçmiş rakam tek başına alarm vermeli değil, 13 günlük ortalama tahsilat süresiyle birlikte değerlendirilmeli. Sonuç olarak operasyonel tahsilat performansı oldukça sağlıklı görünmekle birlikte, kredi limiti kaydının güncellenmesi ve anlık bakiyenin nedeninin teyit edilmesi önerilir.", "oneri": "Öneri: tahsilat planı; yeni sevkiyatı bakiye netleşene kadar gözden geçir.", "guven": "yaklasik"}, {"bolum": "musteri", "tip": "ciro-dususu", "ozet": "SEVİNDİM AKARYAKIT NAKLİYE OTOM.DEMİR ÇELİK ÜRÜNLERİ İNŞ.MADEN. GIDA HAY. TARIM SAN.TİC.LTD.ŞTİ: ciro 6.3→1.2M", "anlati": "Sevinidim Akaryakıt Nakliye firmasının durumuna ilişkin dikkat çekici bir gelişmeyi paylaşmak istiyorum. Firmanın cirosu son 6 ayda 6,3 milyon TL'den 1,2 milyon TL'ye gerileyerek yaklaşık %81 oranında keskin bir düşüş sergilemiş; bu tablo, iş hacminde ciddi bir daralmanın yaşandığına işaret ediyor. Öte yandan olumlu bir veri olarak ortalama tahsilat süresi 15 gün olup belirlenen 30 günlük vadenin oldukça gerisinde kalıyor, yani firma tahsilat disiplini açısından şu an için sorun çıkarmıyor. Ancak bu tek olumlu göstergeyi, ciro tarafındaki sert erozyon göz ardı edilerek tek başına değerlendirmek yanıltıcı olacaktır; firmanın toplam risk profilinin bütünüyle takip edilmesini öneririm.", "oneri": "Öneri: ilişkiyi izle.", "guven": "yaklasik"}, {"bolum": "musteri", "tip": "ciro-dususu", "ozet": "BURHAN ÇETİNKAYA OTOMOTİV. LASTİK SAN. TİC. LTD ŞTİ.: ciro 4.6→0.4M", "anlati": "Burhan Çetinkaya Otomotiv Lastik San. Tic. Ltd. Şti.'nin son 6 aylık performansına baktığımızda ciddi bir tablo ile karşılaşıyoruz: ciro 4,6 milyon TL'den 0,4 milyon TL'ye gerilemiş, bu da yaklaşık -%90'lık bir daralmaya işaret ediyor. Öte yandan ortalama tahsilat süresi yalnızca 6 gün olarak gerçekleşmiş; 30 günlük vadeye kıyasla bu oldukça olumlu bir ödeme davranışına işaret etmektedir. Ancak tek taraflı okuma yanıltıcı olur; tahsilat disiplini güçlü görünse de ciroda yaşanan bu sert düşüşü göz ardı etmemek gerekir ve müşterinin ticari hacmindeki bu dramatik küçülmenin arkasındaki nedenlerin yakından incelenmesi önerilir.", "oneri": "Öneri: ilişkiyi izle.", "guven": "yaklasik"}, {"bolum": "musteri", "tip": "ciro-dususu", "ozet": "ANT LOJİSTİK LTD.ŞTİ.: ciro 4.9→0.6M", "anlati": "ANT LOJİSTİK LTD.ŞTİ.'nin son 6 aylık performansına bakıldığında tablo ciddi bir bozulmaya işaret ediyor: ciro 4,9 milyon TL'den 0,6 milyon TL'ye gerileyerek yaklaşık %-87 oranında daralmış. Bu düzeydeki bir ciro kaybı, müşterinin faaliyet hacminde yapısal bir sorun yaşandığına ya da alternatif tedarikçilere yöneldiğine işaret edebilir. Öte yandan ortalama tahsilat süresi 50 gün olarak gerçekleşmiş; tanımlı 90 günlük vadenin henüz altında olsa da düşen ciroyla birlikte değerlendirildiğinde bu verinin tek başına rahatlatıcı okunması yanıltıcı olur, zira küçülen işlem hacmi tahsilat riskini görünürden daha yönetilebilir gösterebilir. Sonuç olarak bu müşteri için risk profilinin yakından izlenmesi, mevcut açık pozisyonun vade disiplini açısından takip altında tutulması öneriyorum.", "oneri": "Öneri: ilişkiyi izle.", "guven": "yaklasik"}, {"bolum": "musteri", "tip": "ciro-dususu", "ozet": "USTAOĞLU LASTİK MARKET OTOMOTİV SEMA USTAOĞLU: ciro 4.0→0.0M", "anlati": "Ustaoğlu Lastik Market'in son 6 aylık alım geçmişine baktığımızda ciddi bir sessizlik dikkat çekiyor: önceki 6 ayda 4,0 milyon TL hacimle aktif olan bu müşteri, son 6 ayda hiç alım yapmamış. Bu ani duraksama, rakibe kayış ya da iş hacminde daralma gibi risklerin işareti olabilir ve tek başına \"sessiz kayıp\" senaryosunu güçlü biçimde akla getiriyor. Rakamlar yaklaşık nitelikte olmakla birlikte trend net; 4,0 milyon TL'lik bir hacmin tamamen sıfırlanması göz ardı edilemeyecek bir sinyal. Temsilci Uğur Yıldız aracılığıyla müşteriyle ivediyle temas kurulmasını ve bu kopuşun arkasındaki nedenin sorgulanmasını öneririm.", "oneri": "Öneri: temsilci (Uğur Yıldız) acil ziyaret etsin; alım neden durdu öğrenilsin.", "guven": "yaklasik"}, {"bolum": "musteri", "tip": "ciro-dususu", "ozet": "AKBAY TAŞ ÜRÜNLERİ ÜRETİM İNŞ. PAZARLAMA SAN. VE TİC. LTD.ŞTİ.: ciro 3.2→0.5M", "anlati": "AKBAY TAŞ ÜRÜNLERİ ÜRETİM İNŞ. PAZARLAMA SAN. VE TİC. LTD.ŞTİ. son 6 ayda ciddi bir ciro kaybı yaşamıştır; satışlar 3,2 milyon TL'den 0,5 milyon TL'ye gerileyerek yaklaşık %84 oranında daralmıştır. Tahsilat performansı açısından bakıldığında ortalama tahsilat süresi 43 gün olup tanımlı 90 günlük vadenin oldukça gerisinde seyretmektedir; bu durum görece olumlu bir tablo ortaya koymaktadır. Ancak bu iki bulguyu birlikte değerlendirmeden, yalnızca tahsilat hızına bakarak müşteri için tek taraflı olumlu bir okuma yapmak yanıltıcı olacaktır; zira ciro erimesinin boyutu, ticari ilişkinin sürdürülebilirliği açısından asıl risk unsurunu oluşturmaktadır. Mevcut verilerin yaklaşık nitelik taşıdığı göz önünde bulundurulduğunda, hesap bazında daha ayrıntılı bir inceleme yapılması önerilir.", "oneri": "Öneri: ilişkiyi izle.", "guven": "yaklasik"}, {"bolum": "musteri", "tip": "ciro-dususu", "ozet": "ALİ BAYRAK OTO LASTİK TAMİR BAKIMI: ciro 4.0→1.6M", "anlati": "ALİ BAYRAK OTO LASTİK TAMİR BAKIMI'nın son 6 aylık verilerine bakıldığında tablo oldukça dikkat çekici: ciro 4,0 milyon TL'den 1,6 milyon TL'ye gerileyerek yaklaşık %60 oranında daralmış. Buna karşın ortalama tahsilat süresi yalnızca 2 gün olarak gerçekleşiyor; oysa tanımlı vade 90 gün. Ciroda bu denli sert bir düşüş yaşanırken tahsilatın vadeden çok önce kapanıyor olması tek taraflı okunduğunda yanıltıcı olabilir; zira düşük hacimli işlemlerin hızla tahsil edilmesi, müşterinin genel finansal sağlığı hakkında olumlu bir sinyal olarak yorumlanamaz. Bu nedenle müşterinin limit ve vade koşulları yeniden değerlendirilmeli, ciro düşüşünün arkasındaki operasyonel nedenler sorgulanmalıdır.", "oneri": "Öneri: ilişkiyi izle.", "guven": "yaklasik"}, {"bolum": "musteri", "tip": "ciro-dususu", "ozet": "LİDER OTO LASTİK SEYHAN KIRTAY: ciro 3.0→1.3M", "anlati": "LİDER OTO LASTİK SEYHAN KIRTAY'ın son 6 aylık performansına bakıldığında ciddi bir bozulma göze çarpmaktadır: ciro 3,0 milyon TL'den 1,3 milyon TL'ye gerileyerek -%58 oranında daralmıştır. Bununla birlikte ortalama tahsilat süresi 24 gün olup tanımlı 90 gün vadenin çok altında seyretmektedir; bu durum tek başına olumlu görünse de düşen ciro hacmiyle birlikte değerlendirildiğinde tek taraflı okuma yanıltıcı olacaktır. Tahsilat hızının yüksekliği, müşterinin düşük alım yaparak riski sınırladığına ya da nakit akışını korumaya çalıştığına işaret ediyor olabilir. Verilen güven seviyesinin \"yaklaşık\" olduğu da göz önünde bulundurularak bu müşterinin ticari ilişkisinin yakından izlenmesini öneririm.", "oneri": "Öneri: ilişkiyi izle.", "guven": "yaklasik"}],
+  sebep:{"facts": {"guven": "kismi", "marka": "Sailun", "bulgular": ["satış karması düşük marjlı ürünlere kaydı; en dikkat çekeni 175/65R14: bu ebadı altı ayda 24 adetten 1732 adede çıkarmışsınız, ama üründe marj %-34,1 — yani fiilen zararına satılıyor (birkaç ebat daha benzer durumda)", "birim maliyetler yükseldi ve bu tek başına marja yaklaşık 9,0 milyon TL baskı yaptı; büyük olasılıkla kur/enflasyon kaynaklı — dolar bu dönemde %22 arttı, ama elimizdeki kur verisi kısa olduğu için bunu kesin sebep olarak sunmuyorum"], "cozulemeyen": [], "tesvik_notu": null, "saha_ipuclari": ["Conti grubunda yeni oluşturulan nokta, potansiyel iş ve ilişki geliştirme imkanı", "Musteri ucuz kış lastigi arayışında, Sailun ürünleri talep ediliyor"], "marj_simdi_yuzde": 5.7, "marj_onceki_yuzde": 23.0}, "guven": "kismi", "kopru": {"mix_m": -25.13, "fiyat_m": 3.03, "degisim_m": -31.11, "maliyet_m": -9.01}, "marka": "SAILUN", "oneri": "Önerim: hem maliyeti artan ürünlerde zam/tedarikçi primi pazarlığı yapın, hem de zararına büyüyen ebatları ya fiyatlandırın ya da hacmini kısın.", "anlati": "Sailun markasında marj son altı ayda %23,0 seviyesinden %5,7 seviyesine geriledi. Satış karması düşük marjlı ürünlere kaydı; en dikkat çekeni 175/65R14: bu ebadı altı ayda 24 adetten 1732 adede çıkarmışsınız, ama üründe marj %-34,1 — yani fiilen zararına satılıyor (birkaç ebat daha benzer durumda); buna ek olarak, birim maliyetler yükseldi ve bu tek başına marja yaklaşık 9,0 milyon TL baskı yaptı; büyük olasılıkla kur/enflasyon kaynaklı — dolar bu dönemde %22 arttı, ama elimizdeki kur verisi kısa olduğu için bunu kesin sebep olarak sunmuyorum. Sahadan da şu rekabet sinyali geliyor: Conti grubunda yeni oluşturulan nokta, potansiyel iş ve ilişki geliştirme imkanı; Musteri ucuz kış lastigi arayışında, Sailun ürünleri talep ediliyor (doğrulamakta fayda var).", "kaynak": "bi_marj_atom + döviz + teşvik + iskonto + saha", "ne_yapi": ["mix -25.13M: 175/65R14 (24→1732 ad, marj %-34.1); 195/65R15 (66→842 ad, marj %-38.2); 165/80R13 (196→672 ad, marj %-67.2)", "maliyet -9.01M"], "ciro_o_m": 143.2, "ciro_s_m": 32.4, "marj_pct_o": 23.0, "marj_pct_s": 5.7, "saha_ipuclari": ["Conti grubunda yeni oluşturulan nokta, potansiyel iş ve ilişki geliştirme imkanı", "Musteri ucuz kış lastigi arayışında, Sailun ürünleri talep ediliyor"], "sorulan_soru_id": null}
+};
+const DEFS = {
+  ciro:{ad:"Ciro — Lastik Satış Geliri",tanim:"Lastik satışından gelen gelir (KDV hariç satır tutarı).",formul:"Σ satır_tutar · ebat dolu = lastik",kaynak:"bi_satis_faturalari",guven:"kesin",uyari:"Yalnız lastik; servis/diğer kalemler hariç."},
+  marj:{ad:"Marj — Brüt %",tanim:"Satış geliri eksi satılan malın alış maliyeti (yüzde).",formul:"Σ(satır_tutar − miktar×birim maliyet) ÷ ciro",kaynak:"satış × bi_stok_hareket ağırlıklı maliyet",guven:"kesin (kapsam etiketli)",uyari:"BRÜT — iskonto/prim/gider düşülmemiş; ithal ◐ gümrük hariç olabilir."},
+  dso:{ad:"DSO — Tahsilat Süresi",tanim:"Alacağın ortalama kaç günde tahsile döndüğü. Düşük = para hızlı geliyor.",formul:"alacak ÷ günlük kredili satış",kaynak:"bi_musteri_risk + satış faturaları",guven:"snapshot (bugün) · geçmiş yaklaşık",uyari:"Markaya/segmente bölünemez (allocation yasak)."},
+  stok_deger:{ad:"Stok Değeri",tanim:"Eldeki stoğun maliyet değeri — satış fiyatı değil, alış maliyeti.",formul:"Σ adet × birim ağırlıklı alış maliyeti",kaynak:"bi_stok_anlik × bi_stok_hareket",guven:"snapshot · geçmiş yaklaşık (~%0,2)",uyari:"Pozisyon metriği — bugün itibarıyla."},
+  kanal:{ad:"Satış Kanalı",tanim:"Müşteri iş sınıfı: toptan / perakende / filo / e-ticaret / tedarikçi.",formul:"satış → müşteri (muhatap_kodu) → bi_musteri_risk.grup",kaynak:"bi_satis_faturalari × bi_musteri_risk",guven:"kesin (sınıf) · marj tire-atom",uyari:"TEDARİKÇİ kanalı mahsup/barter olabilir — teyit."},
+  segment:{ad:"Segment",tanim:"Ürün segmenti: PSR/TBR/OTR/LSR + YENİLEME/TAMİR ayrı.",formul:"atom.kategori → normalize (LIKE)",kaynak:"bi_marj_atom",guven:"kesin",uyari:"YENİLEME=kaplama, ayrı iş."},
+  sezon:{ad:"Sezon",tanim:"YAZ / KIŞ / 4 MEVSİM (yalnız binek); ticari sezonsuz.",formul:"atom.kategori → sezon",kaynak:"bi_marj_atom",guven:"kesin",uyari:"Ticari lastikte sezon yok."}
+};
+
+/* helpers */
+const M=n=>(+n).toLocaleString("tr",{maximumFractionDigits:1});
+const el=(t,c,h)=>{const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;};
+const mcol=v=>v<0?"var(--red)":v<6?"var(--amb)":"var(--grn)";
+const iBtn=key=>`<span class="i" data-def="${key}">i</span>`;
+
+/* ⓘ popover */
+const pop=document.getElementById("pop");
+document.addEventListener("mouseover",e=>{const t=e.target.closest(".i");if(!t)return;const d=DEFS[t.dataset.def];if(!d)return;
+  pop.innerHTML=`<b>${d.ad}</b><div class="row">${d.tanim}</div>
+    <div class="row"><span class="k">formül</span> ${d.formul}</div>
+    <div class="row"><span class="k">kaynak</span> ${d.kaynak}</div>
+    <div class="row"><span class="k">güven</span> ${d.guven}</div>
+    <div class="row"><span class="k">uyarı</span> ${d.uyari}</div>`;
+  const r=t.getBoundingClientRect();pop.style.display="block";
+  let x=r.left,y=r.bottom+6;if(x+310>innerWidth)x=innerWidth-310;if(y+180>innerHeight)y=r.top-186;
+  pop.style.left=x+"px";pop.style.top=Math.max(6,y)+"px";});
+document.addEventListener("mouseout",e=>{if(e.target.closest(".i"))pop.style.display="none";});
+
+/* timeframe */
+let TF=12; const TFS=[{n:"1A",v:1},{n:"3A",v:3},{n:"6A",v:6},{n:"12A",v:12}];
+const tfEl=document.getElementById("tf");
+TFS.forEach(o=>{const b=el("button",null,o.n);b.onclick=()=>{TF=o.v;[...tfEl.children].forEach(c=>c.setAttribute("aria-pressed",c===b));renderVitals();};b.setAttribute("aria-pressed",o.v===12);tfEl.appendChild(b);});
+
+/* clock */
+setInterval(()=>{const d=new Date();document.getElementById("clock").textContent="16 TEM 2026";},1000);
+document.getElementById("clock").textContent="16 TEM 2026";
+
+/* annunciator */
+(function(){
+  const a=document.getElementById("annun");
+  const lossBrands=DATA.marka.filter(m=>m.mj<0).length;
+  const items=[
+    {c:"on-r",d:"var(--red)",t:`ZARARINA HACİM · SAILUN 3 EBAT`},
+    {c:"on-r",d:"var(--red)",t:`YENİLEME KANALI −%6,2`},
+    {c:"on-a",d:"var(--amb)",t:`${lossBrands} MARKA ZARARDA`},
+    {c:"on-a",d:"var(--amb)",t:`DSO 67→134 GÜN ↑`},
+    {c:"on-a",d:"var(--amb)",t:`TOPTAN MARJ %4,7`},
+    {c:"on-g",d:"var(--grn)",t:`MALİYET BAZI DOĞRULANDI`}
+  ];
+  items.forEach(i=>{const e=el("div","ann "+i.c,`<span class="d" style="background:${i.d};box-shadow:0 0 8px ${i.d}"></span>${i.t}`);a.appendChild(e);});
+})();
+
+/* ---- panel engine ---- */
+const cv=document.getElementById("cv");
+let Z=10;
+function panel(id,title,x,y,w,h,rightTxt){
+  const p=el("div","pnl");p.style.cssText=`left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+  p.innerHTML=`<div class="ph"><span class="t">${title}</span><span class="r">${rightTxt||""}</span></div><div class="pb"></div><div class="rz"></div>`;
+  cv.appendChild(p);
+  const head=p.querySelector(".ph"),rz=p.querySelector(".rz");
+  head.addEventListener("pointerdown",e=>{e.preventDefault();p.classList.add("drag");p.style.zIndex=++Z;
+    const sx=e.clientX,sy=e.clientY,ox=p.offsetLeft,oy=p.offsetTop;
+    const mv=ev=>{p.style.left=Math.max(0,ox+ev.clientX-sx)+"px";p.style.top=Math.max(0,oy+ev.clientY-sy)+"px";};
+    const up=()=>{p.classList.remove("drag");removeEventListener("pointermove",mv);removeEventListener("pointerup",up);};
+    addEventListener("pointermove",mv);addEventListener("pointerup",up);});
+  rz.addEventListener("pointerdown",e=>{e.preventDefault();e.stopPropagation();p.style.zIndex=++Z;
+    const sx=e.clientX,sy=e.clientY,ow=p.offsetWidth,oh=p.offsetHeight;
+    const mv=ev=>{p.style.width=Math.max(210,ow+ev.clientX-sx)+"px";p.style.height=Math.max(120,oh+ev.clientY-sy)+"px";};
+    const up=()=>{removeEventListener("pointermove",mv);removeEventListener("pointerup",up);};
+    addEventListener("pointermove",mv);addEventListener("pointerup",up);});
+  return p.querySelector(".pb");
+}
+
+/* ---- VITALS (was->now, timeframe) ---- */
+let vitBody;
+function renderVitals(){
+  const T=DATA.trend, n=T.length-1, back=Math.min(TF,n), prev=T[n-back], now=T[n];
+  const mk=(lab,key,unit,defk,inv)=>{
+    const nw=now[key], ws=prev[key], d=nw-ws, dp=ws?d/ws*100:0;
+    const good=inv?d<0:d>0, dir=Math.abs(dp)<0.5?"flat":(good?"up":"down"), ar=d>0?"▲":d<0?"▼":"■";
+    return `<div class="gauge"><div class="lab">${lab} ${iBtn(defk)}</div>
+      <div class="big num">${M(nw)}<small> ${unit}</small></div>
+      <div class="was num">nasıldı: ${M(ws)} <span style="opacity:.6">(${TF}A önce)</span></div>
+      <div class="dl ${dir} num">${ar} ${M(Math.abs(dp))}% <span style="color:var(--mut)">${dir==="up"?"iyi":dir==="down"?"dikkat":"sabit"}</span></div></div>`;
+  };
+  vitBody.innerHTML=`<div class="vit">
+    ${mk("Ciro (son ay)","ciro","M₺","ciro",false)}
+    ${mk("Stok değeri","stok","M₺","stok_deger",false)}
+    ${mk("DSO","dso","gün","dso",true)}
+    <div class="gauge"><div class="lab">Şirket marj (12A) ${iBtn("marj")}</div><div class="big num" style="color:var(--amb)">~10,4<small> %</small></div><div class="was">brüt · teşvik öncesi</div><div class="dl flat num">◐ yaklaşık</div></div>
+  </div>`;
+}
+
+/* ---- generic bar panel ---- */
+function barsInto(body,rows,keyName,defk){
+  const mx=Math.max(...rows.map(r=>r.c));
+  body.innerHTML="";
+  rows.forEach(r=>{
+    const w=Math.max(2,r.c/mx*104), col=mcol(r.mj);
+    const row=el("div","brow",
+      `<span class="nm">${r[keyName]}${r.law?' <span class="flag">⚑</span>':''}${r.note?` <span class="cp">${r.note}</span>`:''}</span>
+       <span class="bar" style="width:${w}px;background:${col};box-shadow:0 0 8px ${col}55"></span>
+       <span class="v">${M(r.c)}M · <b class="mj" style="color:${col}">${M(r.mj)}%</b></span>`);
+    body.appendChild(row);
+  });
+  const cap=el("div",null,`<div style="margin-top:8px;font-size:10px;color:var(--mut);font-family:var(--mono)">ciro(M₺) · renk=marj ${iBtn(defk)}</div>`);
+  body.appendChild(cap);
+}
+
+/* ---- MARKA (with Neden) ---- */
+function markaInto(body){
+  const mx=Math.max(...DATA.marka.map(m=>m.c));body.innerHTML="";
+  DATA.marka.forEach(m=>{
+    const col=mcol(m.mj), w=Math.max(2,m.c/mx*96);
+    const row=el("div","brow",
+      `<span class="nm">${m.m}${m.law?' <span class="flag">⚑</span>':''}</span>
+       <span class="bar" style="width:${w}px;background:${col};box-shadow:0 0 8px ${col}55"></span>
+       <span class="v">${M(m.c)}M · <b class="mj" style="color:${col}">${M(m.mj)}%</b>${m.imp?' ◐':''}</span>
+       <button class="why">Neden?</button>`);
+    const dr=el("div","drill");
+    row.querySelector(".why").onclick=()=>{if(dr.style.display==="block"){dr.style.display="none";return;}dr.innerHTML=drill(m);dr.style.display="block";};
+    body.appendChild(row);body.appendChild(dr);
+  });
+  body.appendChild(el("div",null,`<div style="margin-top:6px;font-size:10px;color:var(--mut);font-family:var(--mono)">ciro(M₺)·marj${iBtn("marj")}·stok${iBtn("stok_deger")}</div>`));
+}
+function drill(m){
+  if(m.m==="SAILUN"&&DATA.sebep){const s=DATA.sebep;
+    return `<b style="color:var(--ink)">SAILUN · sebep-araştırıcı (güven: ${s.facts?.guven||'kısmi'})</b><br>${s.anlati}
+      <div class="chips"><span class="cp n">mix ${M(s.kopru.mix_m)}M</span><span class="cp n">maliyet ${M(s.kopru.maliyet_m)}M</span><span class="cp p">fiyat +${M(s.kopru.fiyat_m)}M</span><span class="cp">net ${M(s.kopru.degisim_m)}M</span></div>
+      <div class="oneri">⚑ zararina_hacim: 175/65R14 %-35,2 · 175/70R13 %-48,8 · 195/65R15 %-45,7<br>💡 ${s.oneri}</div>`;}
+  return `${m.m} için canlı "Neden?" <span class="cp">sebep_arastir_marj</span> sunucuda çağrılır — köprü + döviz + teşvik + saha. Prototipte tam örnek: SAILUN. ${m.mj<0?'<span class="cp n">bu marka zararda</span>':''}`;
+}
+
+/* ---- SIGNALS pager ---- */
+function signalsInto(body){
+  const rel=g=>g==="kesin"?"r-k":"r-y";let i=0;const ins=DATA.insights;
+  body.innerHTML=`<div class="sig-wrap"><div class="sig-card" id="sc"></div>
+    <div class="sig-nav"><button id="sp">◀</button><span class="pos" id="spos"></span><button id="sn">▶</button></div></div>`;
+  const sc=body.querySelector("#sc"),pos=body.querySelector("#spos");
+  const draw=()=>{const it=ins[i];const bol={"marka-marj":"MARKA·MARJ","marka-trend":"MARKA·TREND","musteri":"MÜŞTERİ"}[it.bolum]||it.bolum;
+    const gl={kesin:"kesin",yaklasik:"yaklaşık",kismi:"kısmi"}[it.guven]||it.guven;
+    sc.innerHTML=`<div class="sig-tag"><span>${bol}</span><span class="relpill ${rel(it.guven)}">${gl}</span></div>
+      <div class="sig-oz">${it.ozet}</div>${it.anlati?`<div class="sig-an">${it.anlati}</div>${it.oneri?`<div class="oneri">💡 ${it.oneri}</div>`:""}`:`<div class="sig-an" style="color:var(--mut)">açık soru — canlı sebep-araştırıcı sunucuda çalışır</div>`}`;
+    pos.textContent=`${i+1} / ${ins.length}`;};
+  body.querySelector("#sp").onclick=()=>{i=(i-1+ins.length)%ins.length;draw();};
+  body.querySelector("#sn").onclick=()=>{i=(i+1)%ins.length;draw();};draw();
+}
+
+/* ---- line charts (trend) ---- */
+function trendInto(body){
+  body.innerHTML="";
+  body.appendChild(miniLine(DATA.trend.map(t=>({x:t.ay,y:t.ciro})),"CİRO M₺","var(--cyan)","ciro"));
+  body.appendChild(miniLine(DATA.trend.map(t=>({x:t.ay,y:t.stok})),"STOK M₺","var(--grn)","stok_deger"));
+  body.appendChild(miniLine(DATA.trend.map(t=>({x:t.ay,y:t.dso})),"DSO GÜN","var(--vio)","dso"));
+}
+function miniLine(pts,cap,color,defk){
+  const wrap=el("div");wrap.style.marginBottom="9px";
+  const W=440,H=92,pl=30,pb=15,pt=6,pr=8;
+  const ys=pts.map(p=>p.y),mn=Math.min(...ys,0),mx=Math.max(...ys),rg=mx-mn||1;
+  const X=i=>pl+i/(pts.length-1)*(W-pl-pr),Y=v=>pt+(1-(v-mn)/rg)*(H-pt-pb);
+  let g="";for(let k=0;k<=2;k++){const v=mn+rg*k/2,y=Y(v);g+=`<line class="gl" x1="${pl}" x2="${W-pr}" y1="${y}" y2="${y}"/><text class="ax" x="${pl-5}" y="${y+3}" text-anchor="end">${M(v)}</text>`;}
+  const d=pts.map((p,i)=>(i?"L":"M")+X(i).toFixed(1)+" "+Y(p.y).toFixed(1)).join(" ");
+  let dots="";pts.forEach((p,i)=>{if(i%2===0||i===pts.length-1)dots+=`<circle cx="${X(i).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="2.4" fill="${color}"><title>${p.x}: ${M(p.y)}</title></circle>`;});
+  let xl="";pts.forEach((p,i)=>{if(i%4===0||i===pts.length-1)xl+=`<text class="ax" x="${X(i).toFixed(1)}" y="${H-4}" text-anchor="middle">${p.x}</text>`;});
+  wrap.innerHTML=`<div style="font-family:var(--mono);font-size:9.5px;letter-spacing:1px;color:var(--ink2);margin:0 0 3px 2px">${cap} ${iBtn(defk)}</div>
+    <svg viewBox="0 0 ${W} ${H}"><path d="${d}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round" style="filter:drop-shadow(0 0 3px ${color}88)"/>${g}${dots}${xl}</svg>`;
+  return wrap;
+}
+
+/* ---- PIYASA (radar placeholder) ---- */
+function piyasaInto(body){
+  body.innerHTML=`<div style="font-family:var(--mono);font-size:11px;color:var(--ink2);line-height:1.6">
+    <div style="color:var(--grn)">● CANLI RADAR</div>
+    Rakip fiyat scraper günlük çalışıyor —<br>bi_rakip_fiyat <b class="num">129k</b> · geçmiş <b class="num">62k</b> satır.<br>
+    <span style="color:var(--mut)">Akakçe · N11 · Trendyol · PttAVM</span><br><br>
+    Bu enstrüman canlı <span class="cp">/api/rakip/*</span> uçlarına bağlanır: ebat-eşleşmeli en düşük rakip fiyatı, bizim fiyata karşı fark, alarm eşikleri.<br>
+    <span style="color:var(--amb)">◐ prototipte örnek veri yok — sunucu route'unda bağlanacak.</span></div>`;
+}
+
+/* ---- TAHSILAT ---- */
+function tahsilatInto(body){
+  const risk=DATA.insights.filter(x=>x.tip&&x.tip.includes("tahsilat"));
+  body.innerHTML=`<div style="font-family:var(--mono);font-size:10px;color:var(--mut);letter-spacing:.5px">EN YÜKSEK NET RİSK ${iBtn("dso")}</div>`;
+  risk.slice(0,4).forEach(r=>{body.appendChild(el("div","brow",`<span class="sig-oz" style="font-size:11.5px">${r.ozet}</span>`));});
+  if(!risk.length)body.innerHTML+=`<div style="color:var(--ink2);font-size:11.5px">DSO 130 gün · alacak/net pozisyon canlı bağlanır.</div>`;
+}
+
+/* ---- LAYOUT (default; sürükle/boyutlandır) ---- */
+vitBody = panel("vit","Şirket Vitals · nasıldı→nasıl",12,12,604,176,"was→now"); renderVitals();
+barsInto(panel("kan","Satış Kanalı",628,12,320,176,"toptan/perakende/filo"),DATA.kanal,"k","kanal");
+markaInto(panel("mar","Marka",12,200,360,300,"marka·marj·neden"));
+signalsInto(panel("sig","Sinyaller / İçgörüler",384,200,330,300,"◀ ▶"));
+barsInto(panel("seg","Segment",726,200,300,240,"12 ay"),DATA.segment,"s","segment");
+tahsilatInto(panel("tah","Tahsilat / Risk",1038,200,300,240,"snapshot"));
+barsInto(panel("sez","Sezon",12,516,300,210,"12 ay"),DATA.sezon,"s","sezon");
+trendInto(panel("trd","Trend · şirket",384,516,470,336,"13 ay · tek eksen"));
+piyasaInto(panel("piy","Piyasa Radar",866,516,320,210,"canlı"));
+</script>
+</body>
+</html>

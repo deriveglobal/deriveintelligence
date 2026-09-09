@@ -1,0 +1,15 @@
+INSERT INTO bi_insa_gunlugu (adim, ne, neden, detay) VALUES
+('FORECAST_KAPSAMA_SORUSU_KAPANDI',
+ 'Kapsama esiginin gevsetilmesi REDDEDILDI. Esige ve bant kalibrasyonuna dokunulmadi.',
+ 'Uc hipotez de olculup elendi; kapinin mevcut hali dogru davraniyor. Bu satir sorunun tekrar acilmasini engeller.',
+ $j${"marker":"FORECAST_KAPSAMA_SORUSU_KAPANDI",
+     "havuz_kapsama":{"30g":70.9,"60g":61.5,"hedef":80},
+     "yayindaki_hucreler":{"30g":83.3,"60g":83.3,"not":"ornek-ici, secim olcutunun kendisi, bagimsiz kanit degil"},
+     "red_1_esik_dar":"havuz kapsamasi gercekten dusuk, gevsetmek dar bandi yayinlatirdi",
+     "red_2_sonlu_ornek":{"ort_n":33,"beklenen_eksik_puan":3.0,"gozlenen":"9-18"},
+     "red_3_bayatlik":{"kapsama_muhurden_uzaklik_30g":[69.6,69.6,77.0],
+                       "kapsama_muhurden_uzaklik_60g":[61.5,62.2,59.6],
+                       "sonuc":"zaman egilimi yok"},
+     "gercek_sebep":{"medyan_hata":"28.4 -> 29.3 degismiyor",
+                     "p90":"102.6 -> 129.3 kalinlasiyor",
+                     "okuma":"cogu hucre agir kuyruklu ve tahmin edilemez; kapi onlari dogru sekilde susturuyor"}}$j$::jsonb);

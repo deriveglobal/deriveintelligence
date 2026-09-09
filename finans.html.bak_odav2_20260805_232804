@@ -1,0 +1,159 @@
+<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Finans Odası</title>
+<!-- FINANS_ODA_LIVE_V1 — %100 veri-gudumlu: her sayi /api/bi/finans/oda'dan. Hardcoded YOK; kaynagi olmayan alan "—". -->
+<style>
+:root{--z0:#0a0e14;--z1:#111823;--z2:#161f2c;--tx0:#e6edf3;--tx1:#9aa7b4;--tx2:#5b6672;--cizgi:rgba(255,255,255,.08);--acc:#2ad4ee;--acc2:#4f86ff;--up:#33c27f;--down:#f5646e;--amber:#f5a623}
+*{box-sizing:border-box}html,body{margin:0;background:var(--z0);color:var(--tx0);font-family:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:14px}
+.wrap{max-width:1120px;margin:0 auto;padding:20px 22px 60px}
+.top{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.top h1{font-size:20px;font-weight:700;margin:0}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--up)}
+.badge .d{width:7px;height:7px;border-radius:50%;background:var(--up);box-shadow:0 0 0 3px rgba(51,194,127,.15)}
+.sync{margin-left:auto;font-size:11px;color:var(--tx2)}
+.donem{font-size:12px;color:var(--tx2);margin:0 0 18px}
+.err{background:rgba(245,100,110,.08);border:1px solid rgba(245,100,110,.3);color:#ffd7da;border-radius:12px;padding:14px 16px;font-size:13px;margin-bottom:16px;display:none}
+h2{font-size:12px;font-weight:700;letter-spacing:.5px;color:var(--tx1);text-transform:uppercase;margin:26px 0 12px;display:flex;align-items:center;gap:8px}
+h2 .n{color:var(--tx2);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.card{background:var(--z1);border:1px solid var(--cizgi);border-radius:14px;padding:15px 16px}
+.card .l{font-size:11px;color:var(--tx1);text-transform:uppercase;letter-spacing:.4px;margin-bottom:7px}
+.card .v{font-size:26px;font-weight:700;letter-spacing:-.5px}
+.card .v small{font-size:13px;font-weight:600;color:var(--tx1)}
+.card .d{font-size:11px;color:var(--tx2);margin-top:6px;line-height:1.5}
+.dash{color:var(--tx2)}
+.row{background:var(--z1);border:1px solid var(--cizgi);border-radius:14px;padding:18px 18px}
+.bar{display:flex;align-items:center;gap:10px;margin:9px 0;font-size:13px}
+.bar .nm{width:210px;flex-shrink:0;color:var(--tx0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar .tr{flex:1;height:22px;background:var(--z2);border-radius:6px;overflow:hidden;position:relative}
+.bar .fl{height:100%;border-radius:6px}
+.bar .vv{width:120px;text-align:right;flex-shrink:0;color:var(--tx1);font-variant-numeric:tabular-nums}
+.cyc{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+.cyc .seg{flex:1;min-width:120px;background:var(--z2);border-radius:10px;padding:12px 14px;text-align:center}
+.cyc .seg .cv{font-size:22px;font-weight:700}.cyc .seg .cl{font-size:11px;color:var(--tx1);margin-top:3px}
+.na{background:var(--z1);border:1px dashed var(--cizgi);border-radius:14px;padding:16px 18px;color:var(--tx2);font-size:13px}
+.foot{margin-top:30px;font-size:11px;color:var(--tx2);border-top:1px solid var(--cizgi);padding-top:12px}
+</style></head><body>
+<div class="wrap">
+  <div class="top">
+    <h1>Finans Odası</h1>
+    <span class="badge" id="liveBadge"><span class="d"></span> canlı</span>
+    <span class="sync" id="finSync"></span>
+  </div>
+  <div class="donem" id="donem"></div>
+  <div class="err" id="err"></div>
+
+  <h2>01 · Çekirdek Metrikler <span class="n" id="secKaynak">kaynak: v_finans_ticari_sermaye</span></h2>
+  <div class="grid" id="coreGrid"></div>
+
+  <h2>02 · Nakit Döngüsü</h2>
+  <div class="row"><div class="cyc" id="cyc"></div>
+    <div class="d" style="font-size:12px;color:var(--tx2);margin-top:12px">CCC = DIO + DSO − DPO · düşük = para hızlı döner. Kaynak: v_finans_ticari_sermaye.</div></div>
+
+  <h2>03 · Net Gecikmiş Alacak — Kimde Yoğun? <span class="n" id="gecKaynak"></span></h2>
+  <div class="row" id="gecBox"></div>
+
+  <h2>04 · Marka Marjı <span class="n">12 ay · bi_marj_atom</span></h2>
+  <div class="row" id="markaBox"></div>
+
+  <h2>05 · Stok — Lastik Kırılımı <span class="n">bi_stok_durumu</span></h2>
+  <div class="row" id="stokBox"></div>
+
+  <h2>06 · Yaşlandırma &amp; Fiyat Sızıntısı</h2>
+  <div class="na" id="agingBox"></div>
+
+  <div class="foot" id="foot"></div>
+</div>
+<script>
+"use strict";
+var F = function(v,unit){ return (v==null||isNaN(v)) ? '<span class="dash">—</span>' : (Number(v).toLocaleString('tr-TR',{maximumFractionDigits:1}) + (unit?(' '+unit):'')); };
+var esc = function(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); };
+function setLive(ok, msg){
+  var b=document.getElementById('liveBadge'), e=document.getElementById('err');
+  if(ok){ b.style.display=''; e.style.display='none'; }
+  else { b.style.display='none'; e.style.display='block'; e.textContent = msg || 'Veri yüklenemedi.'; }
+}
+function syncChip(){
+  var el=document.getElementById('finSync'); if(!el) return;
+  fetch('/api/bi/yukle/durum',{credentials:'same-origin'}).then(function(r){return r.json();}).then(function(d){
+    if(!d||!d.dosyalar||!d.dosyalar.length) return; var en=null;
+    d.dosyalar.forEach(function(x){ if(x&&x.son&&(!en||new Date(x.son)>new Date(en.son))) en=x; });
+    if(!en||!en.son) return; var o={timeZone:'Asia/Istanbul',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'};
+    el.textContent='🔄 ERP senkron '+new Date(en.son).toLocaleString('tr-TR',o);
+  }).catch(function(){});
+}
+var CORE=[
+  ['net_satis_lastik','Net Satış · lastik','M ₺'],['ciro_sirket','Ciro · tüm şirket','M ₺'],
+  ['smm','SMM · lastik','M ₺'],['brut_kar','Brüt Kâr · lastik','M ₺'],['marj_pct','Brüt Marj','%'],
+  ['ticari_alacaklar','Ticari Alacaklar','M ₺'],['ticari_borclar','Ticari Borçlar','M ₺'],
+  ['finansman_yil','Finansman · yıllık','M ₺'],['dso','DSO','gün'],['dio','DIO','gün'],
+  ['dpo','DPO','gün'],['ccc','CCC','gün'],['twc','İşletme Sermayesi (TWC)','M ₺'],
+  ['bagli_sermaye_pct','Bağlı Sermaye','%'],['devir','Stok Devri','×/yıl']
+];
+function renderCore(c){
+  var h=CORE.map(function(m){
+    return '<div class="card"><div class="l">'+esc(m[1])+'</div><div class="v">'+F(c?c[m[0]]:null)+' <small>'+m[2]+'</small></div></div>';
+  }).join('');
+  document.getElementById('coreGrid').innerHTML=h;
+}
+function renderCyc(c){
+  var segs=[['dio','DIO · stok'],['dso','DSO · tahsilat'],['dpo','DPO · ödeme'],['ccc','CCC · döngü']];
+  document.getElementById('cyc').innerHTML=segs.map(function(s){
+    return '<div class="seg"><div class="cv">'+F(c?c[s[0]]:null)+'</div><div class="cl">'+s[1]+'</div></div>';
+  }).join('');
+}
+function renderGec(g){
+  var box=document.getElementById('gecBox');
+  if(!g){ box.innerHTML='<span class="dash">— veri yok</span>'; return; }
+  document.getElementById('gecKaynak').textContent='bi_musteri_risk + bi_cari_bakiye';
+  var top=(g.top||[]); var mx=top.reduce(function(a,x){return Math.max(a,x.net||0);},0)||1;
+  var bars=top.map(function(x){
+    var p=Math.max(3,Math.round((x.net/mx)*100));
+    return '<div class="bar"><div class="nm">'+esc(x.ad)+'</div><div class="tr"><div class="fl" style="width:'+p+'%;background:linear-gradient(90deg,#f5646e,#f5a623)"></div></div><div class="vv">'+F(x.net,'M ₺')+'</div></div>';
+  }).join('');
+  box.innerHTML='<div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:14px">'
+    +'<div><div class="l" style="font-size:11px;color:var(--tx1)">NET GECİKMİŞ</div><div style="font-size:24px;font-weight:700">'+F(g.net,'M ₺')+'</div></div>'
+    +'<div><div class="l" style="font-size:11px;color:var(--tx1)">BRÜT GECİKMİŞ</div><div style="font-size:24px;font-weight:700;color:var(--tx1)">'+F(g.brut,'M ₺')+'</div></div></div>'
+    +bars
+    +'<div style="font-size:12px;color:var(--tx2);margin-top:10px">Net = ham vadesi geçmiş − tedarikçi bakiyesi (offset). En son snapshot. Tahsilat baskısını en üsttekilerde yoğunlaştır.</div>';
+}
+function renderMarka(rows){
+  var box=document.getElementById('markaBox');
+  if(!rows||!rows.length){ box.innerHTML='<span class="dash">— veri yok</span>'; return; }
+  var mx=rows.reduce(function(a,x){return Math.max(a,x.ciro||0);},0)||1;
+  box.innerHTML=rows.map(function(x){
+    var p=Math.max(3,Math.round((x.ciro/mx)*100));
+    var col=(x.marj==null)?'#5a6472':(x.marj<0?'#f5646e':(x.marj<8?'#f5a623':'#33c27f'));
+    return '<div class="bar"><div class="nm">'+esc(x.marka)+'</div><div class="tr"><div class="fl" style="width:'+p+'%;background:'+col+'"></div></div><div class="vv">'+F(x.ciro,'M')+' · marj '+F(x.marj,'%')+'</div></div>';
+  }).join('')+'<div style="font-size:12px;color:var(--tx2);margin-top:10px">Bar = 12-ay ciro; renk = brüt marj (yeşil sağlıklı · amber ince · kırmızı zarar). Kaynak: bi_marj_atom.</div>';
+}
+function renderStok(s){
+  var box=document.getElementById('stokBox');
+  if(!s||!s.kirilim||!s.kirilim.length){ box.innerHTML='<span class="dash">— veri yok</span>'; return; }
+  var mx=s.kirilim.reduce(function(a,x){return Math.max(a,x.deger||0);},0)||1;
+  box.innerHTML='<div style="margin-bottom:12px"><span class="l" style="font-size:11px;color:var(--tx1)">TOPLAM LASTİK STOĞU</span> <b style="font-size:20px">'+F(s.toplam,'M ₺')+'</b></div>'
+    +s.kirilim.map(function(x){
+      var p=Math.max(3,Math.round((x.deger/mx)*100));
+      return '<div class="bar"><div class="nm">'+esc(x.grup)+'</div><div class="tr"><div class="fl" style="width:'+p+'%;background:linear-gradient(90deg,#4f86ff,#2ad4ee)"></div></div><div class="vv">'+F(x.deger,'M ₺')+'</div></div>';
+    }).join('')+'<div style="font-size:12px;color:var(--tx2);margin-top:10px">Maliyet-bazlı, LASTIK grupları. Kaynak: bi_stok_durumu.</div>';
+}
+function loadFin(){
+  syncChip();
+  fetch('/api/bi/finans/oda',{credentials:'same-origin'}).then(function(r){
+    return r.text().then(function(t){ var j; try{j=JSON.parse(t);}catch(e){ throw new Error('HTTP '+r.status+' — '+t.slice(0,140)); } if(j.error) throw new Error(j.error); return j; });
+  }).then(function(j){
+    var d=j.data||{}; setLive(true);
+    document.getElementById('donem').textContent = d.as_of ? ('dönem: 12 ay · son veri ayı '+d.as_of) : '';
+    renderCore(d.core); renderCyc(d.core); renderGec(d.gecikmis); renderMarka(d.marka); renderStok(d.stok);
+    document.getElementById('agingBox').innerHTML =
+      'Yaşlandırma (0-30/30-60/60-90/90g+) ve fiyat sızıntısı için <b>canlı kaynak yok</b> — '
+      +'bu alanlar kaynağa bağlanana kadar <span class="dash">—</span> kalır. Sahte/yer-tutucu rakam gösterilmez.';
+    document.getElementById('foot').textContent =
+      'Her sayı canlı sorgudan gelir; kaynağı olmayan alan "—" gösterir. Uç: /api/bi/finans/oda.';
+  }).catch(function(e){
+    setLive(false,'Veri yüklenemedi: '+e.message+' — oturum açık mı?');
+    ['coreGrid','cyc','gecBox','markaBox','stokBox'].forEach(function(id){var el=document.getElementById(id); if(el) el.innerHTML='<span class="dash">—</span>';});
+  });
+}
+loadFin();
+</script>
+</body></html>

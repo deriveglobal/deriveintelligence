@@ -1,0 +1,1 @@
+      const canli = (_clx && _clx.ciro != null) ? { ay: _clx.ay, ciro: _clx.ciro, adet: _clx.adet, kirilim: _clk, tuk: _cb('tuk'), tic: _cb('tic'), marj: _clm ? _clm.marj : null, marj_tuk: _clm ? _clm.marj_tuk : null, marj_tic: _clm ? _clm.marj_tic : null, kapsam: _clm ? _clm.kapsam : null } : null;
