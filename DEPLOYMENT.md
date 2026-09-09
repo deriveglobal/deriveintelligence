@@ -85,3 +85,5 @@ To make surveys truly work across users:
 8. Add KVKK consent and privacy controls.
 
 Kaynak depo: git@github.com:deriveglobal/deriveintelligence.git (dal: master)
+
+Sunucu göçü (ABD -> TR, 2026-09): kayıt KRBFly projesinde claude/sunucu-gocu-us-tr.md — sunucu, veri, sertifika, kesme planı orada.
